@@ -40,7 +40,6 @@ test.describe("Session Management — authenticated", () => {
 	});
 
 	test("logout redirects to login page", async ({ page }) => {
-		await page.goto("/home");
 		await expect(
 			page.getByRole("heading", { name: /Good (morning|afternoon|evening), Admin/i }),
 		).toBeVisible({ timeout: 10000 });
@@ -66,7 +65,6 @@ test.describe("Session Management — authenticated", () => {
 	test("back button after logout shows login, not home page", async ({
 		page,
 	}) => {
-		await page.goto("/home");
 		await expect(
 			page.getByRole("heading", { name: /Good (morning|afternoon|evening), Admin/i }),
 		).toBeVisible({ timeout: 10000 });
@@ -99,7 +97,6 @@ test.describe("Session Management — authenticated", () => {
 	});
 
 	test("session persists across page reload", async ({ page }) => {
-		await page.goto("/home");
 		await expect(
 			page.getByRole("heading", { name: /Good (morning|afternoon|evening), Admin/i }),
 		).toBeVisible({ timeout: 10000 });
@@ -114,7 +111,7 @@ test.describe("Session Management — authenticated", () => {
 		context,
 		page,
 	}) => {
-		await page.goto("/home");
+		// beforeEach already navigated to /home; no need to goto again
 		await expect(
 			page.getByRole("heading", { name: /Good (morning|afternoon|evening), Admin/i }),
 		).toBeVisible({ timeout: 10000 });
@@ -140,9 +137,7 @@ test.describe("Session Management — fresh context", () => {
 		await page1.getByRole("textbox", { name: "Username" }).fill(USERNAME);
 		await page1.getByRole("textbox", { name: "Password" }).fill(PASSWORD);
 		await page1.getByRole("button", { name: /sign in/i }).click();
-		await expect(
-			page1.getByRole("heading", { name: /home|welcome/i }),
-		).toBeVisible({ timeout: 10000 });
+		await expect(page1).toHaveURL(/\/home/, { timeout: 10000 });
 		await ctx1.close();
 
 		// Create a fresh context and verify the session doesn't carry over.
