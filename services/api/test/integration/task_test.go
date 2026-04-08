@@ -1144,3 +1144,313 @@ func TestIntegrationTasks_ListWithViewID(t *testing.T) {
 		}
 	})
 }
+
+// ---------------------------------------------------------------------------
+// GetSprintTasks with view_id — manual position enrichment
+// ---------------------------------------------------------------------------
+
+func TestIntegrationSprints_GetSprintTasksWithViewID(t *testing.T) {
+	taskRepo := newFakeTaskRepoIT()
+	viewRepo := newFakeViewRepoIT()
+	sprintRepo := newFakeSprintRepoIT()
+	projectID := uuid.New()
+	store := &projectPermStore{
+		projectPerms: map[uuid.UUID][]authz.Permission{
+			projectID: {
+				authz.PermissionSprintsRead, authz.PermissionSprintsWrite,
+				authz.PermissionTasksRead, authz.PermissionTasksWrite,
+			},
+		},
+	}
+	r := buildTaskTestRouterWithSprints(taskRepo, sprintRepo, viewRepo, store)
+	tok := issueTaskToken(t, uuid.NewString())
+
+	// Create a sprint.
+	sprintCreateW := serve(r, authedJSONReq(t.Context(), http.MethodPost,
+		fmt.Sprintf("/api/v1/projects/%s/sprints", projectID), tok,
+		map[string]any{"name": "Sprint ViewID", "status": "active"}))
+	if sprintCreateW.Code != http.StatusCreated {
+		t.Fatalf("create sprint: expected 201, got %d", sprintCreateW.Code)
+	}
+	sprintID := uuid.MustParse(taskIDFrom(t, "sprint", sprintCreateW.Body.Bytes()))
+
+	// Seed a view directly.
+	viewID := uuid.New()
+	ctx := context.Background()
+	if err := viewRepo.CreateView(ctx, &sprintdom.SprintView{
+		ID:        viewID,
+		ProjectID: projectID,
+		SprintID:  &sprintID,
+		Name:      "Sprint View",
+		ViewType:  sprintdom.ViewTypeTable,
+	}); err != nil {
+		t.Fatalf("seed view: %v", err)
+	}
+
+	// Seed two sprint tasks directly.
+	now := time.Now()
+	task1 := &taskdom.Task{
+		ID:        uuid.New(),
+		ProjectID: projectID,
+		SprintID:  &sprintID,
+		Title:     "Sprint Task Alpha",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	task2 := &taskdom.Task{
+		ID:        uuid.New(),
+		ProjectID: projectID,
+		SprintID:  &sprintID,
+		Title:     "Sprint Task Beta",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := taskRepo.CreateTask(ctx, task1); err != nil {
+		t.Fatalf("seed task1: %v", err)
+	}
+	if err := taskRepo.CreateTask(ctx, task2); err != nil {
+		t.Fatalf("seed task2: %v", err)
+	}
+
+	// Seed positions.
+	groupKey := "col-todo"
+	if err := viewRepo.UpsertTaskPosition(ctx, &sprintdom.ViewTaskPosition{
+		ViewID:   viewID,
+		TaskID:   task1.ID,
+		Position: 5,
+		GroupKey: &groupKey,
+	}); err != nil {
+		t.Fatalf("seed position task1: %v", err)
+	}
+	if err := viewRepo.UpsertTaskPosition(ctx, &sprintdom.ViewTaskPosition{
+		ViewID:   viewID,
+		TaskID:   task2.ID,
+		Position: 15,
+	}); err != nil {
+		t.Fatalf("seed position task2: %v", err)
+	}
+
+	base := fmt.Sprintf("/api/v1/projects/%s/sprints/%s/tasks", projectID, sprintID)
+
+	t.Run("without_view_id_no_positions_returned", func(t *testing.T) {
+		w := serve(r, authedJSONReq(t.Context(), http.MethodGet, base, tok, nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d (%s)", w.Code, w.Body.String())
+		}
+		var env struct {
+			Data struct {
+				Items []map[string]any `json:"items"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		for _, item := range env.Data.Items {
+			if _, ok := item["view_position"]; ok {
+				t.Error("expected no view_position without view_id param")
+			}
+		}
+	})
+
+	t.Run("with_view_id_positions_are_present", func(t *testing.T) {
+		url := fmt.Sprintf("%s?view_id=%s", base, viewID)
+		w := serve(r, authedJSONReq(t.Context(), http.MethodGet, url, tok, nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d (%s)", w.Code, w.Body.String())
+		}
+		var env struct {
+			Data struct {
+				Items []map[string]any `json:"items"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		posMap := make(map[string]float64)
+		groupMap := make(map[string]any)
+		for _, item := range env.Data.Items {
+			id, _ := item["id"].(string)
+			if pos, ok := item["view_position"]; ok {
+				posMap[id] = pos.(float64)
+			}
+			groupMap[id] = item["view_group_key"]
+		}
+		task1Str := task1.ID.String()
+		task2Str := task2.ID.String()
+		if posMap[task1Str] != 5 {
+			t.Errorf("expected task1 view_position=5, got %v", posMap[task1Str])
+		}
+		if posMap[task2Str] != 15 {
+			t.Errorf("expected task2 view_position=15, got %v", posMap[task2Str])
+		}
+		if groupMap[task1Str] != "col-todo" {
+			t.Errorf("expected task1 view_group_key=col-todo, got %v", groupMap[task1Str])
+		}
+	})
+
+	t.Run("invalid_view_id_returns_400", func(t *testing.T) {
+		url := fmt.Sprintf("%s?view_id=not-a-uuid", base)
+		w := serve(r, authedJSONReq(t.Context(), http.MethodGet, url, tok, nil))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d (%s)", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("unknown_view_id_returns_404", func(t *testing.T) {
+		url := fmt.Sprintf("%s?view_id=%s", base, uuid.New())
+		w := serve(r, authedJSONReq(t.Context(), http.MethodGet, url, tok, nil))
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d (%s)", w.Code, w.Body.String())
+		}
+		if code := decodeErrorCode(t, w); code != "VIEW_NOT_FOUND" {
+			t.Errorf("expected VIEW_NOT_FOUND, got %q", code)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// ListBacklogTasks with view_id — manual position enrichment
+// ---------------------------------------------------------------------------
+
+func TestIntegrationTasks_BacklogWithViewID(t *testing.T) {
+	taskRepo := newFakeTaskRepoIT()
+	viewRepo := newFakeViewRepoIT()
+	projectID := uuid.New()
+	store := &projectPermStore{
+		projectPerms: map[uuid.UUID][]authz.Permission{
+			projectID: {authz.PermissionTasksRead, authz.PermissionTasksWrite},
+		},
+	}
+	r := buildTaskTestRouterWithSprints(taskRepo, newFakeSprintRepoIT(), viewRepo, store)
+	tok := issueTaskToken(t, uuid.NewString())
+
+	// Seed a backlog view directly (no sprint_id).
+	viewID := uuid.New()
+	ctx := context.Background()
+	if err := viewRepo.CreateView(ctx, &sprintdom.SprintView{
+		ID:        viewID,
+		ProjectID: projectID,
+		Name:      "Backlog View",
+		ViewType:  sprintdom.ViewTypeTable,
+	}); err != nil {
+		t.Fatalf("seed view: %v", err)
+	}
+
+	// Seed two backlog tasks directly.
+	now := time.Now()
+	task1 := &taskdom.Task{
+		ID:        uuid.New(),
+		ProjectID: projectID,
+		Title:     "Backlog Task Alpha",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	task2 := &taskdom.Task{
+		ID:        uuid.New(),
+		ProjectID: projectID,
+		Title:     "Backlog Task Beta",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := taskRepo.CreateTask(ctx, task1); err != nil {
+		t.Fatalf("seed task1: %v", err)
+	}
+	if err := taskRepo.CreateTask(ctx, task2); err != nil {
+		t.Fatalf("seed task2: %v", err)
+	}
+
+	// Seed positions.
+	groupKey := "backlog-col"
+	if err := viewRepo.UpsertTaskPosition(ctx, &sprintdom.ViewTaskPosition{
+		ViewID:   viewID,
+		TaskID:   task1.ID,
+		Position: 1,
+		GroupKey: &groupKey,
+	}); err != nil {
+		t.Fatalf("seed position task1: %v", err)
+	}
+	if err := viewRepo.UpsertTaskPosition(ctx, &sprintdom.ViewTaskPosition{
+		ViewID:   viewID,
+		TaskID:   task2.ID,
+		Position: 2,
+	}); err != nil {
+		t.Fatalf("seed position task2: %v", err)
+	}
+
+	base := fmt.Sprintf("/api/v1/projects/%s/product-backlog", projectID)
+
+	t.Run("without_view_id_no_positions_returned", func(t *testing.T) {
+		w := serve(r, authedJSONReq(t.Context(), http.MethodGet, base, tok, nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d (%s)", w.Code, w.Body.String())
+		}
+		var env struct {
+			Data struct {
+				Items []map[string]any `json:"items"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		for _, item := range env.Data.Items {
+			if _, ok := item["view_position"]; ok {
+				t.Error("expected no view_position without view_id param")
+			}
+		}
+	})
+
+	t.Run("with_view_id_positions_are_present", func(t *testing.T) {
+		url := fmt.Sprintf("%s?view_id=%s", base, viewID)
+		w := serve(r, authedJSONReq(t.Context(), http.MethodGet, url, tok, nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d (%s)", w.Code, w.Body.String())
+		}
+		var env struct {
+			Data struct {
+				Items []map[string]any `json:"items"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		posMap := make(map[string]float64)
+		groupMap := make(map[string]any)
+		for _, item := range env.Data.Items {
+			id, _ := item["id"].(string)
+			if pos, ok := item["view_position"]; ok {
+				posMap[id] = pos.(float64)
+			}
+			groupMap[id] = item["view_group_key"]
+		}
+		task1Str := task1.ID.String()
+		task2Str := task2.ID.String()
+		if posMap[task1Str] != 1 {
+			t.Errorf("expected task1 view_position=1, got %v", posMap[task1Str])
+		}
+		if posMap[task2Str] != 2 {
+			t.Errorf("expected task2 view_position=2, got %v", posMap[task2Str])
+		}
+		if groupMap[task1Str] != "backlog-col" {
+			t.Errorf("expected task1 view_group_key=backlog-col, got %v", groupMap[task1Str])
+		}
+	})
+
+	t.Run("invalid_view_id_returns_400", func(t *testing.T) {
+		url := fmt.Sprintf("%s?view_id=not-a-uuid", base)
+		w := serve(r, authedJSONReq(t.Context(), http.MethodGet, url, tok, nil))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d (%s)", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("unknown_view_id_returns_404", func(t *testing.T) {
+		url := fmt.Sprintf("%s?view_id=%s", base, uuid.New())
+		w := serve(r, authedJSONReq(t.Context(), http.MethodGet, url, tok, nil))
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d (%s)", w.Code, w.Body.String())
+		}
+		if code := decodeErrorCode(t, w); code != "VIEW_NOT_FOUND" {
+			t.Errorf("expected VIEW_NOT_FOUND, got %q", code)
+		}
+	})
+}

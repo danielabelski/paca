@@ -136,10 +136,11 @@ export function BoardView({
 		return true;
 	});
 
-	const tasksByStatus = (statusId: string) =>
-		filteredTasks
-			.filter((t) => t.status_id === statusId)
-		.sort((a, b) => a.created_at.localeCompare(b.created_at));
+	const tasksByStatus = (statusId: string) => {
+		const col = filteredTasks.filter((t) => t.status_id === statusId);
+		if (manualSort) return col; // preserve parent sort order (already sorted by view_position)
+		return col.sort((a, b) => a.created_at.localeCompare(b.created_at));
+	};
 	const getColumnTasks = (statusId: string): Task[] => {
 		const ids = columnOrderMap[statusId];
 		if (ids) {

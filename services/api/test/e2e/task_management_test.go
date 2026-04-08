@@ -584,3 +584,260 @@ func TestE2ETaskList_WithViewID(t *testing.T) {
 		assertErrorCode(t, resp, "VIEW_NOT_FOUND")
 	})
 }
+
+// ---------------------------------------------------------------------------
+// GetSprintTasks with view_id — view position enrichment
+// ---------------------------------------------------------------------------
+
+// TestE2ESprintTasks_WithViewID verifies that
+// GET /sprints/:sprintId/tasks?view_id=<id> returns view_position and
+// view_group_key for tasks that have a recorded position in that view.
+func TestE2ESprintTasks_WithViewID(t *testing.T) {
+	env := newE2EEnv(t)
+	seedTaskMemberUser(t, env, "sprint-viewid-user", "sprintviewpass1")
+	client, token := taskMemberLogin(t, env, "sprint-viewid-user", "sprintviewpass1")
+	projID := createProjectForTasksViaAPI(t, env, client, token)
+	sprintID := createSprintViaAPI(t, env, client, token, projID, "Sprint ViewID")
+
+	viewID := createViewViaAPI(t, env, client, token, projID, sprintID, "Sprint Pos View", "table")
+
+	createSprintTask := func(title string) string {
+		t.Helper()
+		body := jsonBody(t, map[string]any{"title": title, "sprint_id": sprintID})
+		req := mustRequest(env.ctx, t, http.MethodPost,
+			fmt.Sprintf("%s/api/v1/projects/%s/tasks", env.base, projID), body)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := mustDo(t, client, req)
+		defer func() { _ = resp.Body.Close() }()
+		assertStatus(t, resp, http.StatusCreated)
+		var env2 envelope
+		decodeJSON(t, resp, &env2)
+		data := assertDataMap(t, env2)
+		id, _ := data["id"].(string)
+		return id
+	}
+
+	task1ID := createSprintTask("Sprint Pos Alpha")
+	task2ID := createSprintTask("Sprint Pos Beta")
+
+	moveSprintTask := func(taskID string, position int, groupKey *string) {
+		t.Helper()
+		body := map[string]any{"position": position}
+		if groupKey != nil {
+			body["group_key"] = *groupKey
+		}
+		url := fmt.Sprintf("%s/api/v1/projects/%s/sprints/%s/views/%s/task-positions/%s",
+			env.base, projID, sprintID, viewID, taskID)
+		req := mustRequest(env.ctx, t, http.MethodPut, url, jsonBody(t, body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := mustDo(t, client, req)
+		defer func() { _ = resp.Body.Close() }()
+		assertStatus(t, resp, http.StatusOK)
+	}
+
+	gk := "sprint-col"
+	moveSprintTask(task1ID, 10, &gk)
+	moveSprintTask(task2ID, 20, nil)
+
+	t.Run("with_view_id_positions_returned", func(t *testing.T) {
+		req := mustRequest(env.ctx, t, http.MethodGet,
+			fmt.Sprintf("%s/api/v1/projects/%s/sprints/%s/tasks?view_id=%s", env.base, projID, sprintID, viewID), nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := mustDo(t, client, req)
+		defer func() { _ = resp.Body.Close() }()
+		assertStatus(t, resp, http.StatusOK)
+		var env2 envelope
+		decodeJSON(t, resp, &env2)
+		data := assertDataMap(t, env2)
+		items, _ := data["items"].([]any)
+		posMap := make(map[string]float64)
+		groupMap := make(map[string]any)
+		for _, raw := range items {
+			item, _ := raw.(map[string]any)
+			id, _ := item["id"].(string)
+			if pos, ok := item["view_position"]; ok {
+				posMap[id] = pos.(float64)
+			}
+			if gk, ok := item["view_group_key"]; ok {
+				groupMap[id] = gk
+			}
+		}
+		if posMap[task1ID] != 10 {
+			t.Errorf("expected task1 view_position=10, got %v", posMap[task1ID])
+		}
+		if posMap[task2ID] != 20 {
+			t.Errorf("expected task2 view_position=20, got %v", posMap[task2ID])
+		}
+		if groupMap[task1ID] != "sprint-col" {
+			t.Errorf("expected task1 view_group_key=sprint-col, got %v", groupMap[task1ID])
+		}
+	})
+
+	t.Run("without_view_id_no_positions", func(t *testing.T) {
+		req := mustRequest(env.ctx, t, http.MethodGet,
+			fmt.Sprintf("%s/api/v1/projects/%s/sprints/%s/tasks", env.base, projID, sprintID), nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := mustDo(t, client, req)
+		defer func() { _ = resp.Body.Close() }()
+		assertStatus(t, resp, http.StatusOK)
+		var env2 envelope
+		decodeJSON(t, resp, &env2)
+		data := assertDataMap(t, env2)
+		items, _ := data["items"].([]any)
+		for _, raw := range items {
+			item, _ := raw.(map[string]any)
+			if _, ok := item["view_position"]; ok {
+				t.Error("expected no view_position without view_id param")
+			}
+		}
+	})
+
+	t.Run("invalid_view_id_returns_400", func(t *testing.T) {
+		req := mustRequest(env.ctx, t, http.MethodGet,
+			fmt.Sprintf("%s/api/v1/projects/%s/sprints/%s/tasks?view_id=not-a-uuid", env.base, projID, sprintID), nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := mustDo(t, client, req)
+		defer func() { _ = resp.Body.Close() }()
+		assertStatus(t, resp, http.StatusBadRequest)
+	})
+
+	t.Run("unknown_view_id_returns_404", func(t *testing.T) {
+		req := mustRequest(env.ctx, t, http.MethodGet,
+			fmt.Sprintf("%s/api/v1/projects/%s/sprints/%s/tasks?view_id=%s", env.base, projID, sprintID, uuid.New()), nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := mustDo(t, client, req)
+		defer func() { _ = resp.Body.Close() }()
+		assertStatus(t, resp, http.StatusNotFound)
+		assertErrorCode(t, resp, "VIEW_NOT_FOUND")
+	})
+}
+
+// ---------------------------------------------------------------------------
+// ListBacklogTasks with view_id — view position enrichment
+// ---------------------------------------------------------------------------
+
+// TestE2EBacklog_WithViewID verifies that
+// GET /product-backlog?view_id=<id> returns view_position and view_group_key
+// for backlog tasks that have a recorded position in that view.
+func TestE2EBacklog_WithViewID(t *testing.T) {
+	env := newE2EEnv(t)
+	seedTaskMemberUser(t, env, "backlog-viewid-user", "backlogviewpass1")
+	client, token := taskMemberLogin(t, env, "backlog-viewid-user", "backlogviewpass1")
+	projID := createProjectForTasksViaAPI(t, env, client, token)
+
+	viewID := createBacklogViewViaAPI(t, env, client, token, projID, "Backlog Pos View", "table")
+
+	createBacklogTask := func(title string) string {
+		t.Helper()
+		body := jsonBody(t, map[string]any{"title": title})
+		req := mustRequest(env.ctx, t, http.MethodPost,
+			fmt.Sprintf("%s/api/v1/projects/%s/tasks", env.base, projID), body)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := mustDo(t, client, req)
+		defer func() { _ = resp.Body.Close() }()
+		assertStatus(t, resp, http.StatusCreated)
+		var env2 envelope
+		decodeJSON(t, resp, &env2)
+		data := assertDataMap(t, env2)
+		id, _ := data["id"].(string)
+		return id
+	}
+
+	task1ID := createBacklogTask("Backlog Pos Alpha")
+	task2ID := createBacklogTask("Backlog Pos Beta")
+
+	moveBacklogTask := func(taskID string, position int, groupKey *string) {
+		t.Helper()
+		body := map[string]any{"position": position}
+		if groupKey != nil {
+			body["group_key"] = *groupKey
+		}
+		url := fmt.Sprintf("%s/api/v1/projects/%s/product-backlog/views/%s/task-positions/%s",
+			env.base, projID, viewID, taskID)
+		req := mustRequest(env.ctx, t, http.MethodPut, url, jsonBody(t, body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := mustDo(t, client, req)
+		defer func() { _ = resp.Body.Close() }()
+		assertStatus(t, resp, http.StatusOK)
+	}
+
+	gk := "backlog-col"
+	moveBacklogTask(task1ID, 3, &gk)
+	moveBacklogTask(task2ID, 7, nil)
+
+	t.Run("with_view_id_positions_returned", func(t *testing.T) {
+		req := mustRequest(env.ctx, t, http.MethodGet,
+			fmt.Sprintf("%s/api/v1/projects/%s/product-backlog?view_id=%s", env.base, projID, viewID), nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := mustDo(t, client, req)
+		defer func() { _ = resp.Body.Close() }()
+		assertStatus(t, resp, http.StatusOK)
+		var env2 envelope
+		decodeJSON(t, resp, &env2)
+		data := assertDataMap(t, env2)
+		items, _ := data["items"].([]any)
+		posMap := make(map[string]float64)
+		groupMap := make(map[string]any)
+		for _, raw := range items {
+			item, _ := raw.(map[string]any)
+			id, _ := item["id"].(string)
+			if pos, ok := item["view_position"]; ok {
+				posMap[id] = pos.(float64)
+			}
+			if gk, ok := item["view_group_key"]; ok {
+				groupMap[id] = gk
+			}
+		}
+		if posMap[task1ID] != 3 {
+			t.Errorf("expected task1 view_position=3, got %v", posMap[task1ID])
+		}
+		if posMap[task2ID] != 7 {
+			t.Errorf("expected task2 view_position=7, got %v", posMap[task2ID])
+		}
+		if groupMap[task1ID] != "backlog-col" {
+			t.Errorf("expected task1 view_group_key=backlog-col, got %v", groupMap[task1ID])
+		}
+	})
+
+	t.Run("without_view_id_no_positions", func(t *testing.T) {
+		req := mustRequest(env.ctx, t, http.MethodGet,
+			fmt.Sprintf("%s/api/v1/projects/%s/product-backlog", env.base, projID), nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := mustDo(t, client, req)
+		defer func() { _ = resp.Body.Close() }()
+		assertStatus(t, resp, http.StatusOK)
+		var env2 envelope
+		decodeJSON(t, resp, &env2)
+		data := assertDataMap(t, env2)
+		items, _ := data["items"].([]any)
+		for _, raw := range items {
+			item, _ := raw.(map[string]any)
+			if _, ok := item["view_position"]; ok {
+				t.Error("expected no view_position without view_id param")
+			}
+		}
+	})
+
+	t.Run("invalid_view_id_returns_400", func(t *testing.T) {
+		req := mustRequest(env.ctx, t, http.MethodGet,
+			fmt.Sprintf("%s/api/v1/projects/%s/product-backlog?view_id=not-a-uuid", env.base, projID), nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := mustDo(t, client, req)
+		defer func() { _ = resp.Body.Close() }()
+		assertStatus(t, resp, http.StatusBadRequest)
+	})
+
+	t.Run("unknown_view_id_returns_404", func(t *testing.T) {
+		req := mustRequest(env.ctx, t, http.MethodGet,
+			fmt.Sprintf("%s/api/v1/projects/%s/product-backlog?view_id=%s", env.base, projID, uuid.New()), nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := mustDo(t, client, req)
+		defer func() { _ = resp.Body.Close() }()
+		assertStatus(t, resp, http.StatusNotFound)
+		assertErrorCode(t, resp, "VIEW_NOT_FOUND")
+	})
+}

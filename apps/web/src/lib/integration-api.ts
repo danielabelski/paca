@@ -36,6 +36,8 @@ export interface Task {
 	assignee_id?: string | null;
 	reporter_id?: string | null;
 	custom_fields: Record<string, unknown>;
+	view_position?: number | null;
+	view_group_key?: string | null;
 	created_at: string;
 	updated_at: string;
 }
@@ -183,10 +185,23 @@ export async function moveTaskPosition(
 	projectId: string,
 	sprintId: string,
 	viewId: string,
-	payload: { task_id: string; position: number; group_key?: string },
+	taskId: string,
+	payload: { position: number; group_key?: string | null },
 ): Promise<void> {
 	await apiClient.instance.put(
-		`/projects/${projectId}/sprints/${sprintId}/views/${viewId}/task-positions`,
+		`/projects/${projectId}/sprints/${sprintId}/views/${viewId}/task-positions/${taskId}`,
+		payload,
+	);
+}
+
+export async function moveBacklogTaskPosition(
+	projectId: string,
+	viewId: string,
+	taskId: string,
+	payload: { position: number; group_key?: string | null },
+): Promise<void> {
+	await apiClient.instance.put(
+		`/projects/${projectId}/product-backlog/views/${viewId}/task-positions/${taskId}`,
 		payload,
 	);
 }
@@ -237,6 +252,7 @@ export interface ListTasksOptions {
 	assigneeId?: string;
 	page?: number;
 	pageSize?: number;
+	viewId?: string;
 }
 
 export async function listBacklogTasks(
@@ -249,6 +265,7 @@ export async function listBacklogTasks(
 	};
 	if (opts.statusId) params.status_id = opts.statusId;
 	if (opts.assigneeId) params.assignee_id = opts.assigneeId;
+	if (opts.viewId) params.view_id = opts.viewId;
 
 	const { data } = await apiClient.instance.get<
 		SuccessEnvelope<TaskListResult>
@@ -267,6 +284,7 @@ export async function listSprintTasks(
 	};
 	if (opts.statusId) params.status_id = opts.statusId;
 	if (opts.assigneeId) params.assignee_id = opts.assigneeId;
+	if (opts.viewId) params.view_id = opts.viewId;
 
 	const { data } = await apiClient.instance.get<
 		SuccessEnvelope<TaskListResult>
@@ -325,20 +343,25 @@ export const sprintQueryOptions = (projectId: string, sprintId: string) =>
 		staleTime: 30_000,
 	});
 
-export const backlogTasksQueryOptions = (projectId: string) =>
+export const backlogTasksQueryOptions = (projectId: string, viewId?: string) =>
 	queryOptions({
-		queryKey: ["projects", projectId, "backlog-tasks"],
-		queryFn: () => listBacklogTasks(projectId),
+		queryKey: viewId
+			? ["projects", projectId, "backlog-tasks", viewId]
+			: ["projects", projectId, "backlog-tasks"],
+		queryFn: () => listBacklogTasks(projectId, { viewId }),
 		staleTime: 15_000,
 	});
 
 export const sprintTasksQueryOptions = (
 	projectId: string,
 	sprintId: string,
+	viewId?: string,
 ) =>
 	queryOptions({
-		queryKey: ["projects", projectId, "sprints", sprintId, "tasks"],
-		queryFn: () => listSprintTasks(projectId, sprintId),
+		queryKey: viewId
+			? ["projects", projectId, "sprints", sprintId, "tasks", viewId]
+			: ["projects", projectId, "sprints", sprintId, "tasks"],
+		queryFn: () => listSprintTasks(projectId, sprintId, { viewId }),
 		staleTime: 15_000,
 	});
 

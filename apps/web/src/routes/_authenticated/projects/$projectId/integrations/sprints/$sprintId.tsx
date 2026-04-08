@@ -6,7 +6,6 @@ import { IntegrationLayout } from "@/components/projects/integrations/integratio
 import { usePermissions } from "@/hooks/use-permissions";
 import {
 	sprintQueryOptions,
-	sprintTasksQueryOptions,
 } from "@/lib/integration-api";
 
 export const Route = createFileRoute(
@@ -35,7 +34,6 @@ function SprintPage() {
 	const { data: sprint, isError } = useQuery(
 		sprintQueryOptions(projectId, sprintId),
 	);
-	const tasksQuery = useQuery(sprintTasksQueryOptions(projectId, sprintId));
 
 	const canCreate = hasPermission("tasks.write");
 	const canEdit = hasPermission("tasks.write");
@@ -67,9 +65,6 @@ function SprintPage() {
 					? sprint.goal
 					: `${statusBadge} sprint${sprint.start_date ? ` · started ${new Date(sprint.start_date).toLocaleDateString()}` : ""}`
 			}
-			tasksQueryKey={sprintTasksQueryOptions(projectId, sprintId).queryKey}
-			tasks={tasksQuery.data?.items ?? []}
-			tasksLoading={tasksQuery.isLoading}
 			canCreate={canCreate}
 			canEdit={canEdit}
 			canManageViews={canManageViews}

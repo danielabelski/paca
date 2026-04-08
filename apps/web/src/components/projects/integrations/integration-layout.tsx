@@ -1,16 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, KanbanSquare, List, Map, Plus, Search, Settings, SlidersHorizontal, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { ChevronDown, KanbanSquare, List, Map, Search, SlidersHorizontal, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import {
-	Dialog,
-	DialogClose,
-	DialogContent,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -24,15 +15,19 @@ import {
 	PopoverTrigger,
 } from "@/components/ui/popover";
 import {
+	backlogTasksQueryOptions,
+	backlogViewsQueryOptions,
 	createBacklogView,
 	createView,
 	deleteBacklogView,
 	deleteView,
 	updateBacklogView,
 	updateView,
-	backlogViewsQueryOptions,
 	createTask,
 	layoutToViewType,
+	moveBacklogTaskPosition,
+	moveTaskPosition,
+	sprintTasksQueryOptions,
 	viewsQueryOptions,
 	type IntegrationView,
 	type Task,
@@ -48,300 +43,22 @@ import { cn } from "@/lib/utils";
 
 import { BoardView } from "./board-view";
 import { ListView } from "./list-view";
+import { NewViewPopover } from "./new-view-popover";
+import { RenameViewDialog } from "./rename-view-dialog";
 import { RoadmapView } from "./roadmap-view";
 import { TaskDetailPanel } from "./task-detail-panel";
+import { ViewSettingsPanel } from "./view-settings-panel";
 
 interface IntegrationLayoutProps {
 	projectId: string;
 	integrationKey: string;
 	title: string;
 	description?: string | null;
-	tasksQueryKey: unknown[];
-	tasks: Task[];
-	tasksLoading: boolean;
 	canCreate: boolean;
 	canEdit: boolean;
 	canManageViews: boolean;
 	onTaskClick?: (task: Task) => void;
 	sprintId?: string | null;
-}
-
-// ── New View Popover ───────────────────────────────────────────────────────────
-function NewViewPopover({
-	onSubmit,
-	isPending,
-}: {
-	onSubmit: (name: string, layout: ViewLayout) => Promise<unknown>;
-	isPending?: boolean;
-}) {
-	const [open, setOpen] = useState(false);
-	const [name, setName] = useState("");
-	const [layout, setLayout] = useState<ViewLayout>("Board");
-
-	const submit = async () => {
-		await onSubmit(name || `New ${layout}`, layout);
-		setName("");
-		setOpen(false);
-	};
-
-	const layoutIcon = (l: ViewLayout) => {
-		if (l === "Board") return <KanbanSquare className="size-3.5" />;
-		if (l === "Roadmap") return <Map className="size-3.5" />;
-		return <List className="size-3.5" />;
-	};
-
-	return (
-		<Popover open={open} onOpenChange={setOpen}>
-			<PopoverTrigger
-				render={
-					<button
-						type="button"
-						aria-label="Add view"
-						className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-					/>
-				}
-			>
-				<Plus className="size-3.5" />
-				<span className="hidden sm:inline">Add view</span>
-			</PopoverTrigger>
-			<PopoverContent side="bottom" align="end" className="w-64 p-0 gap-0" sideOffset={6}>
-				<div className="p-3 border-b border-border/50">
-					<p className="text-xs font-semibold">New view</p>
-				</div>
-				<div className="p-3 flex flex-col gap-3">
-					<div className="flex flex-col gap-1.5">
-						<label className="text-xs text-muted-foreground">View name</label>
-						<input
-							value={name}
-							onChange={(e) => setName(e.target.value)}
-							onKeyDown={(e) => e.key === "Enter" && submit()}
-							placeholder={`New ${layout}`}
-							className="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/30"
-						/>
-					</div>
-					<div className="flex flex-col gap-1.5">
-						<label className="text-xs text-muted-foreground">Layout</label>
-						<div className="flex gap-2">
-							{(["Board", "Table", "Roadmap"] as ViewLayout[]).map((l) => (
-								<button
-									key={l}
-									type="button"
-									onClick={() => setLayout(l)}
-									className={cn(
-										"flex flex-1 items-center justify-center gap-1.5 rounded-md border py-2 text-xs font-medium transition-colors",
-										layout === l
-											? "border-primary bg-primary/10 text-primary"
-											: "border-border text-muted-foreground hover:text-foreground",
-									)}
-								>
-									{layoutIcon(l)}
-									{l}
-								</button>
-							))}
-						</div>
-					</div>
-					<button
-						type="button"
-						onClick={submit}
-						disabled={isPending}
-						className="w-full rounded-md bg-primary py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-60"
-					>
-						{isPending ? "Creating…" : "Create view"}
-					</button>
-				</div>
-			</PopoverContent>
-		</Popover>
-	);
-}
-
-// ── Rename Dialog ──────────────────────────────────────────────────────────────
-function RenameViewDialog({
-	view,
-	open,
-	onOpenChange,
-	onSubmit,
-	isPending,
-}: {
-	view: IntegrationView | null;
-	open: boolean;
-	onOpenChange: (open: boolean) => void;
-	onSubmit: (viewId: string, name: string) => Promise<unknown>;
-	isPending?: boolean;
-}) {
-	const [name, setName] = useState(view?.name ?? "");
-
-	useEffect(() => {
-		if (view) setName(view.name);
-	}, [view]);
-
-	const submit = async () => {
-		if (!view || !name.trim()) return;
-		await onSubmit(view.id, name.trim());
-		onOpenChange(false);
-	};
-
-	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="sm:max-w-xs">
-				<DialogHeader>
-					<DialogTitle>Rename view</DialogTitle>
-				</DialogHeader>
-				<input
-					value={name}
-					onChange={(e) => setName(e.target.value)}
-					onKeyDown={(e) => e.key === "Enter" && submit()}
-					className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
-				/>
-				<DialogFooter>
-					<DialogClose
-						render={<Button variant="outline" size="sm" />}
-					>
-						Cancel
-					</DialogClose>
-					<Button size="sm" disabled={!name.trim() || isPending} onClick={submit}>
-						{isPending ? "Renaming…" : "Rename"}
-					</Button>
-				</DialogFooter>
-			</DialogContent>
-		</Dialog>
-	);
-}
-
-// ── View Settings Panel ────────────────────────────────────────────────────────
-const SORT_OPTIONS = ["Manual", "Priority", "Title", "Created"];
-const FIELD_SUM_OPTIONS = ["Count", "Story Points"];
-const COLUMN_BY_OPTIONS = ["Status", "Assignee", "Priority"];
-const SWIMLANE_OPTIONS = ["None", "Assignee", "Priority", "Type"];
-const SLICE_BY_OPTIONS = ["None", "Assignee", "Priority", "Type"];
-
-function ViewSettingsPanel({
-	view,
-	open,
-	onOpenChange,
-	onSave,
-	onPreview,
-	isPending,
-}: {
-	view: IntegrationView | null;
-	open: boolean;
-	onOpenChange: (open: boolean) => void;
-	onSave: (viewId: string, config: ViewConfig) => Promise<unknown>;
-	onPreview: (config: ViewConfig) => void;
-	isPending?: boolean;
-}) {
-	const [draft, setDraft] = useState<ViewConfig>(() => view?.config ?? {});
-
-	// Reset draft whenever the panel opens (re-sync from saved config)
-	useEffect(() => {
-		if (open) setDraft(view?.config ?? {});
-	}, [open, view?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-	// Propagate draft to parent so the view previews immediately
-	useEffect(() => {
-		if (open) onPreview(draft);
-	}, [draft, open]); // eslint-disable-line react-hooks/exhaustive-deps
-
-	// On close without Save: revert preview to saved config
-	const handleOpenChange = (newOpen: boolean) => {
-		if (!newOpen && view) onPreview(view.config ?? {});
-		onOpenChange(newOpen);
-	};
-
-	const update = (patch: Partial<ViewConfig>) => {
-		setDraft((prev) => ({ ...prev, ...patch }));
-	};
-
-	const handleSave = async () => {
-		if (!view) return;
-		await onSave(view.id, draft);
-		onOpenChange(false);
-	};
-
-	const handleReset = () => {
-		const saved = view?.config ?? {};
-		setDraft(saved);
-		onPreview(saved);
-	};
-
-	const row = (label: string, children: React.ReactNode) => (
-		<div className="flex items-center justify-between gap-3 py-1.5">
-			<span className="text-xs text-muted-foreground shrink-0 w-20">{label}</span>
-			{children}
-		</div>
-	);
-
-	const select = (
-		value: string | undefined,
-		options: string[],
-		onChange: (v: string) => void,
-		placeholder = "Default",
-	) => (
-		<select
-			value={value ?? ""}
-			onChange={(e) => onChange(e.target.value)}
-			className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-primary/30 min-w-0"
-		>
-			<option value="">{placeholder}</option>
-			{options.map((o) => (
-				<option key={o} value={o.toLowerCase()}>{o}</option>
-			))}
-		</select>
-	);
-
-	return (
-		<Popover open={open} onOpenChange={handleOpenChange}>
-			<PopoverTrigger
-				render={
-					<button
-						type="button"
-						aria-label="View settings"
-						className={cn(
-							"flex size-7 items-center justify-center rounded-md transition-colors",
-							open
-								? "bg-primary/10 text-primary"
-								: "text-muted-foreground hover:text-foreground hover:bg-muted/50",
-						)}
-					/>
-				}
-			>
-				<Settings className="size-3.5" />
-			</PopoverTrigger>
-			<PopoverContent side="bottom" align="end" className="w-72 p-0 gap-0" sideOffset={6}>
-				<div className="px-3 py-2.5 border-b border-border/50">
-					<p className="text-xs font-semibold">View settings</p>
-				</div>
-				<div className="p-3 flex flex-col divide-y divide-border/30">
-					{row("Fields", (
-						<span className="text-xs text-foreground flex-1 truncate">
-							{draft.fields?.join(", ") || "Title, Assignees, Status"}
-						</span>
-					))}
-					{row("Column by", select(draft.column_by, COLUMN_BY_OPTIONS, (v) => update({ column_by: v }), "Status"))}
-					{row("Swimlanes", select(draft.swimlanes, SWIMLANE_OPTIONS, (v) => update({ swimlanes: v }), "None"))}
-					{row("Sort by", select(draft.sort_by, SORT_OPTIONS, (v) => update({ sort_by: v }), "Default"))}
-					{row("Field sum", select(draft.field_sum, FIELD_SUM_OPTIONS, (v) => update({ field_sum: v }), "Count"))}
-					{row("Slice by", select(draft.slice_by, SLICE_BY_OPTIONS, (v) => update({ slice_by: v }), "None"))}
-				</div>
-				<div className="flex items-center justify-end gap-2 px-3 py-2.5 border-t border-border/50">
-					<button
-						type="button"
-						onClick={handleReset}
-						className="px-3 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-					>
-						Reset
-					</button>
-					<button
-						type="button"
-						onClick={handleSave}
-						disabled={isPending}
-						className="px-3 py-1 rounded-md text-xs font-semibold bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-60"
-					>
-						{isPending ? "Saving…" : "Save"}
-					</button>
-				</div>
-			</PopoverContent>
-		</Popover>
-	);
 }
 
 // ── Main Layout ────────────────────────────────────────────────────────────────
@@ -350,9 +67,6 @@ export function IntegrationLayout({
 	integrationKey,
 	title,
 	description,
-	tasksQueryKey,
-	tasks,
-	tasksLoading,
 	canCreate,
 	canEdit,
 	canManageViews,
@@ -371,16 +85,29 @@ export function IntegrationLayout({
 			: backlogViewsQueryOptions(projectId),
 	);
 
-	const FALLBACK_VIEWS: IntegrationView[] = [
-		{ id: "__default-board__", name: "Board", view_type: "board", layout: "Board" },
-		{ id: "__default-table__", name: "Table", view_type: "table", layout: "Table" },
-	];
 	const serverViews = viewsQuery.data ?? [];
-	const views = serverViews.length > 0 ? serverViews : (viewsQuery.isSuccess ? FALLBACK_VIEWS : []);
+	const views = serverViews.length > 0 ? serverViews : [];
 
 	const viewsQueryKey = sprintId
 		? viewsQueryOptions(projectId, sprintId).queryKey
 		: backlogViewsQueryOptions(projectId).queryKey;
+
+	// Seed default views the first time the query succeeds with an empty list.
+	const seedingRef = useRef(false);
+	useEffect(() => {
+		if (!viewsQuery.isSuccess || serverViews.length > 0 || seedingRef.current) return;
+		seedingRef.current = true;
+		const seed = sprintId
+			? Promise.all([
+				createView(projectId, sprintId, { name: "Board", view_type: "board" }),
+				createView(projectId, sprintId, { name: "Table", view_type: "table" }),
+			])
+			: Promise.all([
+				createBacklogView(projectId, { name: "Board", view_type: "board" }),
+				createBacklogView(projectId, { name: "Table", view_type: "table" }),
+			]);
+		seed.then(() => qc.invalidateQueries({ queryKey: viewsQueryKey })).catch(console.error);
+	}, [viewsQuery.isSuccess, serverViews.length, sprintId, projectId, qc, viewsQueryKey]);
 
 	// Active view: prefer last-selected (stored in localStorage), fall back to first
 	const [preferredViewId, setPreferredViewId] = useState<string>(() => {
@@ -406,13 +133,41 @@ export function IntegrationLayout({
 	// Previewed view config (updated by the settings panel before Save)
 	const [previewConfig, setPreviewConfig] = useState<ViewConfig | undefined>(undefined);
 	const activeViewConfig = previewConfig ?? activeView?.config;
-	const isManualSort = activeViewConfig?.sort_by?.toLowerCase() === "manual";
+	const isManualSort = !activeViewConfig?.sort_by || activeViewConfig?.sort_by?.toLowerCase() === "manual";
 	const [searchQuery, setSearchQuery] = useState("");
 	const [searchOpen, setSearchOpen] = useState(false);
 	const searchRef = useRef<HTMLInputElement>(null);
 	const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
 	const [filterOpen, setFilterOpen] = useState(false);
 	const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+
+	// Fetch tasks, embedding view position data when sort is manual and the active view is real
+	const isRealView = !!activeViewId && !activeViewId.startsWith("__default-");
+	const effectiveViewId = isManualSort && isRealView ? activeViewId : undefined;
+	const tasksQueryOpts = sprintId
+		? sprintTasksQueryOptions(projectId, sprintId, effectiveViewId)
+		: backlogTasksQueryOptions(projectId, effectiveViewId);
+	const tasksQuery = useQuery(tasksQueryOpts);
+	const tasks = tasksQuery.data?.items ?? [];
+	const tasksLoading = tasksQuery.isLoading;
+
+	// Base query key (no viewId) used for invalidation — matches all viewId variants via prefix
+	const tasksBaseQueryKey = sprintId
+		? ["projects", projectId, "sprints", sprintId, "tasks"]
+		: ["projects", projectId, "backlog-tasks"];
+
+	// Sort tasks by embedded view_position when sort is manual; fall back to created_at
+	const sortedTasks = useMemo(() => {
+		if (!isManualSort) return tasks;
+		return [...tasks].sort((a, b) => {
+			const pa = a.view_position;
+			const pb = b.view_position;
+			if (pa != null && pb != null) return pa - pb;
+			if (pa != null) return -1;
+			if (pb != null) return 1;
+			return a.created_at.localeCompare(b.created_at);
+		});
+	}, [isManualSort, tasks]);
 
 	const { data: members = [] } = useQuery(projectMembersQueryOptions(projectId));
 
@@ -429,12 +184,46 @@ export function IntegrationLayout({
 				status_id: payload.statusId,
 				sprint_id: sprintId ?? null,
 			}),
-		onSuccess: () => qc.invalidateQueries({ queryKey: tasksQueryKey }),
+		onSuccess: () => qc.invalidateQueries({ queryKey: tasksBaseQueryKey }),
 	});
 
 	const handleCreateTask = async (statusId: string, title: string) => {
 		await createTaskMutation.mutateAsync({ title, statusId });
 	};
+
+	// ── Task reorder ─────────────────────────────────────────────────────────
+	const handleReorderTask = useCallback(
+		(groupKey: string, taskId: string, newIndex: number) => {
+			if (!effectiveViewId) return;
+			// newIndex is the post-removal insertion index: components splice the source out
+			// first, then insert at newIndex. Simulate that to find correct neighbors.
+			const groupTasks = sortedTasks.filter((t) => t.status_id === groupKey);
+			const srcIdx = groupTasks.findIndex((t) => t.id === taskId);
+			const reordered = [...groupTasks];
+			if (srcIdx !== -1) {
+				const [removed] = reordered.splice(srcIdx, 1);
+				reordered.splice(newIndex, 0, removed);
+			}
+			const prev = reordered[newIndex - 1]?.view_position ?? null;
+			const next = reordered[newIndex + 1]?.view_position ?? null;
+			let position: number;
+			if (prev !== null && next !== null) {
+				position = Math.floor((prev + next) / 2);
+			} else if (prev !== null) {
+				position = prev + 1000;
+			} else if (next !== null) {
+				position = Math.max(0, next - 1000);
+			} else {
+				position = newIndex * 1000;
+			}
+			const payload = { position, group_key: groupKey };
+			const run = sprintId
+				? moveTaskPosition(projectId, sprintId, effectiveViewId, taskId, payload)
+				: moveBacklogTaskPosition(projectId, effectiveViewId, taskId, payload);
+			run.then(() => qc.invalidateQueries({ queryKey: tasksBaseQueryKey })).catch(console.error);
+		},
+		[effectiveViewId, sortedTasks, sprintId, projectId, qc, tasksBaseQueryKey],
+	);
 
 	// ── View mutations ────────────────────────────────────────────────────────
 	const createViewMutation = useMutation({
@@ -700,18 +489,17 @@ export function IntegrationLayout({
 				) : activeView?.layout === "Board" ? (
 					<BoardView
 						projectId={projectId}
-						tasks={tasks}
+						tasks={sortedTasks}
 						statuses={statuses}
 						taskTypes={taskTypes}
 						canCreate={canCreate}
 						canEdit={canEdit}
 						searchQuery={searchQuery}
 						assigneeFilter={assigneeFilter}
-						tasksQueryKey={tasksQueryKey}
+						tasksQueryKey={tasksBaseQueryKey}
 						onCreateTask={handleCreateTask}
 						onTaskClick={handleTaskClick}
-						manualSort={isManualSort}
-					/>
+						manualSort={isManualSort}					onReorderTask={effectiveViewId ? handleReorderTask : undefined}					/>
 				) : activeView?.layout === "Roadmap" ? (
 					<RoadmapView
 						tasks={tasks}
@@ -723,7 +511,7 @@ export function IntegrationLayout({
 					/>
 				) : (
 					<ListView
-						tasks={tasks}
+						tasks={sortedTasks}
 						statuses={statuses}
 						taskTypes={taskTypes}
 						canCreate={canCreate}
@@ -731,8 +519,7 @@ export function IntegrationLayout({
 						assigneeFilter={assigneeFilter}
 						onCreateTask={handleCreateTask}
 						onTaskClick={handleTaskClick}
-						manualSort={isManualSort}
-					/>
+						manualSort={isManualSort}					onReorderTask={effectiveViewId ? handleReorderTask : undefined}					/>
 				)}
 			</div>
 

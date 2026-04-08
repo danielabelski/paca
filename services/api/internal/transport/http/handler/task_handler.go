@@ -417,6 +417,25 @@ func (h *TaskHandler) GetSprintTasks(c *gin.Context) {
 		}
 	}
 
+	var posMap map[uuid.UUID]*sprintdom.ViewTaskPosition
+	if raw := c.Query("view_id"); raw != "" {
+		viewID, err := uuid.Parse(raw)
+		if err != nil {
+			presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid view_id"))
+			return
+		}
+		positions, err := h.viewSvc.ListTaskPositions(c.Request.Context(), viewID)
+		if err != nil {
+			presenter.Error(c, err)
+			return
+		}
+		posMap = make(map[uuid.UUID]*sprintdom.ViewTaskPosition, len(positions))
+		for _, p := range positions {
+			cp := p
+			posMap[p.TaskID] = cp
+		}
+	}
+
 	tasks, total, err := h.svc.ListTasks(c.Request.Context(), projectID, filter, page, pageSize)
 	if err != nil {
 		presenter.Error(c, err)
@@ -425,7 +444,12 @@ func (h *TaskHandler) GetSprintTasks(c *gin.Context) {
 
 	resp := make([]dto.TaskResponse, 0, len(tasks))
 	for _, t := range tasks {
-		resp = append(resp, dto.TaskFromEntity(t))
+		r := dto.TaskFromEntity(t)
+		if pos, ok := posMap[t.ID]; ok {
+			r.ViewPosition = &pos.Position
+			r.ViewGroupKey = pos.GroupKey
+		}
+		resp = append(resp, r)
 	}
 	presenter.OK(c, gin.H{"items": resp, "total": total, "page": page, "page_size": pageSize})
 }
@@ -454,6 +478,25 @@ func (h *TaskHandler) ListBacklogTasks(c *gin.Context) {
 		}
 	}
 
+	var posMap map[uuid.UUID]*sprintdom.ViewTaskPosition
+	if raw := c.Query("view_id"); raw != "" {
+		viewID, err := uuid.Parse(raw)
+		if err != nil {
+			presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid view_id"))
+			return
+		}
+		positions, err := h.viewSvc.ListTaskPositions(c.Request.Context(), viewID)
+		if err != nil {
+			presenter.Error(c, err)
+			return
+		}
+		posMap = make(map[uuid.UUID]*sprintdom.ViewTaskPosition, len(positions))
+		for _, p := range positions {
+			cp := p
+			posMap[p.TaskID] = cp
+		}
+	}
+
 	tasks, total, err := h.svc.ListTasks(c.Request.Context(), projectID, filter, page, pageSize)
 	if err != nil {
 		presenter.Error(c, err)
@@ -462,7 +505,12 @@ func (h *TaskHandler) ListBacklogTasks(c *gin.Context) {
 
 	resp := make([]dto.TaskResponse, 0, len(tasks))
 	for _, t := range tasks {
-		resp = append(resp, dto.TaskFromEntity(t))
+		r := dto.TaskFromEntity(t)
+		if pos, ok := posMap[t.ID]; ok {
+			r.ViewPosition = &pos.Position
+			r.ViewGroupKey = pos.GroupKey
+		}
+		resp = append(resp, r)
 	}
 	presenter.OK(c, gin.H{"items": resp, "total": total, "page": page, "page_size": pageSize})
 }
