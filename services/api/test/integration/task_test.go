@@ -764,6 +764,99 @@ func TestIntegrationTasks_ListWithSprintFilter(t *testing.T) {
 	}
 }
 
+func TestIntegrationTasks_DatesAndTags(t *testing.T) {
+	taskRepo := newFakeTaskRepoIT()
+	projectID := uuid.New()
+	store := &projectPermStore{
+		projectPerms: map[uuid.UUID][]authz.Permission{
+			projectID: {authz.PermissionTasksRead, authz.PermissionTasksWrite},
+		},
+	}
+	r := buildTaskTestRouter(taskRepo, store)
+	tok := issueTaskToken(t, uuid.NewString())
+	base := fmt.Sprintf("/api/v1/projects/%s/tasks", projectID)
+
+	startDate := "2026-05-01T00:00:00Z"
+	dueDate := "2026-05-31T00:00:00Z"
+
+	// Create a task with start_date, due_date, and tags.
+	createW := serve(r, authedJSONReq(t.Context(), http.MethodPost, base, tok, map[string]any{
+		"title":      "Task with dates and tags",
+		"start_date": startDate,
+		"due_date":   dueDate,
+		"tags":       []string{"frontend", "design"},
+	}))
+	if createW.Code != http.StatusCreated {
+		t.Fatalf("create task: expected 201, got %d (%s)", createW.Code, createW.Body.String())
+	}
+	taskID := taskIDFrom(t, "task", createW.Body.Bytes())
+
+	// GET and verify the fields are present.
+	getW := serve(r, authedJSONReq(t.Context(), http.MethodGet, base+"/"+taskID, tok, nil))
+	if getW.Code != http.StatusOK {
+		t.Fatalf("get task: expected 200, got %d", getW.Code)
+	}
+	var getEnv struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(getW.Body.Bytes(), &getEnv); err != nil {
+		t.Fatalf("decode get response: %v", err)
+	}
+	if getEnv.Data["start_date"] == nil {
+		t.Error("expected start_date in response, got nil")
+	}
+	if getEnv.Data["due_date"] == nil {
+		t.Error("expected due_date in response, got nil")
+	}
+	tags, _ := getEnv.Data["tags"].([]any)
+	if len(tags) != 2 {
+		t.Errorf("expected 2 tags, got %d", len(tags))
+	}
+
+	// Update: clear dates and replace tags.
+	patchW := serve(r, authedJSONReq(t.Context(), http.MethodPatch, base+"/"+taskID, tok, map[string]any{
+		"title":      "Task with dates and tags",
+		"start_date": nil,
+		"due_date":   nil,
+		"tags":       []string{"backend"},
+	}))
+	if patchW.Code != http.StatusOK {
+		t.Fatalf("update task: expected 200, got %d (%s)", patchW.Code, patchW.Body.String())
+	}
+	var patchEnv struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(patchW.Body.Bytes(), &patchEnv); err != nil {
+		t.Fatalf("decode patch response: %v", err)
+	}
+	if _, hasStart := patchEnv.Data["start_date"]; hasStart {
+		t.Error("expected start_date to be absent (omitted) after clearing")
+	}
+	updatedTags, _ := patchEnv.Data["tags"].([]any)
+	if len(updatedTags) != 1 {
+		t.Errorf("expected 1 tag after update, got %d", len(updatedTags))
+	}
+
+	// Update: set only tags (no date fields) — tags should update, dates stay nil.
+	patch2W := serve(r, authedJSONReq(t.Context(), http.MethodPatch, base+"/"+taskID, tok, map[string]any{
+		"title": "Task with dates and tags",
+		"tags":  []string{},
+	}))
+	if patch2W.Code != http.StatusOK {
+		t.Fatalf("update task (clear tags): expected 200, got %d (%s)", patch2W.Code, patch2W.Body.String())
+	}
+	var patch2Env struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(patch2W.Body.Bytes(), &patch2Env); err != nil {
+		t.Fatalf("decode patch2 response: %v", err)
+	}
+	clearedTags, _ := patch2Env.Data["tags"].([]any)
+	if len(clearedTags) != 0 {
+		t.Errorf("expected 0 tags after clearing, got %d", len(clearedTags))
+	}
+}
+
 // ---------------------------------------------------------------------------
 // AuthZ guard tests
 // ---------------------------------------------------------------------------

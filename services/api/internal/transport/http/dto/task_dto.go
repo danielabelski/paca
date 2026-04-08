@@ -109,6 +109,9 @@ type CreateTaskRequest struct {
 	AssigneeID   *uuid.UUID     `json:"assignee_id"`
 	ReporterID   *uuid.UUID     `json:"reporter_id"`
 	CustomFields map[string]any `json:"custom_fields"`
+	StartDate    *time.Time     `json:"start_date"`
+	DueDate      *time.Time     `json:"due_date"`
+	Tags         []string       `json:"tags"`
 }
 
 // UpdateTaskRequest is the body for PATCH /projects/:projectId/tasks/:taskId.
@@ -123,6 +126,9 @@ type UpdateTaskRequest struct {
 	AssigneeID   *uuid.UUID     `json:"assignee_id"`
 	ReporterID   *uuid.UUID     `json:"reporter_id"`
 	CustomFields map[string]any `json:"custom_fields"`
+	StartDate    *time.Time     `json:"start_date"`
+	DueDate      *time.Time     `json:"due_date"`
+	Tags         []string       `json:"tags"`
 }
 
 // TaskResponse is the public representation of a task.
@@ -142,6 +148,9 @@ type TaskResponse struct {
 	AssigneeID   *uuid.UUID     `json:"assignee_id,omitempty"`
 	ReporterID   *uuid.UUID     `json:"reporter_id,omitempty"`
 	CustomFields map[string]any `json:"custom_fields"`
+	StartDate    *time.Time     `json:"start_date,omitempty"`
+	DueDate      *time.Time     `json:"due_date,omitempty"`
+	Tags         []string       `json:"tags"`
 	ViewPosition *int           `json:"view_position,omitempty"`
 	ViewGroupKey *string        `json:"view_group_key,omitempty"`
 	CreatedAt    time.Time      `json:"created_at"`
@@ -153,6 +162,10 @@ func TaskFromEntity(t *taskdom.Task) TaskResponse {
 	cf := t.CustomFields
 	if cf == nil {
 		cf = map[string]any{}
+	}
+	tags := t.Tags
+	if tags == nil {
+		tags = []string{}
 	}
 	return TaskResponse{
 		ID:           t.ID,
@@ -167,6 +180,9 @@ func TaskFromEntity(t *taskdom.Task) TaskResponse {
 		AssigneeID:   t.AssigneeID,
 		ReporterID:   t.ReporterID,
 		CustomFields: cf,
+		StartDate:    t.StartDate,
+		DueDate:      t.DueDate,
+		Tags:         tags,
 		CreatedAt:    t.CreatedAt,
 		UpdatedAt:    t.UpdatedAt,
 	}

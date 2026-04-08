@@ -2,6 +2,7 @@ package taskdom
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -93,6 +94,9 @@ type CreateTaskInput struct {
 	AssigneeID   *uuid.UUID
 	ReporterID   *uuid.UUID
 	CustomFields map[string]any
+	StartDate    *time.Time
+	DueDate      *time.Time
+	Tags         []string
 }
 
 // UpdateTaskInput carries mutable task fields.
@@ -109,4 +113,7 @@ type UpdateTaskInput struct {
 	AssigneeID   *uuid.UUID
 	ReporterID   *uuid.UUID
 	CustomFields map[string]any
+	StartDate    *time.Time
+	DueDate      *time.Time
+	Tags         []string
 }

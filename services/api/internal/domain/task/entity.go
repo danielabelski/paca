@@ -68,6 +68,9 @@ type Task struct {
 	AssigneeID   *uuid.UUID
 	ReporterID   *uuid.UUID
 	CustomFields map[string]any
+	StartDate    *time.Time
+	DueDate      *time.Time
+	Tags         []string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	DeletedAt    *time.Time

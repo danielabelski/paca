@@ -9,6 +9,7 @@ Interactive diagram: [https://dbdiagram.io/d/Paca-69c212ae78c6c4bc7a4fc190](http
 | File | Purpose |
 |---|---|
 | `000001_init.sql` | Full consolidated schema: `global_roles`, `users`, projects, project roles/members, task configuration (`task_types`, `task_statuses`), `sprints`, `sprint_views` (with `view_type`, `config`, `position`), `view_task_positions` (manual task order), `custom_field_definitions`, `tasks`, seed data |
+| `000002_task_attachments.sql` | Adds `start_date`, `due_date`, `tags` columns to `tasks`; creates `task_attachments` table |
 
 ## Schema (DBML)
 
@@ -95,7 +96,11 @@ Table tasks {
   assignee_id uuid
   reporter_id uuid
   custom_fields jsonb
+  start_date date [null]
+  due_date date [null]
+  tags jsonb [not null, default: '[]']
   created_at timestamp
+  updated_at timestamp
 }
 
 Table custom_field_definitions {
@@ -194,6 +199,17 @@ Table dashboards {
   layout jsonb
 }
 
+Table task_attachments {
+  id uuid [primary key]
+  task_id uuid
+  file_name text [not null]
+  file_size bigint [not null]
+  mime_type text [not null]
+  storage_url text [not null]
+  uploaded_by uuid [null]
+  created_at timestamp
+}
+
 Table task_activities {
   id uuid [primary key]
   task_id uuid
@@ -231,6 +247,8 @@ Ref: project_members.id < time_logs.member_id
 Ref: project_members.id < task_activities.member_id
 Ref: project_members.id < tasks.assignee_id
 Ref: project_members.id < tasks.reporter_id
+Ref: tasks.id < task_attachments.task_id
+Ref: project_members.id < task_attachments.uploaded_by
 Ref: sprints.id < sprint_views.sprint_id
 Ref: sprint_views.id < view_task_positions.view_id
 Ref: tasks.id < view_task_positions.task_id

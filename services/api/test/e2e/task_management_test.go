@@ -634,7 +634,7 @@ func TestE2ESprintTasks_WithViewID(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+token)
 		resp := mustDo(t, client, req)
 		defer func() { _ = resp.Body.Close() }()
-		assertStatus(t, resp, http.StatusOK)
+		assertStatus(t, resp, http.StatusNoContent)
 	}
 
 	gk := "sprint-col"
@@ -762,7 +762,7 @@ func TestE2EBacklog_WithViewID(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+token)
 		resp := mustDo(t, client, req)
 		defer func() { _ = resp.Body.Close() }()
-		assertStatus(t, resp, http.StatusOK)
+		assertStatus(t, resp, http.StatusNoContent)
 	}
 
 	gk := "backlog-col"
@@ -839,5 +839,123 @@ func TestE2EBacklog_WithViewID(t *testing.T) {
 		defer func() { _ = resp.Body.Close() }()
 		assertStatus(t, resp, http.StatusNotFound)
 		assertErrorCode(t, resp, "VIEW_NOT_FOUND")
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Task dates and tags
+// ---------------------------------------------------------------------------
+
+func TestE2ETaskManagement_DatesAndTags(t *testing.T) {
+	env := newE2EEnv(t)
+	seedTaskMemberUser(t, env, "dates-tags-user", "datestagpass1")
+	client, token := taskMemberLogin(t, env, "dates-tags-user", "datestagpass1")
+	projID := createProjectForTasksViaAPI(t, env, client, token)
+
+	var taskID string
+
+	t.Run("create_task_with_dates_and_tags", func(t *testing.T) {
+		body := jsonBody(t, map[string]any{
+			"title":      "Task with dates and tags",
+			"start_date": "2026-05-01T00:00:00Z",
+			"due_date":   "2026-05-31T00:00:00Z",
+			"tags":       []string{"alpha", "beta"},
+		})
+		req := mustRequest(env.ctx, t, http.MethodPost,
+			fmt.Sprintf("%s/api/v1/projects/%s/tasks", env.base, projID), body)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := mustDo(t, client, req)
+		defer func() { _ = resp.Body.Close() }()
+		assertStatus(t, resp, http.StatusCreated)
+		var env2 envelope
+		decodeJSON(t, resp, &env2)
+		data := assertDataMap(t, env2)
+		taskID, _ = data["id"].(string)
+		if taskID == "" {
+			t.Fatal("expected non-empty task id")
+		}
+		if data["start_date"] == nil {
+			t.Error("expected start_date in create response")
+		}
+		if data["due_date"] == nil {
+			t.Error("expected due_date in create response")
+		}
+		tags, _ := data["tags"].([]any)
+		if len(tags) != 2 {
+			t.Errorf("expected 2 tags, got %d", len(tags))
+		}
+	})
+
+	t.Run("get_task_returns_dates_and_tags", func(t *testing.T) {
+		req := mustRequest(env.ctx, t, http.MethodGet,
+			fmt.Sprintf("%s/api/v1/projects/%s/tasks/%s", env.base, projID, taskID), nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := mustDo(t, client, req)
+		defer func() { _ = resp.Body.Close() }()
+		assertStatus(t, resp, http.StatusOK)
+		var env2 envelope
+		decodeJSON(t, resp, &env2)
+		data := assertDataMap(t, env2)
+		if data["start_date"] == nil {
+			t.Error("expected start_date in get response")
+		}
+		if data["due_date"] == nil {
+			t.Error("expected due_date in get response")
+		}
+		tags, _ := data["tags"].([]any)
+		if len(tags) != 2 {
+			t.Errorf("expected 2 tags in get response, got %d", len(tags))
+		}
+	})
+
+	t.Run("update_task_replaces_tags_and_clears_dates", func(t *testing.T) {
+		body := jsonBody(t, map[string]any{
+			"title":      "Task with dates and tags",
+			"start_date": nil,
+			"due_date":   nil,
+			"tags":       []string{"gamma"},
+		})
+		req := mustRequest(env.ctx, t, http.MethodPatch,
+			fmt.Sprintf("%s/api/v1/projects/%s/tasks/%s", env.base, projID, taskID), body)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := mustDo(t, client, req)
+		defer func() { _ = resp.Body.Close() }()
+		assertStatus(t, resp, http.StatusOK)
+		var env2 envelope
+		decodeJSON(t, resp, &env2)
+		data := assertDataMap(t, env2)
+		if _, hasStart := data["start_date"]; hasStart {
+			t.Error("expected start_date to be absent after clearing")
+		}
+		if _, hasDue := data["due_date"]; hasDue {
+			t.Error("expected due_date to be absent after clearing")
+		}
+		tags, _ := data["tags"].([]any)
+		if len(tags) != 1 {
+			t.Errorf("expected 1 tag after update, got %d", len(tags))
+		}
+	})
+
+	t.Run("update_task_clears_tags", func(t *testing.T) {
+		body := jsonBody(t, map[string]any{
+			"title": "Task with dates and tags",
+			"tags":  []string{},
+		})
+		req := mustRequest(env.ctx, t, http.MethodPatch,
+			fmt.Sprintf("%s/api/v1/projects/%s/tasks/%s", env.base, projID, taskID), body)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := mustDo(t, client, req)
+		defer func() { _ = resp.Body.Close() }()
+		assertStatus(t, resp, http.StatusOK)
+		var env2 envelope
+		decodeJSON(t, resp, &env2)
+		data := assertDataMap(t, env2)
+		tags, _ := data["tags"].([]any)
+		if len(tags) != 0 {
+			t.Errorf("expected 0 tags after clearing, got %d", len(tags))
+		}
 	})
 }

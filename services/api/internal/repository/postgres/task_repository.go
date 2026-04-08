@@ -42,18 +42,21 @@ type taskStatusRecord struct {
 func (taskStatusRecord) TableName() string { return "task_statuses" }
 
 type taskRecord struct {
-	ID           string  `gorm:"primarykey;type:uuid"`
-	ProjectID    string  `gorm:"type:uuid;not null;column:project_id"`
-	TaskTypeID   *string `gorm:"type:uuid;column:task_type_id"`
-	StatusID     *string `gorm:"type:uuid;column:status_id"`
-	SprintID     *string `gorm:"type:uuid;column:sprint_id"`
-	ParentTaskID *string `gorm:"type:uuid;column:parent_task_id"`
-	Title        string  `gorm:"not null"`
-	Description  *string `gorm:"type:text"`
-	Importance   int     `gorm:"not null;default:0"`
-	AssigneeID   *string `gorm:"type:uuid;column:assignee_id"`
-	ReporterID   *string `gorm:"type:uuid;column:reporter_id"`
-	CustomFields []byte  `gorm:"type:jsonb;not null;column:custom_fields"`
+	ID           string     `gorm:"primarykey;type:uuid"`
+	ProjectID    string     `gorm:"type:uuid;not null;column:project_id"`
+	TaskTypeID   *string    `gorm:"type:uuid;column:task_type_id"`
+	StatusID     *string    `gorm:"type:uuid;column:status_id"`
+	SprintID     *string    `gorm:"type:uuid;column:sprint_id"`
+	ParentTaskID *string    `gorm:"type:uuid;column:parent_task_id"`
+	Title        string     `gorm:"not null"`
+	Description  *string    `gorm:"type:text"`
+	Importance   int        `gorm:"not null;default:0"`
+	AssigneeID   *string    `gorm:"type:uuid;column:assignee_id"`
+	ReporterID   *string    `gorm:"type:uuid;column:reporter_id"`
+	CustomFields []byte     `gorm:"type:jsonb;not null;column:custom_fields"`
+	StartDate    *time.Time `gorm:"type:date;column:start_date"`
+	DueDate      *time.Time `gorm:"type:date;column:due_date"`
+	Tags         []byte     `gorm:"type:jsonb;not null;column:tags"`
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	DeletedAt    *time.Time `gorm:"index;column:deleted_at"`
@@ -284,6 +287,14 @@ func (r *TaskRepository) CreateTask(ctx context.Context, t *taskdom.Task) error 
 	if err != nil {
 		return fmt.Errorf("task repo: marshal custom_fields: %w", err)
 	}
+	tags := t.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+	tagsJSON, err := json.Marshal(tags)
+	if err != nil {
+		return fmt.Errorf("task repo: marshal tags: %w", err)
+	}
 	rec := &taskRecord{
 		ID:           t.ID.String(),
 		ProjectID:    t.ProjectID.String(),
@@ -297,6 +308,9 @@ func (r *TaskRepository) CreateTask(ctx context.Context, t *taskdom.Task) error 
 		AssigneeID:   uuidPtrToStrPtr(t.AssigneeID),
 		ReporterID:   uuidPtrToStrPtr(t.ReporterID),
 		CustomFields: cf,
+		StartDate:    t.StartDate,
+		DueDate:      t.DueDate,
+		Tags:         tagsJSON,
 		CreatedAt:    t.CreatedAt,
 		UpdatedAt:    t.UpdatedAt,
 	}
@@ -312,6 +326,14 @@ func (r *TaskRepository) UpdateTask(ctx context.Context, t *taskdom.Task) error 
 	if err != nil {
 		return fmt.Errorf("task repo: marshal custom_fields: %w", err)
 	}
+	tags := t.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+	tagsJSON, err := json.Marshal(tags)
+	if err != nil {
+		return fmt.Errorf("task repo: marshal tags: %w", err)
+	}
 	updates := map[string]any{
 		"task_type_id":   uuidPtrToStrPtr(t.TaskTypeID),
 		"status_id":      uuidPtrToStrPtr(t.StatusID),
@@ -323,6 +345,9 @@ func (r *TaskRepository) UpdateTask(ctx context.Context, t *taskdom.Task) error 
 		"assignee_id":    uuidPtrToStrPtr(t.AssigneeID),
 		"reporter_id":    uuidPtrToStrPtr(t.ReporterID),
 		"custom_fields":  cf,
+		"start_date":     t.StartDate,
+		"due_date":       t.DueDate,
+		"tags":           tagsJSON,
 		"updated_at":     t.UpdatedAt,
 	}
 	res := r.db.WithContext(ctx).Model(&taskRecord{}).
@@ -395,6 +420,16 @@ func toTaskEntity(r *taskRecord) (*taskdom.Task, error) {
 		cf = map[string]any{}
 	}
 
+	var tags []string
+	if len(r.Tags) > 0 {
+		if err := json.Unmarshal(r.Tags, &tags); err != nil {
+			return nil, fmt.Errorf("task repo: unmarshal tags: %w", err)
+		}
+	}
+	if tags == nil {
+		tags = []string{}
+	}
+
 	return &taskdom.Task{
 		ID:           id,
 		ProjectID:    pid,
@@ -408,6 +443,9 @@ func toTaskEntity(r *taskRecord) (*taskdom.Task, error) {
 		AssigneeID:   strPtrToUUIDPtr(r.AssigneeID),
 		ReporterID:   strPtrToUUIDPtr(r.ReporterID),
 		CustomFields: cf,
+		StartDate:    r.StartDate,
+		DueDate:      r.DueDate,
+		Tags:         tags,
 		CreatedAt:    r.CreatedAt,
 		UpdatedAt:    r.UpdatedAt,
 		DeletedAt:    r.DeletedAt,

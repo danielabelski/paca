@@ -192,6 +192,10 @@ func (s *Service) CreateTask(ctx context.Context, in taskdom.CreateTaskInput) (*
 	if cf == nil {
 		cf = map[string]any{}
 	}
+	tags := in.Tags
+	if tags == nil {
+		tags = []string{}
+	}
 
 	now := time.Now()
 	t := &taskdom.Task{
@@ -207,6 +211,9 @@ func (s *Service) CreateTask(ctx context.Context, in taskdom.CreateTaskInput) (*
 		AssigneeID:   in.AssigneeID,
 		ReporterID:   in.ReporterID,
 		CustomFields: cf,
+		StartDate:    in.StartDate,
+		DueDate:      in.DueDate,
+		Tags:         tags,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
@@ -240,6 +247,11 @@ func (s *Service) UpdateTask(ctx context.Context, id uuid.UUID, in taskdom.Updat
 	t.ReporterID = in.ReporterID
 	if in.CustomFields != nil {
 		t.CustomFields = in.CustomFields
+	}
+	t.StartDate = in.StartDate
+	t.DueDate = in.DueDate
+	if in.Tags != nil {
+		t.Tags = in.Tags
 	}
 	t.UpdatedAt = time.Now()
 

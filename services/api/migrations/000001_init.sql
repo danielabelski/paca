@@ -270,6 +270,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     assignee_id    UUID        REFERENCES project_members(id) ON DELETE SET NULL,
     reporter_id    UUID        REFERENCES project_members(id) ON DELETE SET NULL,
     custom_fields  JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    start_date     DATE,
+    due_date       DATE,
+    tags           JSONB       NOT NULL DEFAULT '[]'::jsonb,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     deleted_at     TIMESTAMPTZ

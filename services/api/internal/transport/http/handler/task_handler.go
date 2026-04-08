@@ -310,6 +310,9 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 		AssigneeID:   req.AssigneeID,
 		ReporterID:   req.ReporterID,
 		CustomFields: req.CustomFields,
+		StartDate:    req.StartDate,
+		DueDate:      req.DueDate,
+		Tags:         req.Tags,
 	})
 	if err != nil {
 		presenter.Error(c, err)
@@ -342,6 +345,9 @@ func (h *TaskHandler) UpdateTask(c *gin.Context) {
 		AssigneeID:   req.AssigneeID,
 		ReporterID:   req.ReporterID,
 		CustomFields: req.CustomFields,
+		StartDate:    req.StartDate,
+		DueDate:      req.DueDate,
+		Tags:         req.Tags,
 	})
 	if err != nil {
 		presenter.Error(c, err)
