@@ -11,6 +11,8 @@ import (
 	domainauth "github.com/paca/api/internal/domain/auth"
 	globalroledom "github.com/paca/api/internal/domain/globalrole"
 	projectdom "github.com/paca/api/internal/domain/project"
+	sprintdom "github.com/paca/api/internal/domain/sprint"
+	taskdom "github.com/paca/api/internal/domain/task"
 	userdom "github.com/paca/api/internal/domain/user"
 )
 
@@ -116,6 +118,46 @@ func statusAndCodeFor(err error) (int, apierr.Code) {
 		return http.StatusNotFound, apierr.CodeProjectMemberNotFound
 	case errors.Is(err, projectdom.ErrMemberAlreadyAdded):
 		return http.StatusConflict, apierr.CodeProjectMemberAlreadyAdded
+	case errors.Is(err, taskdom.ErrTaskNotFound):
+		return http.StatusNotFound, apierr.CodeTaskNotFound
+	case errors.Is(err, taskdom.ErrTaskTitleInvalid):
+		return http.StatusBadRequest, apierr.CodeTaskTitleInvalid
+	case errors.Is(err, taskdom.ErrTypeNotFound):
+		return http.StatusNotFound, apierr.CodeTaskTypeNotFound
+	case errors.Is(err, taskdom.ErrTypeNameInvalid):
+		return http.StatusBadRequest, apierr.CodeTaskTypeNameInvalid
+	case errors.Is(err, taskdom.ErrStatusNotFound):
+		return http.StatusNotFound, apierr.CodeTaskStatusNotFound
+	case errors.Is(err, taskdom.ErrStatusNameInvalid):
+		return http.StatusBadRequest, apierr.CodeTaskStatusNameInvalid
+	case errors.Is(err, taskdom.ErrStatusCategoryInvalid):
+		return http.StatusBadRequest, apierr.CodeTaskStatusCategoryInvalid
+	case errors.Is(err, sprintdom.ErrSprintNotFound):
+		return http.StatusNotFound, apierr.CodeSprintNotFound
+	case errors.Is(err, sprintdom.ErrSprintNameInvalid):
+		return http.StatusBadRequest, apierr.CodeSprintNameInvalid
+	case errors.Is(err, sprintdom.ErrSprintStatusInvalid):
+		return http.StatusBadRequest, apierr.CodeSprintStatusInvalid
+	case errors.Is(err, sprintdom.ErrViewNotFound):
+		return http.StatusNotFound, apierr.CodeViewNotFound
+	case errors.Is(err, sprintdom.ErrViewNameInvalid):
+		return http.StatusBadRequest, apierr.CodeViewNameInvalid
+	case errors.Is(err, sprintdom.ErrViewTypeInvalid):
+		return http.StatusBadRequest, apierr.CodeViewTypeInvalid
+	case errors.Is(err, sprintdom.ErrViewIsLastView):
+		return http.StatusConflict, apierr.CodeViewIsLastView
+	case errors.Is(err, sprintdom.ErrViewReorderInvalid):
+		return http.StatusBadRequest, apierr.CodeViewReorderInvalid
+	case errors.Is(err, taskdom.ErrCustomFieldNotFound):
+		return http.StatusNotFound, apierr.CodeCustomFieldNotFound
+	case errors.Is(err, taskdom.ErrCustomFieldKeyInvalid):
+		return http.StatusBadRequest, apierr.CodeCustomFieldKeyInvalid
+	case errors.Is(err, taskdom.ErrCustomFieldKeyTaken):
+		return http.StatusConflict, apierr.CodeCustomFieldKeyTaken
+	case errors.Is(err, taskdom.ErrCustomFieldTypeInvalid):
+		return http.StatusBadRequest, apierr.CodeCustomFieldTypeInvalid
+	case errors.Is(err, taskdom.ErrCustomFieldNameInvalid):
+		return http.StatusBadRequest, apierr.CodeCustomFieldNameInvalid
 	default:
 		return http.StatusInternalServerError, apierr.CodeInternalError
 	}
@@ -160,6 +202,29 @@ func httpStatusForCode(code apierr.Code) int {
 	case apierr.CodeProjectMemberNotFound:
 		return http.StatusNotFound
 	case apierr.CodeProjectMemberAlreadyAdded:
+		return http.StatusConflict
+	case apierr.CodeTaskNotFound,
+		apierr.CodeTaskTypeNotFound,
+		apierr.CodeTaskStatusNotFound,
+		apierr.CodeSprintNotFound,
+		apierr.CodeViewNotFound,
+		apierr.CodeCustomFieldNotFound:
+		return http.StatusNotFound
+	case apierr.CodeTaskTitleInvalid,
+		apierr.CodeTaskTypeNameInvalid,
+		apierr.CodeTaskStatusNameInvalid,
+		apierr.CodeTaskStatusCategoryInvalid,
+		apierr.CodeSprintNameInvalid,
+		apierr.CodeSprintStatusInvalid,
+		apierr.CodeViewNameInvalid,
+		apierr.CodeViewTypeInvalid,
+		apierr.CodeViewReorderInvalid,
+		apierr.CodeCustomFieldKeyInvalid,
+		apierr.CodeCustomFieldTypeInvalid,
+		apierr.CodeCustomFieldNameInvalid:
+		return http.StatusBadRequest
+	case apierr.CodeViewIsLastView,
+		apierr.CodeCustomFieldKeyTaken:
 		return http.StatusConflict
 	case apierr.CodeBadRequest:
 		return http.StatusBadRequest

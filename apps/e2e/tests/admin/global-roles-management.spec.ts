@@ -39,6 +39,8 @@ test.describe('Global Roles Management', () => {
     await page.getByRole('button', { name: 'Sign in' }).click();
     // Wait for home page then navigate directly — avoids mobile sidebar modal staying open
     await page.waitForURL(/\/home/);
+    // Wait for the home page to fully hydrate before navigating away (avoids mobile-safari redirect)
+    await expect(page.getByRole('heading', { name: /Good (morning|afternoon|evening)/i })).toBeVisible();
     await page.goto(`${BASE_URL}/admin/global-roles`);
     await expect(page.getByRole('heading', { name: 'Global Roles' })).toBeVisible();
   };
@@ -63,6 +65,8 @@ test.describe('Global Roles Management', () => {
 
       // 2. Navigate directly to Global Roles — avoids mobile sidebar modal staying open
       await page.waitForURL(/\/home/);
+      // Wait for the home page to fully hydrate before navigating away (avoids webkit/mobile-safari redirect)
+      await expect(page.getByRole('heading', { name: /Good (morning|afternoon|evening)/i })).toBeVisible();
       await page.goto(`${BASE_URL}/admin/global-roles`);
 
       // 3. The "Global Roles" page heading should be visible

@@ -24,6 +24,9 @@ type Deps struct {
 	User         *handler.UserHandler
 	GlobalRole   *handler.GlobalRoleHandler
 	Project      *handler.ProjectHandler
+	Task         *handler.TaskHandler
+	Sprint       *handler.SprintHandler
+	View         *handler.ViewHandler
 	Log          *slog.Logger
 }
 
@@ -202,6 +205,264 @@ func New(deps Deps) *gin.Engine {
 					roles.DELETE("/:roleId",
 						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionProjectRolesWrite),
 						deps.Project.DeleteRole,
+					)
+				}
+
+				// Task types — project-scoped configuration
+				taskTypes := project.Group("/task-types")
+				{
+					taskTypes.GET("",
+						httpmw.RequireAnyPermissions(deps.Authorizer,
+							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
+						),
+						deps.Task.ListTaskTypes,
+					)
+					taskTypes.POST("",
+						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
+						deps.Task.CreateTaskType,
+					)
+					taskTypes.PATCH("/:typeId",
+						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
+						deps.Task.UpdateTaskType,
+					)
+					taskTypes.DELETE("/:typeId",
+						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
+						deps.Task.DeleteTaskType,
+					)
+				}
+
+				// Task statuses — project-scoped workflow configuration
+				taskStatuses := project.Group("/task-statuses")
+				{
+					taskStatuses.GET("",
+						httpmw.RequireAnyPermissions(deps.Authorizer,
+							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
+						),
+						deps.Task.ListTaskStatuses,
+					)
+					taskStatuses.POST("",
+						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
+						deps.Task.CreateTaskStatus,
+					)
+					taskStatuses.PATCH("/:statusId",
+						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
+						deps.Task.UpdateTaskStatus,
+					)
+					taskStatuses.DELETE("/:statusId",
+						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
+						deps.Task.DeleteTaskStatus,
+					)
+				}
+
+				// Sprints
+				sprints := project.Group("/sprints")
+				{
+					sprints.GET("",
+						httpmw.RequireAnyPermissions(deps.Authorizer,
+							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionSprintsRead}},
+						),
+						deps.Sprint.ListSprints,
+					)
+					sprints.POST("",
+						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
+						deps.Sprint.CreateSprint,
+					)
+					sprints.GET("/:sprintId",
+						httpmw.RequireAnyPermissions(deps.Authorizer,
+							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionSprintsRead}},
+						),
+						deps.Sprint.GetSprint,
+					)
+					sprints.PATCH("/:sprintId",
+						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
+						deps.Sprint.UpdateSprint,
+					)
+					sprints.DELETE("/:sprintId",
+						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
+						deps.Sprint.DeleteSprint,
+					)
+					// Sprint tasks view
+					sprints.GET("/:sprintId/tasks",
+						httpmw.RequireAnyPermissions(deps.Authorizer,
+							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
+						),
+						deps.Task.GetSprintTasks,
+					)
+
+					// Sprint views
+					views := sprints.Group("/:sprintId/views")
+					{
+						views.GET("",
+							httpmw.RequireAnyPermissions(deps.Authorizer,
+								httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+								httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionSprintsRead}},
+							),
+							deps.View.ListViews,
+						)
+						views.POST("",
+							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
+							deps.View.CreateView,
+						)
+						// Static path /positions must be registered before /:viewId so
+						// Gin's radix tree resolves it as a fixed segment.
+						views.PUT("/positions",
+							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
+							deps.View.ReorderViews,
+						)
+						views.GET("/:viewId",
+							httpmw.RequireAnyPermissions(deps.Authorizer,
+								httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+								httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionSprintsRead}},
+							),
+							deps.View.GetView,
+						)
+						views.PATCH("/:viewId",
+							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
+							deps.View.UpdateView,
+						)
+						views.DELETE("/:viewId",
+							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
+							deps.View.DeleteView,
+						)
+						// Manual task ordering within a view
+						views.GET("/:viewId/task-positions",
+							httpmw.RequireAnyPermissions(deps.Authorizer,
+								httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+								httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
+							),
+							deps.View.ListTaskPositions,
+						)
+						views.PUT("/:viewId/task-positions/:taskId",
+							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
+							deps.View.MoveTask,
+						)
+					}
+				}
+
+				// Product backlog — tasks not assigned to any sprint
+				backlog := project.Group("/product-backlog")
+				{
+					backlog.GET("",
+						httpmw.RequireAnyPermissions(deps.Authorizer,
+							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
+						),
+						deps.Task.ListBacklogTasks,
+					)
+
+					// Product-backlog views
+					backlogViews := backlog.Group("/views")
+					{
+						backlogViews.GET("",
+							httpmw.RequireAnyPermissions(deps.Authorizer,
+								httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+								httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionSprintsRead}},
+							),
+							deps.View.ListBacklogViews,
+						)
+						backlogViews.POST("",
+							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
+							deps.View.CreateBacklogView,
+						)
+						// Static path /positions must be registered before /:viewId.
+						backlogViews.PUT("/positions",
+							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
+							deps.View.ReorderBacklogViews,
+						)
+						backlogViews.GET("/:viewId",
+							httpmw.RequireAnyPermissions(deps.Authorizer,
+								httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+								httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionSprintsRead}},
+							),
+							deps.View.GetView,
+						)
+						backlogViews.PATCH("/:viewId",
+							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
+							deps.View.UpdateView,
+						)
+						backlogViews.DELETE("/:viewId",
+							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
+							deps.View.DeleteView,
+						)
+						// Manual task ordering within a backlog view
+						backlogViews.GET("/:viewId/task-positions",
+							httpmw.RequireAnyPermissions(deps.Authorizer,
+								httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+								httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
+							),
+							deps.View.ListTaskPositions,
+						)
+						backlogViews.PUT("/:viewId/task-positions/:taskId",
+							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
+							deps.View.MoveTask,
+						)
+					}
+				}
+
+				// Tasks — core work items
+				tasks := project.Group("/tasks")
+				{
+					tasks.GET("",
+						httpmw.RequireAnyPermissions(deps.Authorizer,
+							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
+						),
+						deps.Task.ListTasks,
+					)
+					tasks.POST("",
+						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
+						deps.Task.CreateTask,
+					)
+					tasks.GET("/:taskId",
+						httpmw.RequireAnyPermissions(deps.Authorizer,
+							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
+						),
+						deps.Task.GetTask,
+					)
+					tasks.PATCH("/:taskId",
+						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
+						deps.Task.UpdateTask,
+					)
+					tasks.DELETE("/:taskId",
+						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
+						deps.Task.DeleteTask,
+					)
+				}
+
+				// Custom field definitions — project-level schema
+				customFields := project.Group("/custom-fields")
+				{
+					customFields.GET("",
+						httpmw.RequireAnyPermissions(deps.Authorizer,
+							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
+						),
+						deps.Task.ListCustomFieldDefinitions,
+					)
+					customFields.POST("",
+						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
+						deps.Task.CreateCustomFieldDefinition,
+					)
+					customFields.GET("/:fieldId",
+						httpmw.RequireAnyPermissions(deps.Authorizer,
+							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
+						),
+						deps.Task.GetCustomFieldDefinition,
+					)
+					customFields.PATCH("/:fieldId",
+						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
+						deps.Task.UpdateCustomFieldDefinition,
+					)
+					customFields.DELETE("/:fieldId",
+						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
+						deps.Task.DeleteCustomFieldDefinition,
 					)
 				}
 			}

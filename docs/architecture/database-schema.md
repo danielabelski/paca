@@ -8,7 +8,8 @@ Interactive diagram: [https://dbdiagram.io/d/Paca-69c212ae78c6c4bc7a4fc190](http
 
 | File | Purpose |
 |---|---|
-| `000001_init.sql` | Full schema: `global_roles`, `users` (with `role_id` FK and `must_change_password`), projects, project roles/members, seed data |
+| `000001_init.sql` | Full consolidated schema: `global_roles`, `users`, projects, project roles/members, task configuration (`task_types`, `task_statuses`), `sprints`, `sprint_views` (with `view_type`, `config`, `position`), `view_task_positions` (manual task order), `custom_field_definitions`, `tasks`, seed data |
+| `000002_task_attachments.sql` | Adds `start_date`, `due_date`, `tags` columns to `tasks`; creates `task_attachments` table |
 
 ## Schema (DBML)
 
@@ -91,21 +92,31 @@ Table tasks {
   parent_task_id uuid [null]
   title varchar
   description text
-  priority varchar
+  importance integer [not null, default: 0, note: 'unsigned; higher = more important']
   assignee_id uuid
   reporter_id uuid
   custom_fields jsonb
+  start_date date [null]
+  due_date date [null]
+  tags jsonb [not null, default: '[]']
   created_at timestamp
+  updated_at timestamp
 }
 
 Table custom_field_definitions {
   id uuid [primary key]
-  project_id uuid
-  field_key varchar
-  display_name varchar
-  field_type varchar
-  options jsonb [null]
-  is_required boolean [default: false]
+  project_id uuid [not null, ref: > projects.id]
+  field_key varchar [not null, note: 'Unique per project; immutable after creation']
+  display_name varchar [not null]
+  field_type varchar [not null, note: 'text | number | date | select | multi_select | boolean | url']
+  options jsonb [null, note: 'Ordered list of option labels for select / multi_select types']
+  is_required boolean [not null, default: false]
+  created_at timestamp
+  updated_at timestamp
+
+  indexes {
+    (project_id, field_key) [unique]
+  }
 }
 
 // --- SPRINTS & VIEWS ---
@@ -121,10 +132,45 @@ Table sprints {
 
 Table sprint_views {
   id uuid [primary key]
-  sprint_id uuid
+  sprint_id uuid [null, note: 'null for product-backlog (project-level) views; set for sprint views']
+  project_id uuid [not null, ref: > projects.id]
   name varchar
-  view_type varchar // kanban, list, gantt, burndown
-  config jsonb
+  view_type varchar [not null, note: 'Layout: table | board | roadmap']
+  position integer [not null, default: 0, note: 'Zero-based tab order within the integration; lower = further left in the tab bar. Updated on drag-to-reorder.']
+  config jsonb [note: '''
+    View display settings.  All keys are optional; unset keys fall back to
+    per-project or system defaults.
+
+    fields      array<string>  Ordered list of visible column names.
+                               e.g. ["title","assignees","status","importance"]
+    column_by   string         Field used to group board columns or table
+                               groups.  e.g. "status" (default), "assignee".
+    swimlanes   string|null    Field used to create horizontal swimlane bands
+                               across the view.  null = no swimlanes.
+    sort_by     string         "manual" = user-defined drag order stored in
+                               view_task_positions.  Any other value is a
+                               field name used for automatic sort.
+                               e.g. "importance", "created_at", "manual".
+    field_sum   string         Aggregate shown in group/column headings.
+                               "count" (default) = number of tasks.  Can be
+                               any numeric custom field key.
+    slice_by    string|null    Additional filter dimension applied to the
+                               visible task set.  null = no slice.
+  ''']
+  created_at timestamp
+  updated_at timestamp
+}
+
+Table view_task_positions {
+  id uuid [primary key]
+  view_id uuid
+  task_id uuid
+  position integer [not null, note: 'Zero-based index within its group_key; lower = higher in list']
+  group_key varchar [null, note: 'Value of the column_by field for this task (e.g. status name, assignee id) or swimlane key.  null = ungrouped.']
+
+  indexes {
+    (view_id, task_id) [unique]
+  }
 }
 
 // --- FEATURES & UTILITIES ---
@@ -161,6 +207,17 @@ Table dashboards {
   layout jsonb
 }
 
+Table task_attachments {
+  id uuid [primary key]
+  task_id uuid
+  file_name text [not null]
+  file_size bigint [not null]
+  mime_type text [not null]
+  storage_url text [not null]
+  uploaded_by uuid [null]
+  created_at timestamp
+}
+
 Table task_activities {
   id uuid [primary key]
   task_id uuid
@@ -185,7 +242,6 @@ Ref: projects.id < tasks.project_id
 Ref: projects.id < sprints.project_id
 Ref: sprints.id < tasks.sprint_id
 Ref: tasks.id < tasks.parent_task_id
-Ref: projects.id < custom_field_definitions.project_id
 Ref: tasks.id < bdd_scenarios.task_id
 Ref: tasks.id < time_logs.task_id
 Ref: tasks.id < task_activities.task_id
@@ -198,5 +254,9 @@ Ref: project_members.id < time_logs.member_id
 Ref: project_members.id < task_activities.member_id
 Ref: project_members.id < tasks.assignee_id
 Ref: project_members.id < tasks.reporter_id
+Ref: tasks.id < task_attachments.task_id
+Ref: project_members.id < task_attachments.uploaded_by
 Ref: sprints.id < sprint_views.sprint_id
+Ref: sprint_views.id < view_task_positions.view_id
+Ref: tasks.id < view_task_positions.task_id
 ```

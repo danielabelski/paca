@@ -63,6 +63,52 @@ const (
 	CodeProjectMemberNotFound Code = "PROJECT_MEMBER_NOT_FOUND"
 	// CodeProjectMemberAlreadyAdded indicates the user is already a member of the project.
 	CodeProjectMemberAlreadyAdded Code = "PROJECT_MEMBER_ALREADY_ADDED"
+
+	// CodeTaskNotFound indicates the requested task does not exist.
+	CodeTaskNotFound Code = "TASK_NOT_FOUND"
+	// CodeTaskTitleInvalid indicates an empty or invalid task title.
+	CodeTaskTitleInvalid Code = "TASK_TITLE_INVALID"
+
+	// CodeTaskTypeNotFound indicates the requested task type does not exist.
+	CodeTaskTypeNotFound Code = "TASK_TYPE_NOT_FOUND"
+	// CodeTaskTypeNameInvalid indicates an empty or invalid task type name.
+	CodeTaskTypeNameInvalid Code = "TASK_TYPE_NAME_INVALID"
+
+	// CodeTaskStatusNotFound indicates the requested task status does not exist.
+	CodeTaskStatusNotFound Code = "TASK_STATUS_NOT_FOUND"
+	// CodeTaskStatusNameInvalid indicates an empty or invalid task status name.
+	CodeTaskStatusNameInvalid Code = "TASK_STATUS_NAME_INVALID"
+	// CodeTaskStatusCategoryInvalid indicates an invalid status category value.
+	CodeTaskStatusCategoryInvalid Code = "TASK_STATUS_CATEGORY_INVALID"
+
+	// CodeSprintNotFound indicates the requested sprint does not exist.
+	CodeSprintNotFound Code = "SPRINT_NOT_FOUND"
+	// CodeSprintNameInvalid indicates an empty or invalid sprint name.
+	CodeSprintNameInvalid Code = "SPRINT_NAME_INVALID"
+	// CodeSprintStatusInvalid indicates an invalid sprint status value.
+	CodeSprintStatusInvalid Code = "SPRINT_STATUS_INVALID"
+
+	// CodeViewNotFound indicates the requested sprint view does not exist.
+	CodeViewNotFound Code = "VIEW_NOT_FOUND"
+	// CodeViewNameInvalid indicates an empty or invalid view name.
+	CodeViewNameInvalid Code = "VIEW_NAME_INVALID"
+	// CodeViewTypeInvalid indicates an invalid view type value.
+	CodeViewTypeInvalid Code = "VIEW_TYPE_INVALID"
+	// CodeViewIsLastView indicates the view cannot be deleted because it is the last remaining view.
+	CodeViewIsLastView Code = "VIEW_IS_LAST_VIEW"
+	// CodeViewReorderInvalid indicates the provided view IDs do not match the integration's views.
+	CodeViewReorderInvalid Code = "VIEW_REORDER_INVALID"
+
+	// CodeCustomFieldNotFound indicates the requested custom field definition does not exist.
+	CodeCustomFieldNotFound Code = "CUSTOM_FIELD_NOT_FOUND"
+	// CodeCustomFieldKeyInvalid indicates an empty or invalid field key.
+	CodeCustomFieldKeyInvalid Code = "CUSTOM_FIELD_KEY_INVALID"
+	// CodeCustomFieldKeyTaken indicates the field key is already in use within the project.
+	CodeCustomFieldKeyTaken Code = "CUSTOM_FIELD_KEY_TAKEN"
+	// CodeCustomFieldTypeInvalid indicates an invalid field type value.
+	CodeCustomFieldTypeInvalid Code = "CUSTOM_FIELD_TYPE_INVALID"
+	// CodeCustomFieldNameInvalid indicates an empty or invalid display name.
+	CodeCustomFieldNameInvalid Code = "CUSTOM_FIELD_NAME_INVALID"
 )
 
 // Error carries a machine-readable Code alongside a human-readable Message.

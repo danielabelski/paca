@@ -102,7 +102,8 @@ test.describe("Mobile Layout", () => {
 		loginPage,
 	}) => {
 		await loginPage.page.setViewportSize({ width: 375, height: 667 });
-		await loginPage.page.goto("/");
+		// loginPage fixture already navigated to "/"; reload to apply the new viewport
+		await loginPage.page.reload();
 
 		await expect(
 			loginPage.page.getByRole("heading", { name: "Welcome back" }),
@@ -120,7 +121,7 @@ test.describe("Mobile Layout", () => {
 		page,
 	}) => {
 		await loginPage.page.setViewportSize({ width: 375, height: 667 });
-		await loginPage.page.goto("/");
+		// loginPage fixture already navigated to "/"; no need to goto again
 
 		await loginPage.usernameInput.fill(process.env.E2E_USERNAME ?? "admin");
 		await loginPage.passwordInput.fill(
@@ -129,8 +130,6 @@ test.describe("Mobile Layout", () => {
 		await loginPage.rememberMeSwitch.click();
 		await loginPage.submit();
 
-		await expect(
-			page.getByRole("heading", { name: /home|welcome/i }),
-		).toBeVisible();
+		await expect(page).toHaveURL(/\/home/);
 	});
 });

@@ -28,11 +28,22 @@ test.describe("Session Management — authenticated", () => {
 
 	test.beforeEach(async ({ page }) => {
 		await page.goto("/home");
-		// If a prior test in the suite logged out the admin and invalidated the server-side
-		// session stored in AUTH_FILE, the app will redirect to login instead of /home.
-		// Re-authenticate directly so these tests remain independent of test order.
-		if (!page.url().includes("/home")) {
-			await page.getByRole("textbox", { name: "Username" }).fill(USERNAME);
+		// The SPA performs an async auth check after the initial load, so the URL may
+		// still show /home even though the app will redirect to login once the check
+		// resolves (observed in Firefox when the storageState was produced by Chromium).
+		// Wait for the page to settle to either authenticated content or the login form,
+		// then re-authenticate if necessary.
+		const usernameField = page.getByRole("textbox", { name: "Username" });
+		const homeHeading = page.getByRole("heading", {
+			name: /Good (morning|afternoon|evening), Admin/i,
+		});
+		await Promise.race([
+			homeHeading.waitFor({ state: "visible", timeout: 10000 }),
+			usernameField.waitFor({ state: "visible", timeout: 10000 }),
+		]).catch(() => {});
+
+		if (await usernameField.isVisible()) {
+			await usernameField.fill(USERNAME);
 			await page.getByRole("textbox", { name: "Password" }).fill(PASSWORD);
 			await page.getByRole("button", { name: /sign in/i }).click();
 			await page.waitForURL(/\/home/);
@@ -40,7 +51,6 @@ test.describe("Session Management — authenticated", () => {
 	});
 
 	test("logout redirects to login page", async ({ page }) => {
-		await page.goto("/home");
 		await expect(
 			page.getByRole("heading", { name: /Good (morning|afternoon|evening), Admin/i }),
 		).toBeVisible({ timeout: 10000 });
@@ -66,7 +76,6 @@ test.describe("Session Management — authenticated", () => {
 	test("back button after logout shows login, not home page", async ({
 		page,
 	}) => {
-		await page.goto("/home");
 		await expect(
 			page.getByRole("heading", { name: /Good (morning|afternoon|evening), Admin/i }),
 		).toBeVisible({ timeout: 10000 });
@@ -99,7 +108,6 @@ test.describe("Session Management — authenticated", () => {
 	});
 
 	test("session persists across page reload", async ({ page }) => {
-		await page.goto("/home");
 		await expect(
 			page.getByRole("heading", { name: /Good (morning|afternoon|evening), Admin/i }),
 		).toBeVisible({ timeout: 10000 });
@@ -114,7 +122,7 @@ test.describe("Session Management — authenticated", () => {
 		context,
 		page,
 	}) => {
-		await page.goto("/home");
+		// beforeEach already navigated to /home; no need to goto again
 		await expect(
 			page.getByRole("heading", { name: /Good (morning|afternoon|evening), Admin/i }),
 		).toBeVisible({ timeout: 10000 });
@@ -140,9 +148,7 @@ test.describe("Session Management — fresh context", () => {
 		await page1.getByRole("textbox", { name: "Username" }).fill(USERNAME);
 		await page1.getByRole("textbox", { name: "Password" }).fill(PASSWORD);
 		await page1.getByRole("button", { name: /sign in/i }).click();
-		await expect(
-			page1.getByRole("heading", { name: /home|welcome/i }),
-		).toBeVisible({ timeout: 10000 });
+		await expect(page1).toHaveURL(/\/home/, { timeout: 10000 });
 		await ctx1.close();
 
 		// Create a fresh context and verify the session doesn't carry over.

@@ -130,4 +130,157 @@ VALUES
      NOW(), NOW())
 ON CONFLICT DO NOTHING;
 
+-- -------------------------------------------------------------------------
+-- TASK TYPES
+-- -------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS task_types (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id  UUID        NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name        TEXT        NOT NULL,
+    icon        TEXT,
+    color       TEXT,
+    description TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- -------------------------------------------------------------------------
+-- TASK STATUSES
+-- -------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS task_statuses (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id  UUID        NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name        TEXT        NOT NULL,
+    color       TEXT,
+    position    INTEGER     NOT NULL DEFAULT 0,
+    category    TEXT        NOT NULL CHECK (category IN ('backlog','refinement','ready','todo','inprogress','done')),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- -------------------------------------------------------------------------
+-- SPRINTS
+-- -------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS sprints (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id  UUID        NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name        TEXT        NOT NULL,
+    start_date  DATE,
+    end_date    DATE,
+    goal        TEXT,
+    status      TEXT        NOT NULL DEFAULT 'planned' CHECK (status IN ('planned','active','completed')),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- -------------------------------------------------------------------------
+-- CUSTOM FIELD DEFINITIONS
+-- -------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS custom_field_definitions (
+    id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id   UUID        NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    field_key    TEXT        NOT NULL,
+    display_name TEXT        NOT NULL,
+    field_type   TEXT        NOT NULL,
+    options      JSONB,
+    is_required  BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (project_id, field_key)
+);
+
+-- -------------------------------------------------------------------------
+-- TASKS
+-- importance: unsigned integer (>=0); higher value = more important.
+-- board_position: ordering of the card within its status column on the
+--                 kanban board; lower value appears first.
+-- -------------------------------------------------------------------------
+
+-- -------------------------------------------------------------------------
+-- SPRINT VIEWS
+-- Each sprint (or product backlog) can have multiple named views.
+-- sprint_id:  NULL for product-backlog views; set for sprint-scoped views.
+-- project_id: always set — identifies the owning project.
+-- view_type: table | board | roadmap
+-- config: jsonb with optional keys:
+--   fields      text[]   – ordered list of visible column names
+--   column_by   text     – field used to group columns/groups (default: status)
+--   swimlanes   text     – horizontal swimlane grouping field (null = none)
+--   sort_by     text     – "manual" or any sortable field name
+--   field_sum   text     – "count" (default) or a numeric field key
+--   slice_by    text     – extra filter dimension (null = none)
+-- -------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS sprint_views (
+    id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    sprint_id  UUID        REFERENCES sprints(id) ON DELETE CASCADE,
+    project_id UUID        NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name       TEXT        NOT NULL,
+    view_type  TEXT        NOT NULL DEFAULT 'table'
+                           CHECK (view_type IN ('table','board','roadmap')),
+    config     JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    position   INTEGER     NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sprint_views_sprint_id  ON sprint_views (sprint_id);
+CREATE INDEX IF NOT EXISTS idx_sprint_views_project_id ON sprint_views (project_id);
+
+-- -------------------------------------------------------------------------
+-- VIEW TASK POSITIONS
+-- Stores manually-defined per-view task ordering.
+-- Only relevant when sprint_views.config->>'sort_by' = 'manual'.
+-- position:  zero-based rank within the group; lower = higher in list.
+-- group_key: value of the column_by field for this task (e.g. status name,
+--            assignee id).  NULL means the view has no grouping dimension.
+-- -------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS view_task_positions (
+    id        UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+    view_id   UUID    NOT NULL REFERENCES sprint_views(id) ON DELETE CASCADE,
+    task_id   UUID    NOT NULL,
+    position  INTEGER NOT NULL DEFAULT 0,
+    group_key TEXT,
+    CONSTRAINT uq_view_task_positions_view_task UNIQUE (view_id, task_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_view_task_positions_view_id ON view_task_positions (view_id);
+
+-- -------------------------------------------------------------------------
+-- TASKS
+-- importance: unsigned integer (>=0); higher value = more important.
+-- Task ordering is managed per-view via the view_task_positions table.
+-- -------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS tasks (
+    id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id     UUID        NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    task_type_id   UUID        REFERENCES task_types(id) ON DELETE SET NULL,
+    status_id      UUID        REFERENCES task_statuses(id) ON DELETE SET NULL,
+    sprint_id      UUID        REFERENCES sprints(id) ON DELETE SET NULL,
+    parent_task_id UUID        REFERENCES tasks(id) ON DELETE SET NULL,
+    title          TEXT        NOT NULL,
+    description    TEXT,
+    importance     INTEGER     NOT NULL DEFAULT 0 CHECK (importance >= 0),
+    assignee_id    UUID        REFERENCES project_members(id) ON DELETE SET NULL,
+    reporter_id    UUID        REFERENCES project_members(id) ON DELETE SET NULL,
+    custom_fields  JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    start_date     DATE,
+    due_date       DATE,
+    tags           JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at     TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks (project_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_status_id  ON tasks (status_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_sprint_id  ON tasks (sprint_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_deleted_at ON tasks (deleted_at) WHERE deleted_at IS NOT NULL;
+
 COMMIT;

@@ -27,6 +27,8 @@ import (
 	authsvc "github.com/paca/api/internal/service/auth"
 	globalrolesvc "github.com/paca/api/internal/service/globalrole"
 	projectsvc "github.com/paca/api/internal/service/project"
+	sprintsvc "github.com/paca/api/internal/service/sprint"
+	tasksvc "github.com/paca/api/internal/service/task"
 	usersvc "github.com/paca/api/internal/service/user"
 	"github.com/paca/api/internal/transport/http/handler"
 	"github.com/paca/api/internal/transport/http/router"
@@ -60,10 +62,7 @@ func New(cfg *config.Config) (*App, error) {
 		return nil, fmt.Errorf("bootstrap: %w", err)
 	}
 
-	publisher, err := messaging.NewPublisher(cfg.RabbitMQ.URL, "paca.events", log)
-	if err != nil {
-		return nil, fmt.Errorf("bootstrap: %w", err)
-	}
+	publisher := messaging.NewPublisher(redisClient, log)
 
 	tokenManager := jwttoken.New(cfg.JWT.Secret, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL)
 	permissionStore := pgRepo.NewAuthzPermissionStore(db)
@@ -73,6 +72,9 @@ func New(cfg *config.Config) (*App, error) {
 	userRepo := pgRepo.NewUserRepository(db)
 	globalRoleRepo := pgRepo.NewGlobalRoleRepository(db)
 	projectRepo := pgRepo.NewProjectRepository(db)
+	taskRepo := pgRepo.NewTaskRepository(db)
+	sprintRepo := pgRepo.NewSprintRepository(db)
+	viewRepo := pgRepo.NewViewRepository(db)
 	refreshStore := redisRepo.NewRefreshTokenStore(redisClient)
 
 	if err := db.AutoMigrate(
@@ -100,7 +102,10 @@ func New(cfg *config.Config) (*App, error) {
 	authService := authsvc.New(userRepo, tokenManager, refreshStore, cfg.JWT.RefreshTTL, cfg.JWT.RefreshSessionTTL)
 	userService := usersvc.New(userRepo, permissionStore, globalRoleRepo)
 	globalRoleService := globalrolesvc.New(globalRoleRepo)
-	projectService := projectsvc.New(projectRepo)
+	projectService := projectsvc.New(projectRepo, taskRepo)
+	taskService := tasksvc.New(taskRepo)
+	sprintService := sprintsvc.New(sprintRepo)
+	viewService := sprintsvc.NewViewService(viewRepo)
 
 	// --- Handlers -----------------------------------------------------------
 	cookieCfg := handler.CookieConfig{
@@ -118,6 +123,9 @@ func New(cfg *config.Config) (*App, error) {
 		User:         handler.NewUserHandler(userService, authService),
 		GlobalRole:   handler.NewGlobalRoleHandler(globalRoleService),
 		Project:      handler.NewProjectHandler(projectService, authorizer),
+		Task:         handler.NewTaskHandler(taskService, viewService),
+		Sprint:       handler.NewSprintHandler(sprintService, viewService),
+		View:         handler.NewViewHandler(viewService),
 		Log:          log,
 	}
 

@@ -126,6 +126,60 @@ These routes already exist in the Go API service.
 | `PATCH` | `/api/v1/admin/global-roles/:roleId` | Access token (fresh) + `global_roles.write` | Update a global role definition. |
 | `DELETE` | `/api/v1/admin/global-roles/:roleId` | Access token (fresh) + `global_roles.write` | Remove a global role definition. Fails with `409` if users are assigned to it. |
 | `PUT` | `/api/v1/admin/users/:userId/global-roles` | Access token (fresh) + `global_roles.assign` | Assign or replace the single global role for a user. |
+| `GET` | `/api/v1/projects` | Access token (fresh) | List projects visible to the caller. |
+| `POST` | `/api/v1/projects` | Access token (fresh) + `projects.create` | Create a new project. |
+| `GET` | `/api/v1/projects/:projectId` | Access token (fresh) + `projects.read` | Get project details. |
+| `PATCH` | `/api/v1/projects/:projectId` | Access token (fresh) + `projects.write` | Update project name or description. |
+| `DELETE` | `/api/v1/projects/:projectId` | Access token (fresh) + `projects.delete` | Delete a project. |
+| `GET` | `/api/v1/projects/:projectId/members` | Access token (fresh) + `members.read` | List project members. |
+| `POST` | `/api/v1/projects/:projectId/members` | Access token (fresh) + `members.write` | Add a user to a project. |
+| `PATCH` | `/api/v1/projects/:projectId/members/:userId` | Access token (fresh) + `members.write` | Change a member's project role. |
+| `DELETE` | `/api/v1/projects/:projectId/members/:userId` | Access token (fresh) + `members.write` | Remove a member from a project. |
+| `GET` | `/api/v1/projects/:projectId/roles` | Access token (fresh) + `roles.read` | List custom project roles. |
+| `POST` | `/api/v1/projects/:projectId/roles` | Access token (fresh) + `roles.write` | Create a project-scoped role. |
+| `PATCH` | `/api/v1/projects/:projectId/roles/:roleId` | Access token (fresh) + `roles.write` | Update a project role. |
+| `DELETE` | `/api/v1/projects/:projectId/roles/:roleId` | Access token (fresh) + `roles.write` | Delete a project role. |
+| `GET` | `/api/v1/projects/:projectId/task-types` | Access token (fresh) + `tasks.read` | List task type definitions. |
+| `POST` | `/api/v1/projects/:projectId/task-types` | Access token (fresh) + `tasks.write` | Create a task type (e.g. story, bug, chore). |
+| `PATCH` | `/api/v1/projects/:projectId/task-types/:typeId` | Access token (fresh) + `tasks.write` | Update a task type. |
+| `DELETE` | `/api/v1/projects/:projectId/task-types/:typeId` | Access token (fresh) + `tasks.write` | Delete a task type. |
+| `GET` | `/api/v1/projects/:projectId/task-statuses` | Access token (fresh) + `tasks.read` | List workflow statuses in board order. |
+| `POST` | `/api/v1/projects/:projectId/task-statuses` | Access token (fresh) + `tasks.write` | Create a workflow status. |
+| `PATCH` | `/api/v1/projects/:projectId/task-statuses/:statusId` | Access token (fresh) + `tasks.write` | Update a workflow status. |
+| `DELETE` | `/api/v1/projects/:projectId/task-statuses/:statusId` | Access token (fresh) + `tasks.write` | Delete a workflow status. |
+| `GET` | `/api/v1/projects/:projectId/sprints` | Access token (fresh) + `sprints.read` | List sprints for a project ordered by creation date. |
+| `POST` | `/api/v1/projects/:projectId/sprints` | Access token (fresh) + `sprints.write` | Create a sprint. |
+| `GET` | `/api/v1/projects/:projectId/sprints/:sprintId` | Access token (fresh) + `sprints.read` | Get sprint details (goal, dates, status). |
+| `PATCH` | `/api/v1/projects/:projectId/sprints/:sprintId` | Access token (fresh) + `sprints.write` | Update sprint metadata or lifecycle status. |
+| `DELETE` | `/api/v1/projects/:projectId/sprints/:sprintId` | Access token (fresh) + `sprints.write` | Delete a sprint. |
+| `GET` | `/api/v1/projects/:projectId/sprints/:sprintId/tasks` | Access token (fresh) + `tasks.read` | List tasks assigned to a specific sprint (sprint backlog view). |
+| `GET` | `/api/v1/projects/:projectId/sprints/:sprintId/views` | Access token (fresh) + `sprints.read` | List saved view configurations for a sprint. |
+| `POST` | `/api/v1/projects/:projectId/sprints/:sprintId/views` | Access token (fresh) + `sprints.write` | Create a saved view configuration for a sprint. Sprint creation automatically seeds one Board and one Table view. |
+| `GET` | `/api/v1/projects/:projectId/sprints/:sprintId/views/:viewId` | Access token (fresh) + `sprints.read` | Get a single sprint view configuration. |
+| `PATCH` | `/api/v1/projects/:projectId/sprints/:sprintId/views/:viewId` | Access token (fresh) + `sprints.write` | Update a sprint view's name or config. |
+| `DELETE` | `/api/v1/projects/:projectId/sprints/:sprintId/views/:viewId` | Access token (fresh) + `sprints.write` | Delete a sprint view. Fails with `409 VIEW_IS_LAST_VIEW` if it is the only remaining view. |
+| `PUT` | `/api/v1/projects/:projectId/sprints/:sprintId/views/positions` | Access token (fresh) + `sprints.write` | Reorder all views for a sprint. Body: `{ "view_ids": ["<uuid>", ...] }` — must include every view ID in the desired tab order. Returns `400 VIEW_REORDER_INVALID` if the list is missing or contains unknown IDs. |
+| `GET` | `/api/v1/projects/:projectId/sprints/:sprintId/views/:viewId/task-positions` | Access token (fresh) + `tasks.read` | List manual task ordering positions within a view. |
+| `PUT` | `/api/v1/projects/:projectId/sprints/:sprintId/views/:viewId/task-positions/:taskId` | Access token (fresh) + `tasks.write` | Set or update the manual position of a task within a view. |
+| `GET` | `/api/v1/projects/:projectId/product-backlog` | Access token (fresh) + `tasks.read` | List tasks not yet assigned to any sprint (product backlog view). |
+| `GET` | `/api/v1/projects/:projectId/product-backlog/views` | Access token (fresh) + `sprints.read` | List saved view configurations for the product backlog. |
+| `POST` | `/api/v1/projects/:projectId/product-backlog/views` | Access token (fresh) + `sprints.write` | Create a saved view configuration for the product backlog. Project creation automatically seeds one Board and one Table view. |
+| `GET` | `/api/v1/projects/:projectId/product-backlog/views/:viewId` | Access token (fresh) + `sprints.read` | Get a single product-backlog view configuration. |
+| `PATCH` | `/api/v1/projects/:projectId/product-backlog/views/:viewId` | Access token (fresh) + `sprints.write` | Update a product-backlog view's name or config. |
+| `DELETE` | `/api/v1/projects/:projectId/product-backlog/views/:viewId` | Access token (fresh) + `sprints.write` | Delete a product-backlog view. Fails with `409 VIEW_IS_LAST_VIEW` if it is the only remaining view. |
+| `PUT` | `/api/v1/projects/:projectId/product-backlog/views/positions` | Access token (fresh) + `sprints.write` | Reorder all product-backlog views for a project. Body: `{ "view_ids": ["<uuid>", ...] }` — must include every view ID in the desired tab order. Returns `400 VIEW_REORDER_INVALID` if the list is missing or contains unknown IDs. |
+| `GET` | `/api/v1/projects/:projectId/product-backlog/views/:viewId/task-positions` | Access token (fresh) + `tasks.read` | List manual task ordering positions within a product-backlog view. |
+| `PUT` | `/api/v1/projects/:projectId/product-backlog/views/:viewId/task-positions/:taskId` | Access token (fresh) + `tasks.write` | Set or update the manual position of a task within a product-backlog view. |
+| `GET` | `/api/v1/projects/:projectId/tasks` | Access token (fresh) + `tasks.read` | List tasks with optional filters (`sprint_id`, `status_id`, `assignee_id`). Pass `view_id` to include `view_position` and `view_group_key` in each task item. |
+| `POST` | `/api/v1/projects/:projectId/tasks` | Access token (fresh) + `tasks.write` | Create a task. |
+| `GET` | `/api/v1/projects/:projectId/tasks/:taskId` | Access token (fresh) + `tasks.read` | Get task detail. |
+| `PATCH` | `/api/v1/projects/:projectId/tasks/:taskId` | Access token (fresh) + `tasks.write` | Update a task. |
+| `DELETE` | `/api/v1/projects/:projectId/tasks/:taskId` | Access token (fresh) + `tasks.write` | Soft-delete a task. |
+| `GET` | `/api/v1/projects/:projectId/custom-fields` | Access token (fresh) + `tasks.read` | List custom field definitions for a project. |
+| `POST` | `/api/v1/projects/:projectId/custom-fields` | Access token (fresh) + `tasks.write` | Create a custom field definition. |
+| `GET` | `/api/v1/projects/:projectId/custom-fields/:fieldId` | Access token (fresh) + `tasks.read` | Get a custom field definition by ID. |
+| `PATCH` | `/api/v1/projects/:projectId/custom-fields/:fieldId` | Access token (fresh) + `tasks.write` | Update a custom field definition. |
+| `DELETE` | `/api/v1/projects/:projectId/custom-fields/:fieldId` | Access token (fresh) + `tasks.write` | Delete a custom field definition. |
 
 > **"fresh" access token**: an access token whose `must_change_password` claim is `false`. If the claim is `true`, the request is rejected with `403 AUTH_PASSWORD_CHANGE_REQUIRED` and the user must call `PATCH /api/v1/users/me/password` first.
 
@@ -461,54 +515,468 @@ Request body:
 }
 ```
 
+## Sprint View Contracts
+
+### `GET /api/v1/projects/:projectId/sprints/:sprintId/views`
+
+Function:
+
+- list all saved view configurations for the sprint ordered by `position`;
+- sprint creation automatically seeds a Board view (position 0) and a Table view (position 1).
+
+Success response data:
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "sprint_id": "uuid",
+      "name": "Board",
+      "view_type": "board",
+      "position": 0,
+      "config": {},
+      "created_at": "2026-03-24T00:00:00Z",
+      "updated_at": "2026-03-24T00:00:00Z"
+    }
+  ]
+}
+```
+
+### `POST /api/v1/projects/:projectId/sprints/:sprintId/views`
+
+Function:
+
+- create a new sprint view;
+- `view_type` must be one of `board`, `table`, or `roadmap`;
+- `position` defaults to the next available slot.
+
+Request body:
+
+```json
+{
+  "name": "My Kanban",
+  "view_type": "board",
+  "position": 2,
+  "config": {
+    "column_by": "status",
+    "sort_by": "manual"
+  }
+}
+```
+
+Success response: `201 Created` with view data.
+
+### `GET /api/v1/projects/:projectId/sprints/:sprintId/views/:viewId`
+
+Function:
+
+- get a sprint view by ID including its full `config` map.
+
+### `PATCH /api/v1/projects/:projectId/sprints/:sprintId/views/:viewId`
+
+Function:
+
+- update a sprint view's `name`, `position`, or `config`;
+- only supplied fields are changed.
+
+Request body:
+
+```json
+{
+  "name": "Renamed Board",
+  "config": {
+    "sort_by": "manual"
+  }
+}
+```
+
+Success response: `200 OK` with updated view data.
+
+### `DELETE /api/v1/projects/:projectId/sprints/:sprintId/views/:viewId`
+
+Function:
+
+- delete a sprint view;
+- returns `409 VIEW_IS_LAST_VIEW` if this is the only remaining view on the sprint.
+
+Success response: `204 No Content`
+
+### `GET /api/v1/projects/:projectId/sprints/:sprintId/views/:viewId/task-positions`
+
+Function:
+
+- return the manual task ordering positions stored for this view;
+- positions are scoped per `group_key` (e.g. a status column ID) and ordered by `position`.
+
+Success response data:
+
+```json
+{
+  "items": [
+    {
+      "view_id": "uuid",
+      "task_id": "uuid",
+      "group_key": "status-uuid",
+      "position": 0
+    }
+  ]
+}
+```
+
+### `PUT /api/v1/projects/:projectId/sprints/:sprintId/views/:viewId/task-positions/:taskId`
+
+Function:
+
+- upsert the manual position of a task within a view;
+- used when `sort_by` is `"manual"` and the user reorders tasks via drag-and-drop.
+
+Request body:
+
+```json
+{
+  "group_key": "status-uuid",
+  "position": 2
+}
+```
+
+Success response: `204 No Content`
+
+---
+
+## Product Backlog View Contracts
+
+Product-backlog views are identical in structure to sprint views, but they are scoped to a project rather than a sprint. The `sprint_id` field is omitted (or `null`) in all responses; `project_id` is always present.
+
+### `GET /api/v1/projects/:projectId/product-backlog/views`
+
+Function:
+
+- list all saved view configurations for the product backlog ordered by `position`;
+- project creation automatically seeds a Board view (position 0) and a Table view (position 1).
+
+Success response data:
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "project_id": "uuid",
+      "name": "Board",
+      "view_type": "board",
+      "position": 0,
+      "config": {},
+      "created_at": "2026-03-24T00:00:00Z",
+      "updated_at": "2026-03-24T00:00:00Z"
+    }
+  ]
+}
+```
+
+### `POST /api/v1/projects/:projectId/product-backlog/views`
+
+Function:
+
+- create a new product-backlog view;
+- `view_type` must be one of `board`, `table`, or `roadmap`;
+- `position` defaults to the next available slot.
+
+Request body:
+
+```json
+{
+  "name": "My Table",
+  "view_type": "table",
+  "position": 2,
+  "config": {
+    "sort_by": "manual"
+  }
+}
+```
+
+Success response: `201 Created` with view data.
+
+### `GET /api/v1/projects/:projectId/product-backlog/views/:viewId`
+
+Function:
+
+- get a product-backlog view by ID including its full `config` map.
+
+### `PATCH /api/v1/projects/:projectId/product-backlog/views/:viewId`
+
+Function:
+
+- update a product-backlog view's `name`, `position`, or `config`;
+- only supplied fields are changed.
+
+Request body:
+
+```json
+{
+  "name": "Renamed Board",
+  "config": {
+    "sort_by": "manual"
+  }
+}
+```
+
+Success response: `200 OK` with updated view data.
+
+### `DELETE /api/v1/projects/:projectId/product-backlog/views/:viewId`
+
+Function:
+
+- delete a product-backlog view;
+- returns `409 VIEW_IS_LAST_VIEW` if this is the only remaining view on the project's backlog.
+
+Success response: `204 No Content`
+
+### `GET /api/v1/projects/:projectId/product-backlog/views/:viewId/task-positions`
+
+Function:
+
+- return the manual task ordering positions stored for this view;
+- positions are scoped per `group_key` (e.g. a status column ID) and ordered by `position`.
+
+Success response data:
+
+```json
+{
+  "items": [
+    {
+      "view_id": "uuid",
+      "task_id": "uuid",
+      "group_key": "status-uuid",
+      "position": 0
+    }
+  ]
+}
+```
+
+### `PUT /api/v1/projects/:projectId/product-backlog/views/:viewId/task-positions/:taskId`
+
+Function:
+
+- upsert the manual position of a task within a product-backlog view;
+- used when `sort_by` is `"manual"` and the user reorders tasks via drag-and-drop.
+
+Request body:
+
+```json
+{
+  "group_key": "status-uuid",
+  "position": 2
+}
+```
+
+Success response: `204 No Content`
+
+---
+
+## Task List API
+
+### `GET /api/v1/projects/:projectId/tasks`
+
+Function:
+
+- list all non-deleted tasks for a project, with optional filtering and pagination;
+- when `view_id` is supplied, each task in the response includes its manual `view_position` and `view_group_key` from that view's ordering (these fields are omitted when the task has no recorded position in the requested view).
+
+Query parameters:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `page` | `1` | 1-based page number |
+| `page_size` | `20` | Items per page (max 100) |
+| `sprint_id` | – | Filter to tasks assigned to a specific sprint |
+| `status_id` | – | Filter to tasks with a specific status |
+| `assignee_id` | – | Filter to tasks assigned to a specific user |
+| `view_id` | – | UUID of a view; enriches each task with its manual position in that view |
+
+Success response data (without `view_id`):
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "project_id": "uuid",
+      "title": "Implement feature X",
+      "importance": 3,
+      "custom_fields": {},
+      "created_at": "2026-04-01T00:00:00Z",
+      "updated_at": "2026-04-01T00:00:00Z"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "page_size": 20
+}
+```
+
+Success response data (with `view_id`):
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "project_id": "uuid",
+      "title": "Implement feature X",
+      "importance": 3,
+      "custom_fields": {},
+      "view_position": 2,
+      "view_group_key": "status-uuid",
+      "created_at": "2026-04-01T00:00:00Z",
+      "updated_at": "2026-04-01T00:00:00Z"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "page_size": 20
+}
+```
+
+Notes:
+
+- `view_position` and `view_group_key` are omitted (`omitempty`) when the task has no recorded position in the requested view, or when `view_id` is not provided.
+- If `view_id` refers to a view that has no stored positions, tasks are returned without position fields (200 OK, no error).
+- An invalid UUID supplied as `view_id` returns `400 BAD_REQUEST`.
+
+---
+
+## Custom Field Definition Contracts
+
+Custom field definitions describe extra metadata fields that can be attached to tasks within a project. Each definition is scoped to a project and has an immutable `field_key` that uniquely identifies it within the project.
+
+**Supported `field_type` values:** `text`, `number`, `date`, `select`, `multi_select`, `boolean`, `url`
+
+### `GET /api/v1/projects/:projectId/custom-fields`
+
+Function:
+
+- list all custom field definitions for the project in creation order.
+
+Success response data:
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "project_id": "uuid",
+      "field_key": "priority_level",
+      "display_name": "Priority Level",
+      "field_type": "text",
+      "options": [],
+      "is_required": false,
+      "created_at": "2026-04-01T00:00:00Z",
+      "updated_at": "2026-04-01T00:00:00Z"
+    }
+  ]
+}
+```
+
+### `POST /api/v1/projects/:projectId/custom-fields`
+
+Function:
+
+- create a new custom field definition;
+- `field_key` must be unique within the project and is immutable after creation;
+- `options` is required (and used) only for `select` and `multi_select` types.
+
+Request body:
+
+```json
+{
+  "field_key": "priority_level",
+  "display_name": "Priority Level",
+  "field_type": "select",
+  "options": ["low", "medium", "high"],
+  "is_required": false
+}
+```
+
+Success response: `201 Created` with the created custom field definition.
+
+Error codes:
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `CUSTOM_FIELD_KEY_INVALID` | 400 | `field_key` is empty or invalid. |
+| `CUSTOM_FIELD_NAME_INVALID` | 400 | `display_name` is empty or invalid. |
+| `CUSTOM_FIELD_TYPE_INVALID` | 400 | `field_type` is not one of the allowed values. |
+| `CUSTOM_FIELD_KEY_TAKEN` | 409 | A field with that `field_key` already exists in this project. |
+
+### `GET /api/v1/projects/:projectId/custom-fields/:fieldId`
+
+Function:
+
+- return a single custom field definition by ID.
+
+Success response data: same shape as a single item in `GET /custom-fields`.
+
+Error codes:
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `CUSTOM_FIELD_NOT_FOUND` | 404 | No custom field with the given ID exists. |
+
+### `PATCH /api/v1/projects/:projectId/custom-fields/:fieldId`
+
+Function:
+
+- update mutable fields: `display_name`, `field_type`, `options`, `is_required`;
+- `field_key` is **immutable** and cannot be changed after creation;
+- only supplied fields are updated (partial update).
+
+Request body:
+
+```json
+{
+  "display_name": "Priority Level (Updated)",
+  "options": ["low", "medium", "high", "critical"]
+}
+```
+
+Success response: `200 OK` with the updated custom field definition.
+
+Error codes:
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `CUSTOM_FIELD_NOT_FOUND` | 404 | No custom field with the given ID exists. |
+| `CUSTOM_FIELD_NAME_INVALID` | 400 | `display_name` is empty or invalid. |
+| `CUSTOM_FIELD_TYPE_INVALID` | 400 | `field_type` is not one of the allowed values. |
+
+### `DELETE /api/v1/projects/:projectId/custom-fields/:fieldId`
+
+Function:
+
+- permanently delete a custom field definition;
+- existing task data referencing this field key in `tasks.custom_fields` is not automatically cleaned up.
+
+Success response: `200 OK`
+
+Error codes:
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `CUSTOM_FIELD_NOT_FOUND` | 404 | No custom field with the given ID exists. |
+
+---
+
 ## Planned Resource API
 
 The following endpoints are not yet implemented. They are the recommended path design for the next API slices based on the domain model.
 
-## Projects and Membership
+## Task Extras
+
+Sub-resources of tasks that are not yet implemented.
 
 | Method | Path | Function |
 |---|---|---|
-| `GET` | `/api/v1/projects` | List projects visible to the caller. |
-| `POST` | `/api/v1/projects` | Create a project with initial settings. |
-| `GET` | `/api/v1/projects/:projectId` | Get project details, settings, and summary metadata. |
-| `PATCH` | `/api/v1/projects/:projectId` | Update project name, description, or settings. |
-| `DELETE` | `/api/v1/projects/:projectId` | Archive or delete a project. |
-| `GET` | `/api/v1/projects/:projectId/members` | List project members and their project roles. |
-| `POST` | `/api/v1/projects/:projectId/members` | Add a user to a project with a project role. |
-| `PATCH` | `/api/v1/projects/:projectId/members/:memberId` | Change a member's project role or membership metadata. |
-| `DELETE` | `/api/v1/projects/:projectId/members/:memberId` | Remove a member from a project. |
-| `GET` | `/api/v1/projects/:projectId/roles` | List custom project roles for a project. |
-| `POST` | `/api/v1/projects/:projectId/roles` | Create a project-specific role and permission set. |
-| `PATCH` | `/api/v1/projects/:projectId/roles/:roleId` | Update a project role definition. |
-| `DELETE` | `/api/v1/projects/:projectId/roles/:roleId` | Delete a project role definition. |
-
-## Task Configuration
-
-| Method | Path | Function |
-|---|---|---|
-| `GET` | `/api/v1/projects/:projectId/task-types` | List task type definitions for a project. |
-| `POST` | `/api/v1/projects/:projectId/task-types` | Create a task type such as story, bug, or chore. |
-| `PATCH` | `/api/v1/projects/:projectId/task-types/:taskTypeId` | Update a task type's name, icon, color, or description. |
-| `DELETE` | `/api/v1/projects/:projectId/task-types/:taskTypeId` | Delete a task type definition. |
-| `GET` | `/api/v1/projects/:projectId/task-statuses` | List workflow statuses in board order. |
-| `POST` | `/api/v1/projects/:projectId/task-statuses` | Create a workflow status. |
-| `PATCH` | `/api/v1/projects/:projectId/task-statuses/:statusId` | Update status name, color, position, or category. |
-| `DELETE` | `/api/v1/projects/:projectId/task-statuses/:statusId` | Delete a workflow status. |
-| `GET` | `/api/v1/projects/:projectId/custom-fields` | List custom field definitions. |
-| `POST` | `/api/v1/projects/:projectId/custom-fields` | Create a custom field definition. |
-| `PATCH` | `/api/v1/projects/:projectId/custom-fields/:fieldId` | Update a custom field definition. |
-| `DELETE` | `/api/v1/projects/:projectId/custom-fields/:fieldId` | Delete a custom field definition. |
-
-## Tasks and Collaboration
-
-| Method | Path | Function |
-|---|---|---|
-| `GET` | `/api/v1/projects/:projectId/tasks` | List tasks for a project with filters for status, assignee, sprint, and parent task. |
-| `POST` | `/api/v1/projects/:projectId/tasks` | Create a new task in a project. |
-| `GET` | `/api/v1/projects/:projectId/tasks/:taskId` | Get task detail including workflow, assignee, reporter, and custom fields. |
-| `PATCH` | `/api/v1/projects/:projectId/tasks/:taskId` | Update task title, description, status, sprint, assignee, or custom field values. |
-| `DELETE` | `/api/v1/projects/:projectId/tasks/:taskId` | Delete or archive a task. |
 | `GET` | `/api/v1/projects/:projectId/tasks/:taskId/children` | List child tasks under a parent task. |
 | `POST` | `/api/v1/projects/:projectId/tasks/:taskId/children` | Create a child task under the specified parent task. |
 | `GET` | `/api/v1/projects/:projectId/tasks/:taskId/activities` | List audit/activity entries for a task. |
@@ -522,19 +990,13 @@ The following endpoints are not yet implemented. They are the recommended path d
 | `PATCH` | `/api/v1/projects/:projectId/tasks/:taskId/time-logs/:timeLogId` | Update a time log entry. |
 | `DELETE` | `/api/v1/projects/:projectId/tasks/:taskId/time-logs/:timeLogId` | Delete a time log entry. |
 
-## Sprints and Views
+## Project Configuration Extras
 
-| Method | Path | Function |
-|---|---|---|
-| `GET` | `/api/v1/projects/:projectId/sprints` | List sprints for a project. |
-| `POST` | `/api/v1/projects/:projectId/sprints` | Create a sprint. |
-| `GET` | `/api/v1/projects/:projectId/sprints/:sprintId` | Get sprint details including goal, dates, and status. |
-| `PATCH` | `/api/v1/projects/:projectId/sprints/:sprintId` | Update sprint metadata or lifecycle status. |
-| `DELETE` | `/api/v1/projects/:projectId/sprints/:sprintId` | Delete or archive a sprint. |
-| `GET` | `/api/v1/projects/:projectId/sprints/:sprintId/views` | List saved sprint views such as kanban, list, gantt, and burndown. |
-| `POST` | `/api/v1/projects/:projectId/sprints/:sprintId/views` | Create a saved sprint view configuration. |
-| `PATCH` | `/api/v1/projects/:projectId/sprints/:sprintId/views/:viewId` | Update a sprint view configuration. |
-| `DELETE` | `/api/v1/projects/:projectId/sprints/:sprintId/views/:viewId` | Delete a sprint view configuration. |
+Custom field definition endpoints are implemented. See [Custom Field Definition Contracts](#custom-field-definition-contracts) below.
+
+## Sprint Extras
+
+No additional sprint sub-resources are planned at this time.
 
 ## Knowledge and Reporting
 
@@ -558,10 +1020,14 @@ To keep the API coherent and aligned with the current codebase, implement the ne
 1. ~~Normalize the existing auth and user error contracts.~~ ✅ Done
 2. ~~Add complete admin user management: list, create, update, delete, reset-password.~~ ✅ Done
 3. ~~Force password change after admin create/reset.~~ ✅ Done
-4. Add project and project-member endpoints.
-5. Add task configuration endpoints: statuses, types, custom fields.
-6. Add task CRUD and task activity endpoints.
-7. Add sprint, document, dashboard, BDD scenario, and time-log endpoints.
+4. ~~Add project and project-member endpoints.~~ ✅ Done
+5. ~~Add task configuration endpoints: statuses and types.~~ ✅ Done
+6. ~~Add task CRUD endpoints.~~ ✅ Done
+7. ~~Add sprint CRUD, sprint backlog view (`GET /sprints/:id/tasks`), and product-backlog view (`GET /product-backlog`).~~ ✅ Done
+8. ~~Add sprint saved views: board, table, roadmap with manual task ordering.~~ ✅ Done
+9. Add task sub-resource endpoints: child tasks, activities, BDD scenarios, and time logs.
+10. ~~Add custom field definitions.~~ ✅ Done
+11. Add knowledge and reporting: documents and dashboards.
 
 ## Known Model Gaps
 
@@ -592,5 +1058,33 @@ The schema and HTTP contract are consistent. Before adding the next slice (proje
 | `GLOBAL_ROLE_NAME_TAKEN` | 409 | A global role with that name already exists. |
 | `GLOBAL_ROLE_NAME_INVALID` | 400 | Role name does not meet naming requirements. |
 | `GLOBAL_ROLE_HAS_ASSIGNED_USERS` | 409 | Role cannot be deleted while users are assigned to it. |
+| `PROJECT_NOT_FOUND` | 404 | Project with the given ID does not exist. |
+| `PROJECT_NAME_TAKEN` | 409 | A project with that name already exists. |
+| `PROJECT_NAME_INVALID` | 400 | Project name is empty or does not meet naming requirements. |
+| `PROJECT_ROLE_NOT_FOUND` | 404 | Project role with the given ID does not exist. |
+| `PROJECT_ROLE_NAME_TAKEN` | 409 | A role with that name already exists within the project. |
+| `PROJECT_ROLE_NAME_INVALID` | 400 | Project role name is empty or invalid. |
+| `PROJECT_ROLE_HAS_MEMBERS` | 409 | Project role cannot be deleted while members are assigned to it. |
+| `PROJECT_MEMBER_NOT_FOUND` | 404 | Membership record for the given user in this project does not exist. |
+| `PROJECT_MEMBER_ALREADY_ADDED` | 409 | User is already a member of the project. |
+| `TASK_NOT_FOUND` | 404 | Task with the given ID does not exist. |
+| `TASK_TITLE_INVALID` | 400 | Task title is empty or invalid. |
+| `TASK_TYPE_NOT_FOUND` | 404 | Task type with the given ID does not exist. |
+| `TASK_TYPE_NAME_INVALID` | 400 | Task type name is empty or invalid. |
+| `TASK_STATUS_NOT_FOUND` | 404 | Task status with the given ID does not exist. |
+| `TASK_STATUS_NAME_INVALID` | 400 | Task status name is empty or invalid. |
+| `TASK_STATUS_CATEGORY_INVALID` | 400 | Task status category value is not one of the allowed values. |
+| `SPRINT_NOT_FOUND` | 404 | Sprint with the given ID does not exist. |
+| `SPRINT_NAME_INVALID` | 400 | Sprint name is empty or invalid. |
+| `SPRINT_STATUS_INVALID` | 400 | Sprint status value is not one of the allowed values. |
+| `VIEW_NOT_FOUND` | 404 | Sprint view with the given ID does not exist. |
+| `VIEW_NAME_INVALID` | 400 | View name is empty or invalid. |
+| `VIEW_TYPE_INVALID` | 400 | View type is not one of `board`, `table`, or `roadmap`. |
+| `VIEW_IS_LAST_VIEW` | 409 | View cannot be deleted because it is the only remaining view on the sprint. |
+| `CUSTOM_FIELD_NOT_FOUND` | 404 | Custom field definition with the given ID does not exist. |
+| `CUSTOM_FIELD_KEY_INVALID` | 400 | `field_key` is empty or contains invalid characters. |
+| `CUSTOM_FIELD_KEY_TAKEN` | 409 | A field with that `field_key` already exists within the project. |
+| `CUSTOM_FIELD_TYPE_INVALID` | 400 | `field_type` is not one of the allowed values. |
+| `CUSTOM_FIELD_NAME_INVALID` | 400 | `display_name` is empty or invalid. |
 | `BAD_REQUEST` | 400 | Malformed or invalid request body. |
 | `INTERNAL_ERROR` | 500 | Unexpected server error. |
