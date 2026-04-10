@@ -9,7 +9,7 @@ Go + Gin backend service for product APIs and core business operations.
 - Coordinate application workflows through domain services.
 - Persist system-of-record state in PostgreSQL via GORM.
 - Use Redis where appropriate (cache, rate limit, short-lived state).
-- Publish real-time domain events to a Valkey Stream for `services/realtime`.
+- Publish real-time domain events via Valkey Pub/Sub; append durable events to Valkey Streams for `services/realtime`.
 
 ## Architecture Principles
 
@@ -110,7 +110,7 @@ services/api/
 3. Handler maps DTO -> service input.
 4. Service executes business rules and transaction boundaries.
 5. Repository persists/reads data using GORM.
-6. Service may publish domain events to the Valkey Stream.
+6. Service may publish real-time domain events via Valkey Pub/Sub or append durable events to Valkey Streams.
 7. Handler returns standardized response DTO.
 
 ## JWT Authentication and Authorization
