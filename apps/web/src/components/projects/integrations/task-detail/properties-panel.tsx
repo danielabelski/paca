@@ -507,7 +507,7 @@ export function PropertiesPanel({
 									{task.sprint_id
 										? (sprints.find((s) => s.id === task.sprint_id)?.name ??
 											task.sprint_id)
-										: "No sprint"}
+										: "Product Backlog"}
 								</PopoverTrigger>
 								<PopoverContent
 									className="w-52 p-1 rounded-xl border border-border/40 shadow-lg"
@@ -519,7 +519,7 @@ export function PropertiesPanel({
 										onClick={() => onUpdate?.({ sprint_id: null })}
 									>
 										<GitBranch className="size-3 shrink-0 opacity-60" />
-										<span className="flex-1 text-left">No sprint</span>
+										<span className="flex-1 text-left">Product Backlog</span>
 										{!task.sprint_id && (
 											<Check className="size-3.5 text-primary" />
 										)}
