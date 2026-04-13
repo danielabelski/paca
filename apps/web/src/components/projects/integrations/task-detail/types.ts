@@ -59,6 +59,7 @@ export interface TaskDetailModalProps {
 	projectName?: string;
 	integrationName?: string;
 	projectId?: string;
+	taskIdPrefix?: string;
 	mode?: "modal" | "page";
 	canEdit?: boolean;
 }

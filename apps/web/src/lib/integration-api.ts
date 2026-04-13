@@ -27,6 +27,7 @@ export interface Task {
 	id: string;
 	project_id: string;
 	title: string;
+	task_number: number;
 	task_type_id?: string | null;
 	status_id?: string | null;
 	sprint_id?: string | null;

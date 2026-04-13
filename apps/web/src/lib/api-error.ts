@@ -29,6 +29,7 @@ export const ApiErrorCode = {
 	ProjectNotFound: "PROJECT_NOT_FOUND",
 	ProjectNameTaken: "PROJECT_NAME_TAKEN",
 	ProjectNameInvalid: "PROJECT_NAME_INVALID",
+	ProjectPrefixInvalid: "PROJECT_PREFIX_INVALID",
 	ProjectRoleNotFound: "PROJECT_ROLE_NOT_FOUND",
 	ProjectRoleNameTaken: "PROJECT_ROLE_NAME_TAKEN",
 	ProjectRoleNameInvalid: "PROJECT_ROLE_NAME_INVALID",

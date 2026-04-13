@@ -10,6 +10,7 @@ interface TaskHeaderProps {
 	projectName?: string;
 	integrationName?: string;
 	projectId?: string;
+	taskIdPrefix?: string;
 	onClose: () => void;
 }
 
@@ -19,6 +20,7 @@ export function TaskHeader({
 	projectName,
 	integrationName,
 	projectId,
+	taskIdPrefix = "",
 	onClose,
 }: TaskHeaderProps) {
 	const [linkCopied, setLinkCopied] = useState(false);
@@ -60,7 +62,9 @@ export function TaskHeader({
 			<div className="flex items-center gap-1.5 rounded-md bg-muted/60 px-2 py-1 border border-border/30">
 				<Hash className="size-3 text-muted-foreground/60" />
 				<span className="font-[JetBrains_Mono,monospace] text-[11px] font-semibold text-muted-foreground tracking-wider">
-					{shortId(task.id)}
+					{taskIdPrefix && task.task_number > 0
+						? `${taskIdPrefix}-${task.task_number}`
+						: shortId(task.id)}
 				</span>
 			</div>
 

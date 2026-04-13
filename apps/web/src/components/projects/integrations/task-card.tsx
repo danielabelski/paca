@@ -29,6 +29,7 @@ type UpdatePayload = TaskFieldUpdate;
 
 interface TaskCardProps {
 	task: Task;
+	taskIdPrefix?: string;
 	statuses: TaskStatus[];
 	taskTypes: TaskType[];
 	members?: ProjectMember[];
@@ -51,6 +52,7 @@ function formatDate(iso: string): string {
 
 export function TaskCard({
 	task,
+	taskIdPrefix = "",
 	statuses,
 	taskTypes,
 	members = [],
@@ -474,6 +476,14 @@ export function TaskCard({
 			{canEdit && (
 				<div className="absolute left-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
 					<GripVertical className="size-3.5 text-muted-foreground/60" />
+				</div>
+			)}
+
+			{(taskIdPrefix || task.task_number > 0) && (
+				<div className="mb-1 flex items-center">
+					<span className="font-[JetBrains_Mono,monospace] text-[10px] font-semibold text-muted-foreground/50 tracking-wide">
+						{taskIdPrefix ? `${taskIdPrefix}-${task.task_number}` : `#${task.task_number}`}
+					</span>
 				</div>
 			)}
 

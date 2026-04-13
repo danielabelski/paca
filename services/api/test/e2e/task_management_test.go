@@ -161,6 +161,7 @@ func TestE2ETaskManagement_CRUD(t *testing.T) {
 	projID := createProjectForTasksViaAPI(t, env, client, token)
 
 	var taskID string
+	var taskNumber float64
 
 	t.Run("create_task", func(t *testing.T) {
 		body := jsonBody(t, map[string]any{
@@ -181,6 +182,10 @@ func TestE2ETaskManagement_CRUD(t *testing.T) {
 		taskID, _ = data["id"].(string)
 		if taskID == "" {
 			t.Fatal("expected non-empty task id")
+		}
+		taskNumber, _ = data["task_number"].(float64)
+		if taskNumber < 1 {
+			t.Errorf("expected task_number >= 1, got %v", taskNumber)
 		}
 	})
 
@@ -229,6 +234,27 @@ func TestE2ETaskManagement_CRUD(t *testing.T) {
 		data := assertDataMap(t, env2)
 		if title, _ := data["title"].(string); title != "Implement feature X (updated)" {
 			t.Errorf("expected updated title, got %q", title)
+		}
+	})
+
+	t.Run("get_task_by_number", func(t *testing.T) {
+		if taskNumber < 1 {
+			t.Skip("task_number not available (create_task may have failed)")
+		}
+		req := mustRequest(env.ctx, t, http.MethodGet,
+			fmt.Sprintf("%s/api/v1/projects/%s/tasks/by-number/%d", env.base, projID, int64(taskNumber)), nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := mustDo(t, client, req)
+		defer func() { _ = resp.Body.Close() }()
+		assertStatus(t, resp, http.StatusOK)
+		var env2 envelope
+		decodeJSON(t, resp, &env2)
+		data := assertDataMap(t, env2)
+		if id, _ := data["id"].(string); id != taskID {
+			t.Errorf("get by number: expected id %q, got %q", taskID, id)
+		}
+		if num, _ := data["task_number"].(float64); num != taskNumber {
+			t.Errorf("get by number: expected task_number=%v, got %v", taskNumber, num)
 		}
 	})
 

@@ -99,10 +99,11 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 	}
 
 	p, err := h.svc.Create(c.Request.Context(), projectdom.CreateProjectInput{
-		Name:        req.Name,
-		Description: req.Description,
-		Settings:    req.Settings,
-		CreatedBy:   createdBy,
+		Name:         req.Name,
+		Description:  req.Description,
+		TaskIDPrefix: req.TaskIDPrefix,
+		Settings:     req.Settings,
+		CreatedBy:    createdBy,
 	})
 	if err != nil {
 		presenter.Error(c, err)
@@ -125,9 +126,10 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 	}
 
 	p, err := h.svc.Update(c.Request.Context(), id, projectdom.UpdateProjectInput{
-		Name:        req.Name,
-		Description: req.Description,
-		Settings:    req.Settings,
+		Name:         req.Name,
+		Description:  req.Description,
+		TaskIDPrefix: req.TaskIDPrefix,
+		Settings:     req.Settings,
 	})
 	if err != nil {
 		presenter.Error(c, err)

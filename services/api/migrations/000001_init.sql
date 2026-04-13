@@ -48,12 +48,15 @@ CREATE INDEX IF NOT EXISTS idx_users_role_id    ON users (role_id);
 -- -------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS projects (
-    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    name        TEXT        NOT NULL,
-    description TEXT        NOT NULL DEFAULT '',
-    settings    JSONB       NOT NULL DEFAULT '{}'::jsonb,
-    created_by  UUID,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    name             TEXT        NOT NULL,
+    description      TEXT        NOT NULL DEFAULT '',
+    -- task_id_prefix: short uppercase alphanumeric tag prepended to task_number
+    -- to form a human-readable task ID, e.g. "PACA" → "PACA-1", "PACA-2".
+    task_id_prefix   TEXT        NOT NULL DEFAULT '',
+    settings         JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    created_by       UUID,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS project_roles (
@@ -253,14 +256,30 @@ CREATE TABLE IF NOT EXISTS view_task_positions (
 CREATE INDEX IF NOT EXISTS idx_view_task_positions_view_id ON view_task_positions (view_id);
 
 -- -------------------------------------------------------------------------
+-- TASK COUNTERS
+-- Tracks the per-project sequential task number so that every task within a
+-- project gets a human-readable, monotonically increasing identifier.
+-- The counter is incremented atomically via INSERT ... ON CONFLICT DO UPDATE.
+-- -------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS task_counters (
+    project_id UUID    PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+    last_value BIGINT  NOT NULL DEFAULT 0
+);
+
+-- -------------------------------------------------------------------------
 -- TASKS
 -- importance: unsigned integer (>=0); higher value = more important.
+-- task_number: project-scoped sequential ID (1, 2, 3, …) assigned at
+--              creation and never reused; enables human-readable references
+--              like "#42" within a project.
 -- Task ordering is managed per-view via the view_task_positions table.
 -- -------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS tasks (
     id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id     UUID        NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    task_number    BIGINT      NOT NULL DEFAULT 0,
     task_type_id   UUID        REFERENCES task_types(id) ON DELETE SET NULL,
     status_id      UUID        REFERENCES task_statuses(id) ON DELETE SET NULL,
     sprint_id      UUID        REFERENCES sprints(id) ON DELETE SET NULL,
@@ -276,13 +295,15 @@ CREATE TABLE IF NOT EXISTS tasks (
     tags           JSONB       NOT NULL DEFAULT '[]'::jsonb,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    deleted_at     TIMESTAMPTZ
+    deleted_at     TIMESTAMPTZ,
+    CONSTRAINT uq_tasks_project_task_number UNIQUE (project_id, task_number)
 );
 
-CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks (project_id);
-CREATE INDEX IF NOT EXISTS idx_tasks_status_id  ON tasks (status_id);
-CREATE INDEX IF NOT EXISTS idx_tasks_sprint_id  ON tasks (sprint_id);
-CREATE INDEX IF NOT EXISTS idx_tasks_deleted_at ON tasks (deleted_at) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tasks_project_id   ON tasks (project_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_task_number  ON tasks (project_id, task_number);
+CREATE INDEX IF NOT EXISTS idx_tasks_status_id    ON tasks (status_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_sprint_id    ON tasks (sprint_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_deleted_at   ON tasks (deleted_at) WHERE deleted_at IS NOT NULL;
 
 -- -------------------------------------------------------------------------
 -- TASK ATTACHMENTS

@@ -106,6 +106,8 @@ func statusAndCodeFor(err error) (int, apierr.Code) {
 		return http.StatusConflict, apierr.CodeProjectNameTaken
 	case errors.Is(err, projectdom.ErrNameInvalid):
 		return http.StatusBadRequest, apierr.CodeProjectNameInvalid
+	case errors.Is(err, projectdom.ErrPrefixInvalid):
+		return http.StatusBadRequest, apierr.CodeProjectPrefixInvalid
 	case errors.Is(err, projectdom.ErrRoleNotFound):
 		return http.StatusNotFound, apierr.CodeProjectRoleNotFound
 	case errors.Is(err, projectdom.ErrRoleNameTaken):

@@ -430,6 +430,13 @@ func New(deps Deps) *gin.Engine {
 						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
 						deps.Task.CreateTask,
 					)
+					tasks.GET("/by-number/:taskNumber",
+						httpmw.RequireAnyPermissions(deps.Authorizer,
+							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
+						),
+						deps.Task.GetTaskByNumber,
+					)
 					tasks.GET("/:taskId",
 						httpmw.RequireAnyPermissions(deps.Authorizer,
 							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},

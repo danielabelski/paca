@@ -100,6 +100,7 @@ function formatDate(iso: string): string {
 
 interface TaskRowProps {
 	task: Task;
+	taskIdPrefix?: string;
 	statuses: TaskStatus[];
 	taskTypes: TaskType[];
 	members?: ProjectMember[];
@@ -114,6 +115,7 @@ interface TaskRowProps {
 
 export function TaskRow({
 	task,
+	taskIdPrefix = "",
 	statuses,
 	taskTypes,
 	members = [],
@@ -590,7 +592,16 @@ export function TaskRow({
 				<GripVertical className="size-3.5 shrink-0 -ml-1.5 text-muted-foreground/30 group-hover:text-muted-foreground/70 cursor-grab opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
 			)}
 
-			{/* Title is always first */}
+			{/* Task ID — separate fixed-width column left of title */}
+			<span className="w-20 shrink-0 font-[JetBrains_Mono,monospace] text-[10px] font-semibold text-muted-foreground/55 tracking-wide">
+				{taskIdPrefix
+					? `${taskIdPrefix}-${task.task_number}`
+					: task.task_number > 0
+						? `#${task.task_number}`
+						: ""}
+			</span>
+
+			{/* Title */}
 			<span className="flex-1 text-[13px] font-medium text-foreground truncate">
 				{task.title}
 			</span>

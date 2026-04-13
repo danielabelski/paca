@@ -98,6 +98,7 @@ type CustomFieldDefinition struct {
 type Task struct {
 	ID           uuid.UUID
 	ProjectID    uuid.UUID
+	TaskNumber   int64
 	TaskTypeID   *uuid.UUID
 	StatusID     *uuid.UUID
 	SprintID     *uuid.UUID

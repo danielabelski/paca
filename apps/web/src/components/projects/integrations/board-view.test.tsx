@@ -54,6 +54,7 @@ const makeTask = (overrides: Partial<Task> = {}): Task => ({
 	id: "task-1",
 	project_id: PROJECT_ID,
 	title: "Do the thing",
+	task_number: 0,
 	sprint_id: SPRINT_ID,
 	status_id: "status-todo",
 	task_type_id: null,

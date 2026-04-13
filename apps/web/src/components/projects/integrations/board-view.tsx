@@ -42,10 +42,11 @@ type MoveToColumnUpdate = Partial<{
 
 interface BoardViewProps {
 	projectId: string;
+	taskIdPrefix?: string;
 	tasks: Task[];
 	statuses: TaskStatus[];
 	taskTypes: TaskType[];
-	members: ProjectMember[];
+	members?: ProjectMember[];
 	customFields?: CustomFieldDefinition[];
 	viewConfig?: ViewConfig;
 	canCreate: boolean;
@@ -198,10 +199,11 @@ function ColumnAddTask({ taskTypes, onAdd }: ColumnAddProps) {
 
 export function BoardView({
 	projectId,
+	taskIdPrefix = "",
 	tasks,
 	statuses,
 	taskTypes,
-	members,
+	members = [],
 	customFields = [],
 	viewConfig,
 	canCreate,
@@ -603,6 +605,7 @@ export function BoardView({
 					>
 						<TaskCard
 							task={task}
+							taskIdPrefix={taskIdPrefix}
 							statuses={statuses}
 							taskTypes={taskTypes}
 							members={members}

@@ -8,7 +8,7 @@ import {
 	taskQueryOptions,
 	updateTask,
 } from "@/lib/integration-api";
-import { customFieldsQueryOptions } from "@/lib/project-api";
+import { customFieldsQueryOptions, projectQueryOptions } from "@/lib/project-api";
 import { cn } from "@/lib/utils";
 import { getTaskTypeIconComponent } from "../../task-types/task-type-icons";
 import { getPriority } from "../priority";
@@ -45,10 +45,18 @@ export function TaskDetailModal({
 	projectName,
 	integrationName,
 	projectId,
+	taskIdPrefix: taskIdPrefixProp = "",
 	mode = "modal",
 	canEdit = true,
 }: TaskDetailModalProps) {
 	const qc = useQueryClient();
+
+	// Fetch project to get task ID prefix
+	const { data: project } = useQuery({
+		...projectQueryOptions(projectId ?? ""),
+		enabled: !!projectId && (open || mode === "page"),
+	});
+	const taskIdPrefix = project?.task_id_prefix || taskIdPrefixProp;
 
 	// Fetch fresh task data whenever the modal is open and we have a projectId
 	const { data: freshTask } = useQuery({
@@ -164,6 +172,7 @@ export function TaskDetailModal({
 				projectName={projectName}
 				integrationName={integrationName}
 				projectId={projectId}
+				taskIdPrefix={taskIdPrefix}
 				onClose={() => onOpenChange(false)}
 			/>
 

@@ -244,6 +244,7 @@ type UpdateTaskRequest struct {
 type TaskResponse struct {
 	ID           uuid.UUID      `json:"id"`
 	ProjectID    uuid.UUID      `json:"project_id"`
+	TaskNumber   int64          `json:"task_number"`
 	Title        string         `json:"title"`
 	TaskTypeID   *uuid.UUID     `json:"task_type_id,omitempty"`
 	StatusID     *uuid.UUID     `json:"status_id,omitempty"`
@@ -276,6 +277,7 @@ func TaskFromEntity(t *taskdom.Task) TaskResponse {
 	return TaskResponse{
 		ID:           t.ID,
 		ProjectID:    t.ProjectID,
+		TaskNumber:   t.TaskNumber,
 		Title:        t.Title,
 		TaskTypeID:   t.TaskTypeID,
 		StatusID:     t.StatusID,

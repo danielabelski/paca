@@ -109,14 +109,30 @@ func (f *fakeTaskSvc) GetTask(_ context.Context, id uuid.UUID) (*taskdom.Task, e
 	return &cp, nil
 }
 
+func (f *fakeTaskSvc) GetTaskByNumber(_ context.Context, projectID uuid.UUID, taskNumber int64) (*taskdom.Task, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	for _, t := range f.tasks {
+		if t.ProjectID == projectID && t.TaskNumber == taskNumber {
+			cp := *t
+			return &cp, nil
+		}
+	}
+	return nil, taskdom.ErrTaskNotFound
+}
+
 func (f *fakeTaskSvc) CreateTask(_ context.Context, in taskdom.CreateTaskInput) (*taskdom.Task, error) {
 	if in.Title == "" {
 		return nil, taskdom.ErrTaskTitleInvalid
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	taskNum := int64(len(f.tasks) + 1)
 	now := time.Now()
 	t := &taskdom.Task{
 		ID:           uuid.New(),
 		ProjectID:    in.ProjectID,
+		TaskNumber:   taskNum,
 		Title:        in.Title,
 		SprintID:     in.SprintID,
 		StatusID:     in.StatusID,
@@ -125,9 +141,7 @@ func (f *fakeTaskSvc) CreateTask(_ context.Context, in taskdom.CreateTaskInput) 
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	f.mu.Lock()
 	f.tasks[t.ID] = t
-	f.mu.Unlock()
 	return t, nil
 }
 
@@ -247,6 +261,7 @@ func buildTaskHandlerRouter(svc *fakeTaskSvc) *gin.Engine {
 	projectGroup.DELETE("/task-types/:typeId", h.DeleteTaskType)
 	projectGroup.GET("/tasks", h.ListTasks)
 	projectGroup.POST("/tasks", h.CreateTask)
+	projectGroup.GET("/tasks/by-number/:taskNumber", h.GetTaskByNumber)
 	projectGroup.GET("/tasks/:taskId", h.GetTask)
 	projectGroup.PATCH("/tasks/:taskId", h.UpdateTask)
 	projectGroup.DELETE("/tasks/:taskId", h.DeleteTask)
@@ -496,5 +511,88 @@ func TestTaskHandler_InvalidTaskID_Returns400(t *testing.T) {
 	)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid task id, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task Number handler tests
+// ---------------------------------------------------------------------------
+
+func TestTaskHandler_CreateTask_ResponseContainsTaskNumber(t *testing.T) {
+	svc := newFakeTaskSvc()
+	r := buildTaskHandlerRouter(svc)
+	projectID := uuid.New()
+
+	w := doTaskRequest(r, http.MethodPost,
+		fmt.Sprintf("/projects/%s/tasks", projectID),
+		map[string]any{"title": "Numbered Task"},
+	)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	taskNum := decodeTaskField(t, w.Body.Bytes(), "task_number")
+	if taskNum == nil {
+		t.Fatal("expected task_number in response")
+	}
+	if taskNum.(float64) < 1 {
+		t.Errorf("expected task_number >= 1, got %v", taskNum)
+	}
+}
+
+func TestTaskHandler_GetTaskByNumber_Returns200(t *testing.T) {
+	svc := newFakeTaskSvc()
+	r := buildTaskHandlerRouter(svc)
+	projectID := uuid.New()
+
+	// Create task first to get a task number.
+	createW := doTaskRequest(r, http.MethodPost,
+		fmt.Sprintf("/projects/%s/tasks", projectID),
+		map[string]any{"title": "Task by number"},
+	)
+	if createW.Code != http.StatusCreated {
+		t.Fatalf("create: got %d", createW.Code)
+	}
+	taskNum := decodeTaskField(t, createW.Body.Bytes(), "task_number").(float64)
+	originalID := decodeTaskID(t, createW.Body.Bytes())
+
+	// Look up by task number.
+	getW := doTaskRequest(r, http.MethodGet,
+		fmt.Sprintf("/projects/%s/tasks/by-number/%d", projectID, int64(taskNum)),
+		nil,
+	)
+	if getW.Code != http.StatusOK {
+		t.Fatalf("get by number: expected 200, got %d: %s", getW.Code, getW.Body.String())
+	}
+	gotID := decodeTaskID(t, getW.Body.Bytes())
+	if gotID != originalID {
+		t.Errorf("expected id %s, got %s", originalID, gotID)
+	}
+}
+
+func TestTaskHandler_GetTaskByNumber_NotFoundReturns404(t *testing.T) {
+	svc := newFakeTaskSvc()
+	r := buildTaskHandlerRouter(svc)
+	projectID := uuid.New()
+
+	w := doTaskRequest(r, http.MethodGet,
+		fmt.Sprintf("/projects/%s/tasks/by-number/9999", projectID),
+		nil,
+	)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTaskHandler_GetTaskByNumber_InvalidNumberReturns400(t *testing.T) {
+	svc := newFakeTaskSvc()
+	r := buildTaskHandlerRouter(svc)
+	projectID := uuid.New()
+
+	w := doTaskRequest(r, http.MethodGet,
+		fmt.Sprintf("/projects/%s/tasks/by-number/not-a-number", projectID),
+		nil,
+	)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid task number, got %d: %s", w.Code, w.Body.String())
 	}
 }

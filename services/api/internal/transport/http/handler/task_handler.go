@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"fmt"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/paca/api/internal/apierr"
@@ -303,6 +305,27 @@ func (h *TaskHandler) GetTask(c *gin.Context) {
 		return
 	}
 	t, err := h.svc.GetTask(c.Request.Context(), taskID)
+	if err != nil {
+		presenter.Error(c, err)
+		return
+	}
+	presenter.OK(c, dto.TaskFromEntity(t))
+}
+
+// GetTaskByNumber handles GET /projects/:projectId/tasks/by-number/:taskNumber.
+// It looks up a task by its project-scoped sequential number.
+func (h *TaskHandler) GetTaskByNumber(c *gin.Context) {
+	projectID, err := parseProjectID(c)
+	if err != nil {
+		presenter.Error(c, err)
+		return
+	}
+	var taskNumber int64
+	if _, err := fmt.Sscanf(c.Param("taskNumber"), "%d", &taskNumber); err != nil || taskNumber < 1 {
+		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid task number"))
+		return
+	}
+	t, err := h.svc.GetTaskByNumber(c.Request.Context(), projectID, taskNumber)
 	if err != nil {
 		presenter.Error(c, err)
 		return

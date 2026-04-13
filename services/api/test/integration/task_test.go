@@ -36,6 +36,7 @@ type fakeTaskRepo struct {
 	statuses     map[uuid.UUID]*taskdom.TaskStatus
 	tasks        map[uuid.UUID]*taskdom.Task
 	customFields map[uuid.UUID]*taskdom.CustomFieldDefinition
+	counters     map[uuid.UUID]int64
 }
 
 func newFakeTaskRepoIT() *fakeTaskRepo {
@@ -44,6 +45,7 @@ func newFakeTaskRepoIT() *fakeTaskRepo {
 		statuses:     make(map[uuid.UUID]*taskdom.TaskStatus),
 		tasks:        make(map[uuid.UUID]*taskdom.Task),
 		customFields: make(map[uuid.UUID]*taskdom.CustomFieldDefinition),
+		counters:     make(map[uuid.UUID]int64),
 	}
 }
 
@@ -213,9 +215,23 @@ func (r *fakeTaskRepo) FindTaskByID(_ context.Context, id uuid.UUID) (*taskdom.T
 	return &cp, nil
 }
 
+func (r *fakeTaskRepo) FindTaskByNumber(_ context.Context, projectID uuid.UUID, taskNumber int64) (*taskdom.Task, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, t := range r.tasks {
+		if t.ProjectID == projectID && t.TaskNumber == taskNumber && t.DeletedAt == nil {
+			cp := *t
+			return &cp, nil
+		}
+	}
+	return nil, taskdom.ErrTaskNotFound
+}
+
 func (r *fakeTaskRepo) CreateTask(_ context.Context, t *taskdom.Task) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.counters[t.ProjectID]++
+	t.TaskNumber = r.counters[t.ProjectID]
 	cp := *t
 	r.tasks[t.ID] = &cp
 	return nil
@@ -2094,5 +2110,159 @@ func TestIntegrationTasks_PatchTitleOnlyPreservesAllFields(t *testing.T) {
 	}
 	if env.Data.Description == nil || *env.Data.Description != "keep me" {
 		t.Errorf("expected description preserved, got %v", env.Data.Description)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task Number integration tests
+// ---------------------------------------------------------------------------
+
+func TestIntegrationTasks_TaskNumberIncrementsPerProject(t *testing.T) {
+	taskRepo := newFakeTaskRepoIT()
+	projectID := uuid.New()
+	store := &projectPermStore{
+		projectPerms: map[uuid.UUID][]authz.Permission{
+			projectID: {authz.PermissionTasksRead, authz.PermissionTasksWrite},
+		},
+	}
+	r := buildTaskTestRouter(taskRepo, store)
+	tok := issueTaskToken(t, uuid.NewString())
+	base := fmt.Sprintf("/api/v1/projects/%s/tasks", projectID)
+
+	type taskResp struct {
+		Data struct {
+			TaskNumber float64 `json:"task_number"`
+		} `json:"data"`
+	}
+
+	var prev float64
+	for i := 1; i <= 3; i++ {
+		w := serve(r, authedJSONReq(t.Context(), http.MethodPost, base, tok, map[string]any{
+			"title": fmt.Sprintf("Task %d", i),
+		}))
+		if w.Code != http.StatusCreated {
+			t.Fatalf("create task %d: expected 201, got %d (%s)", i, w.Code, w.Body.String())
+		}
+		var resp taskResp
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		num := resp.Data.TaskNumber
+		if num != float64(i) {
+			t.Errorf("task %d: expected task_number=%d, got %g", i, i, num)
+		}
+		if num <= prev {
+			t.Errorf("task_number must be strictly increasing: prev=%g, got=%g", prev, num)
+		}
+		prev = num
+	}
+}
+
+func TestIntegrationTasks_TaskNumberScopedToProject(t *testing.T) {
+	taskRepo := newFakeTaskRepoIT()
+	projA := uuid.New()
+	projB := uuid.New()
+	store := &projectPermStore{
+		projectPerms: map[uuid.UUID][]authz.Permission{
+			projA: {authz.PermissionTasksRead, authz.PermissionTasksWrite},
+			projB: {authz.PermissionTasksRead, authz.PermissionTasksWrite},
+		},
+	}
+	r := buildTaskTestRouter(taskRepo, store)
+	tok := issueTaskToken(t, uuid.NewString())
+
+	decodeTaskNumber := func(body []byte) float64 {
+		var env struct {
+			Data struct {
+				TaskNumber float64 `json:"task_number"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &env); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return env.Data.TaskNumber
+	}
+
+	// Create two tasks in projA
+	wA1 := serve(r, authedJSONReq(t.Context(), http.MethodPost,
+		fmt.Sprintf("/api/v1/projects/%s/tasks", projA), tok, map[string]any{"title": "A-1"}))
+	wA2 := serve(r, authedJSONReq(t.Context(), http.MethodPost,
+		fmt.Sprintf("/api/v1/projects/%s/tasks", projA), tok, map[string]any{"title": "A-2"}))
+	// Create one task in projB
+	wB1 := serve(r, authedJSONReq(t.Context(), http.MethodPost,
+		fmt.Sprintf("/api/v1/projects/%s/tasks", projB), tok, map[string]any{"title": "B-1"}))
+
+	if n := decodeTaskNumber(wA1.Body.Bytes()); n != 1 {
+		t.Errorf("projA first task: expected task_number=1, got %g", n)
+	}
+	if n := decodeTaskNumber(wA2.Body.Bytes()); n != 2 {
+		t.Errorf("projA second task: expected task_number=2, got %g", n)
+	}
+	if n := decodeTaskNumber(wB1.Body.Bytes()); n != 1 {
+		t.Errorf("projB first task: expected task_number=1 (independent counter), got %g", n)
+	}
+}
+
+func TestIntegrationTasks_GetByNumber_OK(t *testing.T) {
+	taskRepo := newFakeTaskRepoIT()
+	projectID := uuid.New()
+	store := &projectPermStore{
+		projectPerms: map[uuid.UUID][]authz.Permission{
+			projectID: {authz.PermissionTasksRead, authz.PermissionTasksWrite},
+		},
+	}
+	r := buildTaskTestRouter(taskRepo, store)
+	tok := issueTaskToken(t, uuid.NewString())
+	base := fmt.Sprintf("/api/v1/projects/%s/tasks", projectID)
+
+	// Create task
+	createW := serve(r, authedJSONReq(t.Context(), http.MethodPost, base, tok, map[string]any{
+		"title": "Lookup me by number",
+	}))
+	if createW.Code != http.StatusCreated {
+		t.Fatalf("create: got %d", createW.Code)
+	}
+	originalID := taskIDFrom(t, "task", createW.Body.Bytes())
+
+	var createEnv struct {
+		Data struct {
+			TaskNumber float64 `json:"task_number"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(createW.Body.Bytes(), &createEnv); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+	taskNum := int64(createEnv.Data.TaskNumber)
+
+	// Get by number
+	getByNumW := serve(r, authedJSONReq(t.Context(), http.MethodGet,
+		fmt.Sprintf("%s/by-number/%d", base, taskNum), tok, nil))
+	if getByNumW.Code != http.StatusOK {
+		t.Fatalf("get by number: expected 200, got %d (%s)", getByNumW.Code, getByNumW.Body.String())
+	}
+	gotID := taskIDFrom(t, "task", getByNumW.Body.Bytes())
+	if gotID != originalID {
+		t.Errorf("expected id=%s, got %s", originalID, gotID)
+	}
+}
+
+func TestIntegrationTasks_GetByNumber_NotFound(t *testing.T) {
+	taskRepo := newFakeTaskRepoIT()
+	projectID := uuid.New()
+	store := &projectPermStore{
+		projectPerms: map[uuid.UUID][]authz.Permission{
+			projectID: {authz.PermissionTasksRead},
+		},
+	}
+	r := buildTaskTestRouter(taskRepo, store)
+	tok := issueTaskToken(t, uuid.NewString())
+
+	w := serve(r, authedJSONReq(t.Context(), http.MethodGet,
+		fmt.Sprintf("/api/v1/projects/%s/tasks/by-number/9999", projectID), tok, nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d (%s)", w.Code, w.Body.String())
+	}
+	if code := decodeErrorCode(t, w); code != "TASK_NOT_FOUND" {
+		t.Errorf("expected TASK_NOT_FOUND, got %q", code)
 	}
 }

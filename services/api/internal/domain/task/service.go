@@ -80,6 +80,7 @@ type UpdateTaskStatusInput struct {
 type TaskService interface {
 	ListTasks(ctx context.Context, projectID uuid.UUID, filter TaskFilter, page, pageSize int) ([]*Task, int64, error)
 	GetTask(ctx context.Context, id uuid.UUID) (*Task, error)
+	GetTaskByNumber(ctx context.Context, projectID uuid.UUID, taskNumber int64) (*Task, error)
 	CreateTask(ctx context.Context, in CreateTaskInput) (*Task, error)
 	UpdateTask(ctx context.Context, id uuid.UUID, in UpdateTaskInput) (*Task, error)
 	DeleteTask(ctx context.Context, id uuid.UUID) error

@@ -49,6 +49,8 @@ const (
 	CodeProjectNameTaken Code = "PROJECT_NAME_TAKEN"
 	// CodeProjectNameInvalid indicates the project name is empty or invalid.
 	CodeProjectNameInvalid Code = "PROJECT_NAME_INVALID"
+	// CodeProjectPrefixInvalid indicates the task ID prefix is not valid.
+	CodeProjectPrefixInvalid Code = "PROJECT_PREFIX_INVALID"
 
 	// CodeProjectRoleNotFound indicates the requested project role does not exist.
 	CodeProjectRoleNotFound Code = "PROJECT_ROLE_NOT_FOUND"

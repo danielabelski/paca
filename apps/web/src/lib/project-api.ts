@@ -9,6 +9,7 @@ export interface Project {
 	id: string;
 	name: string;
 	description: string;
+	task_id_prefix: string;
 	settings: Record<string, unknown>;
 	created_by?: string;
 	created_at: string;
@@ -62,6 +63,7 @@ export async function getProject(projectId: string): Promise<Project> {
 export async function createProject(payload: {
 	name: string;
 	description?: string;
+	task_id_prefix?: string;
 }): Promise<Project> {
 	const { data } = await apiClient.instance.post<SuccessEnvelope<Project>>(
 		"/projects",
@@ -72,7 +74,7 @@ export async function createProject(payload: {
 
 export async function updateProject(
 	projectId: string,
-	payload: { name?: string; description?: string },
+	payload: { name?: string; description?: string; task_id_prefix?: string },
 ): Promise<Project> {
 	const { data } = await apiClient.instance.patch<SuccessEnvelope<Project>>(
 		`/projects/${projectId}`,

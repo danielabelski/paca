@@ -190,6 +190,11 @@ func (s *Service) GetTask(ctx context.Context, id uuid.UUID) (*taskdom.Task, err
 	return s.repo.FindTaskByID(ctx, id)
 }
 
+// GetTaskByNumber returns the task with the given project-scoped sequential number.
+func (s *Service) GetTaskByNumber(ctx context.Context, projectID uuid.UUID, taskNumber int64) (*taskdom.Task, error) {
+	return s.repo.FindTaskByNumber(ctx, projectID, taskNumber)
+}
+
 // CreateTask creates a new task.
 func (s *Service) CreateTask(ctx context.Context, in taskdom.CreateTaskInput) (*taskdom.Task, error) {
 	title := strings.TrimSpace(in.Title)

@@ -183,6 +183,7 @@ interface GenericGroupProps {
 	sortBy?: string;
 	onUpdateTaskField?: (taskId: string, update: TaskFieldUpdate) => void;
 	visibleFields: string[];
+	taskIdPrefix?: string;
 }
 
 function GenericGroup({
@@ -206,6 +207,7 @@ function GenericGroup({
 	isStatusGrouping,
 	onUpdateTaskField,
 	visibleFields,
+	taskIdPrefix = "",
 }: GenericGroupProps) {
 	const [collapsed, setCollapsed] = useState(defaultCollapsed ?? false);
 	const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -394,6 +396,7 @@ function GenericGroup({
 									{swimDef.key === (swimlaneDefs[0]?.key ?? "__all") && (
 										<div className="flex items-center gap-3 px-4 py-1.5 bg-muted/20 border-b border-border/25">
 											{isDraggable && <div className="w-3 shrink-0" />}
+											<div className="w-20 shrink-0 text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground/60">ID</div>
 											<div className="flex-1 text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground/60">Title</div>
 											{visibleFields.map((fk) => {
 												const col = getRowColConfig(fk, customFields);
@@ -501,6 +504,7 @@ function GenericGroup({
 											>
 												<TaskRow
 													task={task}
+													taskIdPrefix={taskIdPrefix}
 													statuses={statuses}
 													taskTypes={taskTypes}
 													members={members}
@@ -523,6 +527,7 @@ function GenericGroup({
 							{/* Column headers */}
 							<div className="flex items-center gap-3 px-4 py-1.5 bg-muted/20 border-y border-border/25">
 								{isDraggable && <div className="w-3 shrink-0" />}
+								<div className="w-20 shrink-0 text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground/60">ID</div>
 								<div className="flex-1 text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground/60">Title</div>
 								{visibleFields.map((fk) => {
 									const col = getRowColConfig(fk, customFields);
@@ -579,8 +584,7 @@ function GenericGroup({
 										onDrop={(e) => handleIntraGroupDrop(e, task, index)}
 									>
 										<TaskRow
-											task={task}
-											statuses={statuses}
+											task={task}										taskIdPrefix={taskIdPrefix}											statuses={statuses}
 											taskTypes={taskTypes}
 											members={members}
 											customFields={customFields}
@@ -615,6 +619,7 @@ function GenericGroup({
 
 interface ListViewProps {
 	tasks: Task[];
+	taskIdPrefix?: string;
 	statuses: TaskStatus[];
 	taskTypes: TaskType[];
 	members?: ProjectMember[];
@@ -639,6 +644,7 @@ interface ListViewProps {
 
 export function ListView({
 	tasks,
+	taskIdPrefix = "",
 	statuses,
 	taskTypes,
 	members = [],
@@ -756,8 +762,7 @@ export function ListView({
 						isStatusGrouping={isStatusGrouping}
 						sortBy={sortBy}
 						onUpdateTaskField={onUpdateTaskField}
-						visibleFields={visibleFields}
-					/>
+						visibleFields={visibleFields}					taskIdPrefix={taskIdPrefix}					/>
 				);
 			})}
 		</div>

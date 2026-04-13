@@ -53,6 +53,7 @@ import {
 import {
 	customFieldsQueryOptions,
 	projectMembersQueryOptions,
+	projectQueryOptions,
 	taskStatusesQueryOptions,
 	taskTypesQueryOptions,
 } from "@/lib/project-api";
@@ -98,6 +99,9 @@ export function IntegrationLayout({
 	sprintId,
 }: IntegrationLayoutProps) {
 	const qc = useQueryClient();
+
+	const { data: project } = useQuery(projectQueryOptions(projectId));
+	const taskIdPrefix = project?.task_id_prefix ?? "";
 
 	const { data: statuses = [] } = useQuery(taskStatusesQueryOptions(projectId));
 	const { data: taskTypes = [] } = useQuery(taskTypesQueryOptions(projectId));
@@ -854,6 +858,7 @@ export function IntegrationLayout({
 				) : activeView?.layout === "Board" ? (
 					<BoardView
 						projectId={projectId}
+						taskIdPrefix={taskIdPrefix}
 						tasks={sliceFilteredTasks}
 						statuses={statuses}
 						taskTypes={taskTypes}
@@ -875,6 +880,7 @@ export function IntegrationLayout({
 				) : activeView?.layout === "Roadmap" ? (
 					<RoadmapView
 						tasks={tasks}
+						taskIdPrefix={taskIdPrefix}
 						statuses={statuses}
 						taskTypes={taskTypes}
 						searchQuery={searchQuery}
@@ -884,6 +890,7 @@ export function IntegrationLayout({
 				) : (
 					<ListView
 						tasks={sliceFilteredTasks}
+						taskIdPrefix={taskIdPrefix}
 						statuses={statuses}
 						taskTypes={taskTypes}
 						members={members}

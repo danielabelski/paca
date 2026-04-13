@@ -274,3 +274,104 @@ func TestCreate_NilTaskRepo_DoesNotPanic(t *testing.T) {
 		t.Fatalf("expected no error with nil task repo, got: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Task ID prefix tests
+// ---------------------------------------------------------------------------
+
+func TestCreate_AutoGeneratesPrefix_SingleWord(t *testing.T) {
+	ctx := context.Background()
+	svc := New(newFakeProjectRepo(), nil)
+
+	p, err := svc.Create(ctx, projectdom.CreateProjectInput{Name: "paca"})
+	if err != nil {
+		t.Fatalf("Create error: %v", err)
+	}
+	if p.TaskIDPrefix != "PACA" {
+		t.Errorf("expected prefix PACA, got %q", p.TaskIDPrefix)
+	}
+}
+
+func TestCreate_AutoGeneratesPrefix_MultiWord(t *testing.T) {
+	ctx := context.Background()
+	svc := New(newFakeProjectRepo(), nil)
+
+	p, err := svc.Create(ctx, projectdom.CreateProjectInput{Name: "My Awesome Project"})
+	if err != nil {
+		t.Fatalf("Create error: %v", err)
+	}
+	if p.TaskIDPrefix != "MAP" {
+		t.Errorf("expected prefix MAP, got %q", p.TaskIDPrefix)
+	}
+}
+
+func TestCreate_ExplicitPrefixUsed(t *testing.T) {
+	ctx := context.Background()
+	svc := New(newFakeProjectRepo(), nil)
+
+	p, err := svc.Create(ctx, projectdom.CreateProjectInput{Name: "My Project", TaskIDPrefix: "MP2"})
+	if err != nil {
+		t.Fatalf("Create error: %v", err)
+	}
+	if p.TaskIDPrefix != "MP2" {
+		t.Errorf("expected prefix MP2, got %q", p.TaskIDPrefix)
+	}
+}
+
+func TestCreate_InvalidPrefixReturnsError(t *testing.T) {
+	ctx := context.Background()
+	svc := New(newFakeProjectRepo(), nil)
+
+	_, err := svc.Create(ctx, projectdom.CreateProjectInput{Name: "My Project", TaskIDPrefix: "my prefix!"})
+	if err == nil {
+		t.Fatal("expected error for invalid prefix, got nil")
+	}
+}
+
+func TestUpdate_PrefixUpdated(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeProjectRepo()
+	svc := New(repo, nil)
+
+	p, _ := svc.Create(ctx, projectdom.CreateProjectInput{Name: "MyProj"})
+
+	updated, err := svc.Update(ctx, p.ID, projectdom.UpdateProjectInput{TaskIDPrefix: "XYZ"})
+	if err != nil {
+		t.Fatalf("Update error: %v", err)
+	}
+	if updated.TaskIDPrefix != "XYZ" {
+		t.Errorf("expected prefix XYZ after update, got %q", updated.TaskIDPrefix)
+	}
+}
+
+func TestUpdate_InvalidPrefixReturnsError(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeProjectRepo()
+	svc := New(repo, nil)
+
+	p, _ := svc.Create(ctx, projectdom.CreateProjectInput{Name: "MyProj"})
+
+	_, err := svc.Update(ctx, p.ID, projectdom.UpdateProjectInput{TaskIDPrefix: "bad prefix"})
+	if err == nil {
+		t.Fatal("expected error for invalid prefix on update, got nil")
+	}
+}
+
+func TestSuggestPrefix_Cases(t *testing.T) {
+	cases := []struct {
+		name string
+		want string
+	}{
+		{"PACA", "PACA"},
+		{"Platform v3", "PV"},
+		{"my project roadmap design", "MPRD"},
+		{"", "PROJ"},
+		{"  ", "PROJ"},
+	}
+	for _, tc := range cases {
+		got := suggestPrefix(tc.name)
+		if got != tc.want {
+			t.Errorf("suggestPrefix(%q) = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

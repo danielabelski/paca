@@ -8,6 +8,7 @@ import { TaskRow } from "./task-row";
 
 interface RoadmapViewProps {
 	tasks: Task[];
+	taskIdPrefix?: string;
 	statuses: TaskStatus[];
 	taskTypes: TaskType[];
 	searchQuery: string;
@@ -26,6 +27,7 @@ function getBarStyle(task: Task, minMs: number, rangeMs: number) {
 
 export function RoadmapView({
 	tasks,
+	taskIdPrefix = "",
 	statuses,
 	taskTypes,
 	searchQuery,
@@ -199,6 +201,7 @@ export function RoadmapView({
 								<TaskRow
 									key={task.id}
 									task={task}
+									taskIdPrefix={taskIdPrefix}
 									statuses={statuses}
 									taskTypes={taskTypes}
 									onClick={() => onTaskClick(task)}

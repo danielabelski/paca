@@ -45,6 +45,7 @@ func (taskStatusRecord) TableName() string { return "task_statuses" }
 type taskRecord struct {
 	ID           string     `gorm:"primarykey;type:uuid"`
 	ProjectID    string     `gorm:"type:uuid;not null;column:project_id"`
+	TaskNumber   int64      `gorm:"not null;default:0;column:task_number"`
 	TaskTypeID   *string    `gorm:"type:uuid;column:task_type_id"`
 	StatusID     *string    `gorm:"type:uuid;column:status_id"`
 	SprintID     *string    `gorm:"type:uuid;column:sprint_id"`
@@ -64,6 +65,15 @@ type taskRecord struct {
 }
 
 func (taskRecord) TableName() string { return "tasks" }
+
+// taskCounterRecord mirrors the task_counters table used for atomic
+// per-project task number generation.
+type taskCounterRecord struct {
+	ProjectID string `gorm:"primarykey;type:uuid;column:project_id"`
+	LastValue int64  `gorm:"not null;default:0;column:last_value"`
+}
+
+func (taskCounterRecord) TableName() string { return "task_counters" }
 
 // --- Repository struct -------------------------------------------------------
 
@@ -307,7 +317,24 @@ func (r *TaskRepository) FindTaskByID(ctx context.Context, id uuid.UUID) (*taskd
 	return toTaskEntity(&rec)
 }
 
-// CreateTask persists a new task.
+// FindTaskByNumber returns the task with the given project-scoped task number
+// (non-deleted).
+func (r *TaskRepository) FindTaskByNumber(ctx context.Context, projectID uuid.UUID, taskNumber int64) (*taskdom.Task, error) {
+	var rec taskRecord
+	err := r.db.WithContext(ctx).
+		Where("project_id = ? AND task_number = ? AND deleted_at IS NULL", projectID.String(), taskNumber).
+		First(&rec).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, taskdom.ErrTaskNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("task repo: find by number: %w", err)
+	}
+	return toTaskEntity(&rec)
+}
+
+// CreateTask persists a new task, assigning the next per-project task_number
+// atomically via INSERT … ON CONFLICT DO UPDATE on task_counters.
 func (r *TaskRepository) CreateTask(ctx context.Context, t *taskdom.Task) error {
 	cf, err := json.Marshal(t.CustomFields)
 	if err != nil {
@@ -321,29 +348,47 @@ func (r *TaskRepository) CreateTask(ctx context.Context, t *taskdom.Task) error 
 	if err != nil {
 		return fmt.Errorf("task repo: marshal tags: %w", err)
 	}
-	rec := &taskRecord{
-		ID:           t.ID.String(),
-		ProjectID:    t.ProjectID.String(),
-		TaskTypeID:   uuidPtrToStrPtr(t.TaskTypeID),
-		StatusID:     uuidPtrToStrPtr(t.StatusID),
-		SprintID:     uuidPtrToStrPtr(t.SprintID),
-		ParentTaskID: uuidPtrToStrPtr(t.ParentTaskID),
-		Title:        t.Title,
-		Description:  t.Description,
-		Importance:   t.Importance,
-		AssigneeID:   uuidPtrToStrPtr(t.AssigneeID),
-		ReporterID:   uuidPtrToStrPtr(t.ReporterID),
-		CustomFields: cf,
-		StartDate:    t.StartDate,
-		DueDate:      t.DueDate,
-		Tags:         tagsJSON,
-		CreatedAt:    t.CreatedAt,
-		UpdatedAt:    t.UpdatedAt,
-	}
-	if err := r.db.WithContext(ctx).Create(rec).Error; err != nil {
-		return fmt.Errorf("task repo: create: %w", err)
-	}
-	return nil
+
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Atomically increment the per-project counter and retrieve its new value.
+		var counter taskCounterRecord
+		if err := tx.Raw(`
+			INSERT INTO task_counters (project_id, last_value)
+			VALUES (?, 1)
+			ON CONFLICT (project_id) DO UPDATE
+			  SET last_value = task_counters.last_value + 1
+			RETURNING last_value`,
+			t.ProjectID.String(),
+		).Scan(&counter).Error; err != nil {
+			return fmt.Errorf("task repo: increment counter: %w", err)
+		}
+		t.TaskNumber = counter.LastValue
+
+		rec := &taskRecord{
+			ID:           t.ID.String(),
+			ProjectID:    t.ProjectID.String(),
+			TaskNumber:   t.TaskNumber,
+			TaskTypeID:   uuidPtrToStrPtr(t.TaskTypeID),
+			StatusID:     uuidPtrToStrPtr(t.StatusID),
+			SprintID:     uuidPtrToStrPtr(t.SprintID),
+			ParentTaskID: uuidPtrToStrPtr(t.ParentTaskID),
+			Title:        t.Title,
+			Description:  t.Description,
+			Importance:   t.Importance,
+			AssigneeID:   uuidPtrToStrPtr(t.AssigneeID),
+			ReporterID:   uuidPtrToStrPtr(t.ReporterID),
+			CustomFields: cf,
+			StartDate:    t.StartDate,
+			DueDate:      t.DueDate,
+			Tags:         tagsJSON,
+			CreatedAt:    t.CreatedAt,
+			UpdatedAt:    t.UpdatedAt,
+		}
+		if err := tx.Create(rec).Error; err != nil {
+			return fmt.Errorf("task repo: create: %w", err)
+		}
+		return nil
+	})
 }
 
 // UpdateTask persists changes to an existing task.
@@ -460,6 +505,7 @@ func toTaskEntity(r *taskRecord) (*taskdom.Task, error) {
 	return &taskdom.Task{
 		ID:           id,
 		ProjectID:    pid,
+		TaskNumber:   r.TaskNumber,
 		TaskTypeID:   strPtrToUUIDPtr(r.TaskTypeID),
 		StatusID:     strPtrToUUIDPtr(r.StatusID),
 		SprintID:     strPtrToUUIDPtr(r.SprintID),
