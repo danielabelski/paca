@@ -264,7 +264,8 @@ export function TaskCard({
 							{statuses.map((s) => (
 								<DropdownMenuItem
 									key={s.id}
-								onClick={() => {
+								onClick={(e) => {
+										e.stopPropagation();
 										onUpdate?.(task.id, { status_id: s.id });
 									}}
 								>
@@ -319,7 +320,8 @@ export function TaskCard({
 							{PRIORITY_LEVELS.map((level) => (
 								<DropdownMenuItem
 									key={level.value}
-								onClick={() => {
+								onClick={(e) => {
+										e.stopPropagation();
 										onUpdate?.(task.id, { importance: IMPORTANCE_BUCKET_VALUES[level.value] ?? 0 });
 									}}
 								>

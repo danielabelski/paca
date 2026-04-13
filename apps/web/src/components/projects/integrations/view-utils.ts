@@ -323,7 +323,6 @@ export const BUILTIN_FIELDS: { key: string; label: string }[] = [
  */
 export const DEFAULT_VISIBLE_FIELDS = [
 	"assignee",
-	"status",
 	"importance",
 	"type",
 ];
