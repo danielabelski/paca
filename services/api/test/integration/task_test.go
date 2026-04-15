@@ -260,6 +260,28 @@ func (r *fakeTaskRepo) DeleteTask(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// BulkMoveSprintTasks moves non-done tasks in sourceSprintID to targetSprintID.
+func (r *fakeTaskRepo) BulkMoveSprintTasks(_ context.Context, projectID, sourceSprintID uuid.UUID, targetSprintID *uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, t := range r.tasks {
+		if t.ProjectID != projectID || t.DeletedAt != nil {
+			continue
+		}
+		if t.SprintID == nil || *t.SprintID != sourceSprintID {
+			continue
+		}
+		// Leave tasks whose status has category "done" in place.
+		if t.StatusID != nil {
+			if s, ok := r.statuses[*t.StatusID]; ok && s.Category == taskdom.StatusCategoryDone {
+				continue
+			}
+		}
+		t.SprintID = targetSprintID
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // In-memory fake sprint repository
 // ---------------------------------------------------------------------------
@@ -398,7 +420,7 @@ func buildTaskTestRouterWithSprints(taskRepo *fakeTaskRepo, sprintRepo *fakeSpri
 	projectRepo := newFakeProjectRepo()
 	projectService := projectsvc.New(projectRepo, taskRepo)
 	taskService := tasksvc.New(taskRepo)
-	sprintService := sprintsvc.New(sprintRepo)
+	sprintService := sprintsvc.New(sprintRepo, taskRepo)
 	viewService := sprintsvc.NewViewService(viewRepo)
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
@@ -2353,5 +2375,145 @@ func TestIntegrationTasks_GetByNumber_NotFound(t *testing.T) {
 	}
 	if code := decodeErrorCode(t, w); code != "TASK_NOT_FOUND" {
 		t.Errorf("expected TASK_NOT_FOUND, got %q", code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CompleteSprint integration tests
+// ---------------------------------------------------------------------------
+
+func TestIntegrationCompleteSprint_MovesToBacklog(t *testing.T) {
+	taskRepo := newFakeTaskRepoIT()
+	sprintRepo := newFakeSprintRepoIT()
+	projectID := uuid.New()
+	store := &projectPermStore{
+		projectPerms: map[uuid.UUID][]authz.Permission{
+			projectID: {authz.PermissionSprintsWrite, authz.PermissionTasksWrite},
+		},
+	}
+	r := buildTaskTestRouterWithSprints(taskRepo, sprintRepo, newFakeViewRepoIT(), store)
+	tok := issueTaskToken(t, uuid.NewString())
+	base := fmt.Sprintf("/api/v1/projects/%s", projectID)
+
+	// Create an active sprint directly in the fake repo.
+	sprintID := uuid.New()
+	sprintRepo.sprints[sprintID] = &sprintdom.Sprint{
+		ID:        sprintID,
+		ProjectID: projectID,
+		Name:      "Sprint Active",
+		Status:    sprintdom.SprintStatusActive,
+	}
+
+	// Seed two tasks in the sprint.
+	for range 2 {
+		id := uuid.New()
+		taskRepo.tasks[id] = &taskdom.Task{
+			ID:        id,
+			ProjectID: projectID,
+			SprintID:  &sprintID,
+			Title:     "incomplete",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+	}
+
+	// Call complete endpoint with no destination (backlog).
+	w := serve(r, authedJSONReq(t.Context(), http.MethodPost,
+		fmt.Sprintf("%s/sprints/%s/complete", base, sprintID), tok, map[string]any{}))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+
+	// Sprint must be completed.
+	sp := sprintRepo.sprints[sprintID]
+	if sp.Status != sprintdom.SprintStatusCompleted {
+		t.Errorf("expected sprint completed, got %q", sp.Status)
+	}
+
+	// All tasks must now be in the backlog.
+	for _, task := range taskRepo.tasks {
+		if task.ProjectID != projectID {
+			continue
+		}
+		if task.SprintID != nil {
+			t.Errorf("task %s still assigned to sprint %s, expected backlog", task.ID, *task.SprintID)
+		}
+	}
+}
+
+func TestIntegrationCompleteSprint_AlreadyCompleted(t *testing.T) {
+	taskRepo := newFakeTaskRepoIT()
+	sprintRepo := newFakeSprintRepoIT()
+	projectID := uuid.New()
+	store := &projectPermStore{
+		projectPerms: map[uuid.UUID][]authz.Permission{
+			projectID: {authz.PermissionSprintsWrite},
+		},
+	}
+	r := buildTaskTestRouterWithSprints(taskRepo, sprintRepo, newFakeViewRepoIT(), store)
+	tok := issueTaskToken(t, uuid.NewString())
+
+	sprintID := uuid.New()
+	sprintRepo.sprints[sprintID] = &sprintdom.Sprint{
+		ID:        sprintID,
+		ProjectID: projectID,
+		Name:      "Done Sprint",
+		Status:    sprintdom.SprintStatusCompleted,
+	}
+
+	w := serve(r, authedJSONReq(t.Context(), http.MethodPost,
+		fmt.Sprintf("/api/v1/projects/%s/sprints/%s/complete", projectID, sprintID), tok, map[string]any{}))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d (%s)", w.Code, w.Body.String())
+	}
+	if code := decodeErrorCode(t, w); code != "SPRINT_ALREADY_COMPLETE" {
+		t.Errorf("expected SPRINT_ALREADY_COMPLETE, got %q", code)
+	}
+}
+
+func TestIntegrationCompleteSprint_NotFound(t *testing.T) {
+	taskRepo := newFakeTaskRepoIT()
+	sprintRepo := newFakeSprintRepoIT()
+	projectID := uuid.New()
+	store := &projectPermStore{
+		projectPerms: map[uuid.UUID][]authz.Permission{
+			projectID: {authz.PermissionSprintsWrite},
+		},
+	}
+	r := buildTaskTestRouterWithSprints(taskRepo, sprintRepo, newFakeViewRepoIT(), store)
+	tok := issueTaskToken(t, uuid.NewString())
+
+	w := serve(r, authedJSONReq(t.Context(), http.MethodPost,
+		fmt.Sprintf("/api/v1/projects/%s/sprints/%s/complete", projectID, uuid.New()), tok, map[string]any{}))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d (%s)", w.Code, w.Body.String())
+	}
+}
+
+func TestIntegrationCompleteSprint_Forbidden(t *testing.T) {
+	taskRepo := newFakeTaskRepoIT()
+	sprintRepo := newFakeSprintRepoIT()
+	projectID := uuid.New()
+	// No sprints.write permission.
+	store := &projectPermStore{
+		projectPerms: map[uuid.UUID][]authz.Permission{
+			projectID: {authz.PermissionSprintsRead},
+		},
+	}
+	r := buildTaskTestRouterWithSprints(taskRepo, sprintRepo, newFakeViewRepoIT(), store)
+	tok := issueTaskToken(t, uuid.NewString())
+
+	sprintID := uuid.New()
+	sprintRepo.sprints[sprintID] = &sprintdom.Sprint{
+		ID:        sprintID,
+		ProjectID: projectID,
+		Name:      "Active",
+		Status:    sprintdom.SprintStatusActive,
+	}
+
+	w := serve(r, authedJSONReq(t.Context(), http.MethodPost,
+		fmt.Sprintf("/api/v1/projects/%s/sprints/%s/complete", projectID, sprintID), tok, map[string]any{}))
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d (%s)", w.Code, w.Body.String())
 	}
 }

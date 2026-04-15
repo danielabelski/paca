@@ -249,6 +249,12 @@ func (r *fakeTaskRepo) DeleteTask(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// BulkMoveSprintTasks is not exercised by task service tests but must satisfy
+// the taskdom.TaskRepository interface.
+func (r *fakeTaskRepo) BulkMoveSprintTasks(_ context.Context, _, _ uuid.UUID, _ *uuid.UUID) error {
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Task Type tests
 // ---------------------------------------------------------------------------

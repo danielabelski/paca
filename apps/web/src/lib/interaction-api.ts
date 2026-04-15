@@ -372,6 +372,22 @@ export async function updateSprint(
 	return data.data;
 }
 
+export interface CompleteSprintPayload {
+	move_to_sprint_id?: string | null;
+}
+
+export async function completeSprint(
+	projectId: string,
+	sprintId: string,
+	payload: CompleteSprintPayload = {},
+): Promise<Sprint> {
+	const { data } = await apiClient.instance.post<SuccessEnvelope<Sprint>>(
+		`/projects/${projectId}/sprints/${sprintId}/complete`,
+		payload,
+	);
+	return data.data;
+}
+
 // ── Task API ──────────────────────────────────────────────────────────────────
 
 export interface ListTasksOptions {

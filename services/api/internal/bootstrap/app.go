@@ -104,7 +104,7 @@ func New(cfg *config.Config) (*App, error) {
 	globalRoleService := globalrolesvc.New(globalRoleRepo)
 	projectService := projectsvc.New(projectRepo, taskRepo)
 	taskService := tasksvc.New(taskRepo)
-	sprintService := sprintsvc.New(sprintRepo)
+	sprintService := sprintsvc.New(sprintRepo, taskRepo)
 	viewService := sprintsvc.NewViewService(viewRepo)
 
 	// --- Handlers -----------------------------------------------------------

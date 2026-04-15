@@ -144,6 +144,8 @@ func statusAndCodeFor(err error) (int, apierr.Code) {
 		return http.StatusBadRequest, apierr.CodeSprintNameInvalid
 	case errors.Is(err, sprintdom.ErrSprintStatusInvalid):
 		return http.StatusBadRequest, apierr.CodeSprintStatusInvalid
+	case errors.Is(err, sprintdom.ErrSprintAlreadyComplete):
+		return http.StatusConflict, apierr.CodeSprintAlreadyComplete
 	case errors.Is(err, sprintdom.ErrViewNotFound):
 		return http.StatusNotFound, apierr.CodeViewNotFound
 	case errors.Is(err, sprintdom.ErrViewNameInvalid):

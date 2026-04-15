@@ -93,6 +93,8 @@ const (
 	CodeSprintNameInvalid Code = "SPRINT_NAME_INVALID"
 	// CodeSprintStatusInvalid indicates an invalid sprint status value.
 	CodeSprintStatusInvalid Code = "SPRINT_STATUS_INVALID"
+	// CodeSprintAlreadyComplete indicates the sprint is already completed.
+	CodeSprintAlreadyComplete Code = "SPRINT_ALREADY_COMPLETE"
 
 	// CodeViewNotFound indicates the requested sprint view does not exist.
 	CodeViewNotFound Code = "VIEW_NOT_FOUND"

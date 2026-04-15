@@ -6,11 +6,10 @@ import { useState } from "react";
 import { InteractionLayout } from "@/components/projects/interactions/interaction-layout";
 import { usePermissions } from "@/hooks/use-permissions";
 import {
+	completeSprint,
 	sprintQueryOptions,
 	sprintsQueryOptions,
 	sprintTasksQueryOptions,
-	updateSprint,
-	updateTask,
 } from "@/lib/interaction-api";
 import { taskStatusesQueryOptions } from "@/lib/project-api";
 import { cn } from "@/lib/utils";
@@ -73,20 +72,10 @@ function SprintPage() {
 	);
 
 	const completeSprintMutation = useMutation({
-		mutationFn: async () => {
-			// Move only tasks that are NOT in a "done" status category
-			if (incompleteTasks.length > 0) {
-				await Promise.all(
-					incompleteTasks.map((t) =>
-						updateTask(projectId, t.id, {
-							sprint_id: moveToSprintId ?? null,
-						}),
-					),
-				);
-			}
-			// Mark sprint as completed
-			return updateSprint(projectId, sprintId, { status: "completed" });
-		},
+		mutationFn: () =>
+			completeSprint(projectId, sprintId, {
+				move_to_sprint_id: moveToSprintId ?? null,
+			}),
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: ["projects", projectId, "sprints"] });
 			qc.invalidateQueries({

@@ -457,6 +457,26 @@ func (r *TaskRepository) DeleteTask(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// BulkMoveSprintTasks reassigns all non-done tasks that belong to sourceSprintID
+// to targetSprintID (nil = backlog) in a single UPDATE statement.
+func (r *TaskRepository) BulkMoveSprintTasks(ctx context.Context, projectID, sourceSprintID uuid.UUID, targetSprintID *uuid.UUID) error {
+	doneStatusSubquery := r.db.Model(&taskStatusRecord{}).
+		Select("id").
+		Where("project_id = ? AND category = ?", projectID.String(), string(taskdom.StatusCategoryDone))
+
+	res := r.db.WithContext(ctx).Model(&taskRecord{}).
+		Where("project_id = ? AND sprint_id = ? AND deleted_at IS NULL", projectID.String(), sourceSprintID.String()).
+		Where("status_id IS NULL OR status_id NOT IN (?)", doneStatusSubquery).
+		Updates(map[string]any{
+			"sprint_id":  uuidPtrToStrPtr(targetSprintID),
+			"updated_at": time.Now(),
+		})
+	if res.Error != nil {
+		return fmt.Errorf("task repo: bulk move sprint tasks: %w", res.Error)
+	}
+	return nil
+}
+
 // --- Entity converters ------------------------------------------------------
 
 func toTaskTypeEntity(r *taskTypeRecord) *taskdom.TaskType {

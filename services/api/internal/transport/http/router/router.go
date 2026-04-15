@@ -289,6 +289,10 @@ func New(deps Deps) *gin.Engine {
 						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
 						deps.Sprint.DeleteSprint,
 					)
+					sprints.POST("/:sprintId/complete",
+						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
+						deps.Sprint.CompleteSprint,
+					)
 				}
 
 				// Views — unified endpoint for sprint, backlog, and timeline views.

@@ -50,6 +50,16 @@ func (f *fakeSprintSvcH) UpdateSprint(_ context.Context, _ uuid.UUID, _ sprintdo
 func (f *fakeSprintSvcH) DeleteSprint(_ context.Context, _ uuid.UUID) error {
 	return nil
 }
+func (f *fakeSprintSvcH) CompleteSprint(_ context.Context, id uuid.UUID, in sprintdom.CompleteSprintInput) (*sprintdom.Sprint, error) {
+	for _, sp := range f.created {
+		if sp.ID == id {
+			sp.Status = sprintdom.SprintStatusCompleted
+			cp := *sp
+			return &cp, nil
+		}
+	}
+	return nil, sprintdom.ErrSprintNotFound
+}
 
 type fakeViewSvcH struct {
 	mu      sync.Mutex
@@ -217,5 +227,74 @@ func TestCreateSprint_SeedsDefaultViews(t *testing.T) {
 		if !ok || sprintEntry.IsNested() || !sprintEntry.Flag() {
 			t.Errorf("expected table sprint filter to include %s, got %+v", sprintID, tableView.Config.Filters.Sprints)
 		}
+	}
+}
+
+func TestCompleteSprint_OK(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	sprintSvc := &fakeSprintSvcH{}
+	viewSvc := &fakeViewSvcH{}
+
+	// Pre-seed an active sprint into the fake service.
+	projectID := uuid.New()
+	activeSprint := &sprintdom.Sprint{
+		ID:        uuid.New(),
+		ProjectID: projectID,
+		Name:      "Sprint 1",
+		Status:    sprintdom.SprintStatusActive,
+	}
+	sprintSvc.created = append(sprintSvc.created, activeSprint)
+
+	h := handler.NewSprintHandler(sprintSvc, viewSvc)
+	r := gin.New()
+	r.POST("/projects/:projectId/sprints/:sprintId/complete", h.CompleteSprint)
+
+	body, _ := json.Marshal(map[string]any{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/projects/"+projectID.String()+"/sprints/"+activeSprint.ID.String()+"/complete",
+		bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Data.Status != string(sprintdom.SprintStatusCompleted) {
+		t.Errorf("expected status=completed, got %q", resp.Data.Status)
+	}
+}
+
+func TestCompleteSprint_NotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	sprintSvc := &fakeSprintSvcH{}
+	viewSvc := &fakeViewSvcH{}
+	h := handler.NewSprintHandler(sprintSvc, viewSvc)
+
+	r := gin.New()
+	r.POST("/projects/:projectId/sprints/:sprintId/complete", h.CompleteSprint)
+
+	body, _ := json.Marshal(map[string]any{})
+	projectID := uuid.New()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/projects/"+projectID.String()+"/sprints/"+uuid.New().String()+"/complete",
+		bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }

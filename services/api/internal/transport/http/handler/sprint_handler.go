@@ -140,6 +140,31 @@ func (h *SprintHandler) DeleteSprint(c *gin.Context) {
 	presenter.OK(c, gin.H{"message": "sprint deleted"})
 }
 
+// CompleteSprint handles POST /projects/:projectId/sprints/:sprintId/complete.
+// It bulk-moves all non-done tasks to the requested destination sprint (or the
+// backlog when move_to_sprint_id is absent/null) and marks the sprint completed.
+func (h *SprintHandler) CompleteSprint(c *gin.Context) {
+	sprintID, err := parseSprintID(c)
+	if err != nil {
+		presenter.Error(c, err)
+		return
+	}
+
+	var req dto.CompleteSprintRequest
+	if !middleware.BindJSON(c, &req) {
+		return
+	}
+
+	s, err := h.svc.CompleteSprint(c.Request.Context(), sprintID, sprintdom.CompleteSprintInput{
+		MoveToSprintID: req.MoveToSprintID,
+	})
+	if err != nil {
+		presenter.Error(c, err)
+		return
+	}
+	presenter.OK(c, dto.SprintFromEntity(s))
+}
+
 // parseSprintID extracts and validates the :sprintId path parameter.
 func parseSprintID(c *gin.Context) (uuid.UUID, error) {
 	id, err := uuid.Parse(c.Param("sprintId"))

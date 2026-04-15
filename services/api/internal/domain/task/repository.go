@@ -43,6 +43,10 @@ type TaskRepository interface {
 	CreateTask(ctx context.Context, t *Task) error
 	UpdateTask(ctx context.Context, t *Task) error
 	DeleteTask(ctx context.Context, id uuid.UUID) error
+	// BulkMoveSprintTasks reassigns all non-done tasks in sourceSprintID to
+	// targetSprintID. A nil targetSprintID moves tasks to the backlog (sprint_id = NULL).
+	// Tasks whose status has category "done" are not moved.
+	BulkMoveSprintTasks(ctx context.Context, projectID, sourceSprintID uuid.UUID, targetSprintID *uuid.UUID) error
 }
 
 // TaskFilter carries optional criteria for listing tasks.

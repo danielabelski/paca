@@ -1201,3 +1201,102 @@ func TestE2ECustomFieldManagement_Unauthorized(t *testing.T) {
 	assertStatus(t, resp, http.StatusForbidden)
 	assertErrorCode(t, resp, "FORBIDDEN")
 }
+
+// ---------------------------------------------------------------------------
+// Complete sprint
+// ---------------------------------------------------------------------------
+
+func TestE2ECompleteSprint_MovesToBacklog(t *testing.T) {
+	env := newE2EEnv(t)
+	seedTaskMemberUser(t, env, "complete-sprint-user", "completepass1")
+	client, token := taskMemberLogin(t, env, "complete-sprint-user", "completepass1")
+	projID := createProjectForTasksViaAPI(t, env, client, token)
+
+	// Create and activate the sprint.
+	sprintID := createSprintViaAPI(t, env, client, token, projID, "Sprint To Complete")
+	activateBody := jsonBody(t, map[string]any{"status": "active"})
+	req := mustRequest(env.ctx, t, http.MethodPatch,
+		fmt.Sprintf("%s/api/v1/projects/%s/sprints/%s", env.base, projID, sprintID), activateBody)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := mustDo(t, client, req)
+	_ = resp.Body.Close()
+	assertStatus(t, resp, http.StatusOK)
+
+	// Assign a task to the sprint.
+	taskBody := jsonBody(t, map[string]any{"title": "incomplete task", "sprint_id": sprintID})
+	req = mustRequest(env.ctx, t, http.MethodPost,
+		fmt.Sprintf("%s/api/v1/projects/%s/tasks", env.base, projID), taskBody)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp = mustDo(t, client, req)
+	_ = resp.Body.Close()
+	assertStatus(t, resp, http.StatusCreated)
+
+	// Complete the sprint — no destination means backlog.
+	completeBody := jsonBody(t, map[string]any{})
+	req = mustRequest(env.ctx, t, http.MethodPost,
+		fmt.Sprintf("%s/api/v1/projects/%s/sprints/%s/complete", env.base, projID, sprintID), completeBody)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp = mustDo(t, client, req)
+	defer func() { _ = resp.Body.Close() }()
+	assertStatus(t, resp, http.StatusOK)
+	var env2 envelope
+	decodeJSON(t, resp, &env2)
+	data := assertDataMap(t, env2)
+	if status, _ := data["status"].(string); status != "completed" {
+		t.Errorf("expected sprint status=completed, got %q", status)
+	}
+
+	// Verify the task moved to backlog.
+	req = mustRequest(env.ctx, t, http.MethodGet,
+		fmt.Sprintf("%s/api/v1/projects/%s/tasks?sprint_id=null", env.base, projID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp = mustDo(t, client, req)
+	defer func() { _ = resp.Body.Close() }()
+	assertStatus(t, resp, http.StatusOK)
+	var env3 envelope
+	decodeJSON(t, resp, &env3)
+	d := assertDataMap(t, env3)
+	if total, _ := d["total"].(float64); total < 1 {
+		t.Errorf("expected at least 1 backlog task after sprint completion, got %v", total)
+	}
+}
+
+func TestE2ECompleteSprint_AlreadyCompleted(t *testing.T) {
+	env := newE2EEnv(t)
+	seedTaskMemberUser(t, env, "complete-sprint-dup-user", "completepass2")
+	client, token := taskMemberLogin(t, env, "complete-sprint-dup-user", "completepass2")
+	projID := createProjectForTasksViaAPI(t, env, client, token)
+
+	sprintID := createSprintViaAPI(t, env, client, token, projID, "Sprint Already Done")
+
+	// Activate then immediately complete via the bulk endpoint.
+	activateBody := jsonBody(t, map[string]any{"status": "active"})
+	req := mustRequest(env.ctx, t, http.MethodPatch,
+		fmt.Sprintf("%s/api/v1/projects/%s/sprints/%s", env.base, projID, sprintID), activateBody)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := mustDo(t, client, req)
+	_ = resp.Body.Close()
+
+	completeBody := jsonBody(t, map[string]any{})
+	req = mustRequest(env.ctx, t, http.MethodPost,
+		fmt.Sprintf("%s/api/v1/projects/%s/sprints/%s/complete", env.base, projID, sprintID), completeBody)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp = mustDo(t, client, req)
+	_ = resp.Body.Close()
+	assertStatus(t, resp, http.StatusOK)
+
+	// A second call must return 409.
+	req = mustRequest(env.ctx, t, http.MethodPost,
+		fmt.Sprintf("%s/api/v1/projects/%s/sprints/%s/complete", env.base, projID, sprintID), jsonBody(t, map[string]any{}))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp = mustDo(t, client, req)
+	defer func() { _ = resp.Body.Close() }()
+	assertStatus(t, resp, http.StatusConflict)
+	assertErrorCode(t, resp, "SPRINT_ALREADY_COMPLETE")
+}

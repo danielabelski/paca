@@ -14,6 +14,15 @@ type SprintService interface {
 	CreateSprint(ctx context.Context, in CreateSprintInput) (*Sprint, error)
 	UpdateSprint(ctx context.Context, id uuid.UUID, in UpdateSprintInput) (*Sprint, error)
 	DeleteSprint(ctx context.Context, id uuid.UUID) error
+	// CompleteSprint marks a sprint as completed and bulk-moves all non-done
+	// tasks to the sprint specified in CompleteSprintInput (nil = backlog).
+	CompleteSprint(ctx context.Context, id uuid.UUID, in CompleteSprintInput) (*Sprint, error)
+}
+
+// CompleteSprintInput carries options for completing a sprint.
+// MoveToSprintID, when nil, moves incomplete tasks to the backlog.
+type CompleteSprintInput struct {
+	MoveToSprintID *uuid.UUID
 }
 
 // CreateSprintInput carries fields required to create a sprint.
