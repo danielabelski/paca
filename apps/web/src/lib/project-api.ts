@@ -241,6 +241,33 @@ export async function setDefaultTaskType(
 	return data.data;
 }
 
+// ── Task type role helpers ─────────────────────────────────────────────────────
+
+/** Returns true if this task type is the system "Epic" type. */
+export function isEpicType(t: TaskType | undefined | null): boolean {
+	return !!t && !!t.is_system && t.name === "Epic";
+}
+
+/** Returns true if this task type is the system "Subtask" type. */
+export function isSubtaskType(t: TaskType | undefined | null): boolean {
+	return !!t && !!t.is_system && t.name === "Subtask";
+}
+
+/** Finds the Epic system type from a list of task types. */
+export function findEpicType(types: TaskType[]): TaskType | undefined {
+	return types.find(isEpicType);
+}
+
+/** Finds the Subtask system type from a list of task types. */
+export function findSubtaskType(types: TaskType[]): TaskType | undefined {
+	return types.find(isSubtaskType);
+}
+
+/** Returns non-system task types (Task, Bug, Story, etc). */
+export function getNormalTaskTypes(types: TaskType[]): TaskType[] {
+	return types.filter((t) => !t.is_system);
+}
+
 // ── Task Statuses ─────────────────────────────────────────────────────────────
 
 export type StatusCategory =

@@ -32,6 +32,7 @@ import {
 	createTask,
 	createViewByContext,
 	deleteViewById,
+	epicTasksQueryOptions,
 	type FilterConfig,
 	type InteractionView,
 	layoutToViewType,
@@ -51,6 +52,7 @@ import {
 } from "@/lib/interaction-api";
 import {
 	customFieldsQueryOptions,
+	findEpicType,
 	projectMembersQueryOptions,
 	projectQueryOptions,
 	taskStatusesQueryOptions,
@@ -311,6 +313,13 @@ export function InteractionLayout({
 	);
 
 	const { data: sprints = [] } = useQuery(sprintsQueryOptions(projectId));
+
+	// Fetch Epic tasks for display in the epic field on task cards/rows
+	const epicType = findEpicType(taskTypes);
+	const { data: epicTasks = [] } = useQuery({
+		...epicTasksQueryOptions(projectId, epicType?.id ?? ""),
+		enabled: !!epicType?.id,
+	});
 
 	const isRealView = !!activeViewId && !activeViewId.startsWith("__default-");
 	const effectiveViewId = isManualSort && isRealView ? activeViewId : undefined;
@@ -912,6 +921,7 @@ export function InteractionLayout({
 						members={members}
 						customFields={customFields}
 						sprints={sprints}
+						epics={epicTasks}
 						viewConfig={activeViewConfig}
 						canCreate={canCreate}
 						canEdit={canEdit}
@@ -943,6 +953,7 @@ export function InteractionLayout({
 						taskTypes={creatableTaskTypes}
 						members={members}
 						customFields={customFields}
+						epics={epicTasks}
 						viewConfig={activeViewConfig}
 						canCreate={canCreate}
 						searchQuery={searchQuery}

@@ -334,6 +334,7 @@ export const BUILTIN_FIELDS: { key: string; label: string }[] = [
 	{ key: "status", label: "Status" },
 	{ key: "importance", label: "Importance" },
 	{ key: "type", label: "Type" },
+	{ key: "epic", label: "Epic" },
 	{ key: "reporter", label: "Reporter" },
 	{ key: "start_date", label: "Start Date" },
 	{ key: "due_date", label: "Due Date" },
@@ -418,6 +419,7 @@ export type TaskFieldUpdate = Partial<{
 	task_type_id: string | null;
 	custom_fields: Record<string, unknown>;
 	sprint_id: string | null;
+	parent_task_id: string | null;
 }>;
 
 /**

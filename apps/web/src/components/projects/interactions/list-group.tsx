@@ -30,6 +30,7 @@ export interface ListGroupProps {
 	taskTypes: TaskType[];
 	members: ProjectMember[];
 	customFields: CustomFieldDefinition[];
+	epics?: Task[];
 	canCreate: boolean;
 	defaultCollapsed?: boolean;
 	fieldSum?: string;
@@ -78,6 +79,7 @@ export function ListGroup({
 	taskTypes,
 	members,
 	customFields,
+	epics = [],
 	canCreate,
 	defaultCollapsed,
 	fieldSum,
@@ -340,6 +342,7 @@ export function ListGroup({
 				statuses={statuses}
 				taskTypes={taskTypes}
 				members={members}
+				epics={epics}
 				customFields={customFields}
 				visibleFields={visibleFields}
 				onClick={() => onTaskClick(task)}

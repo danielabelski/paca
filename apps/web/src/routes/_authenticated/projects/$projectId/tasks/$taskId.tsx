@@ -88,6 +88,7 @@ function TaskDetailPage() {
 					taskTypes={taskTypes}
 					members={members}
 					projectName={project?.name}
+					projectId={projectId}
 					mode="page"
 					canEdit
 				/>

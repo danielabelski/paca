@@ -546,4 +546,26 @@ export const sprintTasksQueryOptions = (
 		staleTime: 15_000,
 	});
 
+/** Fetches all tasks whose task_type is "Epic" for a project. */
+export async function listEpicTasks(projectId: string, epicTypeId: string): Promise<Task[]> {
+	const result = await listAllTasks(projectId, { taskTypeIds: [epicTypeId], pageSize: 500 });
+	return result.items;
+}
+
+export const epicTasksQueryOptions = (projectId: string, epicTypeId: string) =>
+	queryOptions({
+		queryKey: ["projects", projectId, "tasks", "epics", epicTypeId],
+		queryFn: () => listEpicTasks(projectId, epicTypeId),
+		staleTime: 30_000,
+		enabled: !!projectId && !!epicTypeId,
+	});
+
+/** Fetches child tasks of an epic (tasks with parent_task_id = epicId). */
+export const epicChildTasksQueryOptions = (projectId: string, epicId: string) =>
+	queryOptions({
+		queryKey: ["projects", projectId, "tasks", epicId, "children"],
+		queryFn: () => listSubtasks(projectId, epicId),
+		staleTime: 15_000,
+	});
+
 // end of interaction-api

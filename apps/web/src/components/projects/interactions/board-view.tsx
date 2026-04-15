@@ -47,6 +47,7 @@ interface BoardViewProps {
 		extraFields?: TaskFieldUpdate,
 	) => Promise<void>;
 	onTaskClick: (task: Task) => void;
+	epics?: Task[];
 	onUpdateTask?: (taskId: string, payload: TaskFieldUpdate) => void;
 	onMoveToColumn?: (taskId: string, update: TaskFieldUpdate) => void;
 	manualSort?: boolean;
@@ -69,6 +70,7 @@ export function BoardView({
 	canEdit,
 	searchQuery,
 	tasksQueryKey,
+	epics = [],
 	onCreateTask,
 	onTaskClick,
 	onUpdateTask,
@@ -473,6 +475,7 @@ export function BoardView({
 							taskTypes={taskTypes}
 							members={members}
 							customFields={customFields}
+							epics={epics}
 							visibleFields={visibleFields}
 							canEdit={canEdit}
 							isDragging={draggingId === task.id}

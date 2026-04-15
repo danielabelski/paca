@@ -3,9 +3,12 @@ import {
 	BookOpen,
 	Check,
 	Clock,
+	ExternalLink,
 	KanbanSquare,
+	Layers,
 	Link2,
 	Plus,
+	X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Sprint, Task } from "@/lib/interaction-api";
@@ -22,6 +25,7 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AddFieldDialog } from "./add-field-dialog";
@@ -41,6 +45,7 @@ type UpdatePayload = Partial<{
 	due_date: string | null;
 	tags: string[];
 	sprint_id: string | null;
+	parent_task_id: string | null;
 	custom_fields: Record<string, unknown>;
 }>;
 
@@ -58,7 +63,15 @@ interface PropertiesPanelProps {
 	projectId?: string;
 	initialCustomFields?: CustomFieldDef[];
 	canEdit?: boolean;
+	/** Role of the current task: "epic", "normal", or "subtask" */
+	taskRole?: "epic" | "normal" | "subtask";
+	/** All epic tasks in the project, for the epic picker on normal tasks */
+	epicTasks?: Task[];
+	/** Parent task, shown for subtasks */
+	parentTask?: Task;
 	onUpdate?: (payload: UpdatePayload) => void;
+	/** Navigate to a task's detail page */
+	onNavigateToTask?: (taskId: string) => void;
 }
 
 function toUserOption(m: ProjectMember): UserOption {
@@ -82,7 +95,11 @@ export function PropertiesPanel({
 	projectId,
 	initialCustomFields = [],
 	canEdit = true,
+	taskRole = "normal",
+	epicTasks = [],
+	parentTask,
 	onUpdate,
+	onNavigateToTask,
 }: PropertiesPanelProps) {
 	const [localCustomFields, setLocalCustomFields] =
 		useState<CustomFieldDef[]>(initialCustomFields);
@@ -294,13 +311,96 @@ export function PropertiesPanel({
 					hidden={!task.sprint_id && !(canEdit && sprints.length > 0)}
 				/>
 
-				<PropertyField
-					label="Parent task"
-					mode="link"
-					linkValue={task.parent_task_id ?? ""}
-					linkIcon={<ArrowRight className="size-3 shrink-0" />}
-					hidden={!task.parent_task_id}
-				/>
+				{/* Epic field – normal tasks only */}
+				{taskRole === "normal" && (epicTasks.length > 0 || task.parent_task_id) && (() => {
+					const epic = task.parent_task_id
+						? epicTasks.find((e) => e.id === task.parent_task_id)
+						: undefined;
+					const otherEpics = epicTasks.filter((e) => e.id !== task.parent_task_id);
+					const hasActions = (epic && onNavigateToTask) || (!!task.parent_task_id && canEdit);
+					return (
+						<FieldRow label="Epic">
+							<DropdownMenu>
+								<DropdownMenuTrigger className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium hover:bg-muted/50 transition-colors duration-150 cursor-pointer -ml-2 max-w-52 truncate">
+									{epic ? (
+										<>
+											<Layers className="size-3.5 shrink-0 text-violet-500/80" />
+											<span className="truncate text-foreground/80">{epic.title}</span>
+										</>
+									) : (
+										<span className="text-muted-foreground/50 italic">None</span>
+									)}
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="start" className="w-64">
+									{epic && onNavigateToTask && (
+										<DropdownMenuItem onClick={() => onNavigateToTask(epic.id)}>
+											<ExternalLink className="size-3.5 mr-2 shrink-0" />
+											View epic
+										</DropdownMenuItem>
+									)}
+									{task.parent_task_id && canEdit && (
+										<DropdownMenuItem
+											className="text-destructive focus:text-destructive"
+											onClick={() => onUpdate?.({ parent_task_id: null })}
+										>
+											<X className="size-3.5 mr-2 shrink-0" />
+											Remove epic
+										</DropdownMenuItem>
+									)}
+									{hasActions && otherEpics.length > 0 && <DropdownMenuSeparator />}
+									{otherEpics.map((e) => (
+										<DropdownMenuItem key={e.id} onClick={() => onUpdate?.({ parent_task_id: e.id })}>
+											<Layers className="size-3.5 mr-2 shrink-0 text-violet-500/80" />
+											<span className="truncate">{e.title}</span>
+										</DropdownMenuItem>
+									))}
+								</DropdownMenuContent>
+							</DropdownMenu>
+						</FieldRow>
+					);
+				})()}
+				{/* Parent task – subtasks only */}
+				{taskRole === "subtask" && (
+					<FieldRow label="Parent">
+						{parentTask ? (() => {
+							const parentType = taskTypes.find((tt) => tt.id === parentTask.task_type_id);
+							const ParentIcon = parentType ? getTaskTypeIconComponent(parentType.icon) : null;
+							return (
+							<DropdownMenu>
+								<DropdownMenuTrigger className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium hover:bg-muted/50 transition-colors duration-150 cursor-pointer -ml-2 max-w-52 truncate">
+									{ParentIcon ? (
+										<ParentIcon className="size-3.5 shrink-0 text-muted-foreground/80" />
+									) : (
+										<ArrowRight className="size-3.5 shrink-0 opacity-60" />
+									)}
+									<span className="truncate text-foreground/80">{parentTask.title}</span>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="start" className="w-56">
+									{onNavigateToTask && (
+										<DropdownMenuItem onClick={() => onNavigateToTask(parentTask.id)}>
+											<ExternalLink className="size-3.5 mr-2 shrink-0" />
+											View parent
+										</DropdownMenuItem>
+									)}
+									{canEdit && (
+										<DropdownMenuItem
+											className="text-destructive focus:text-destructive"
+											onClick={() => onUpdate?.({ parent_task_id: null })}
+										>
+											<X className="size-3.5 mr-2 shrink-0" />
+											Remove parent
+										</DropdownMenuItem>
+									)}
+								</DropdownMenuContent>
+							</DropdownMenu>
+							);
+						})() : task.parent_task_id ? (
+							<span className="text-[12px] text-muted-foreground/60 italic">Loading…</span>
+						) : (
+							<span className="text-[12px] text-muted-foreground/50 italic">No parent</span>
+						)}
+					</FieldRow>
+				)}
 
 				{localCustomFields.map((cf) => (
 					<PropertyField

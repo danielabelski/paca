@@ -1,14 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import {
 	createTask,
+	epicTasksQueryOptions,
 	sprintsQueryOptions,
 	subtasksQueryOptions,
 	taskQueryOptions,
 	updateTask,
 } from "@/lib/interaction-api";
-import { customFieldsQueryOptions, projectQueryOptions } from "@/lib/project-api";
+import {
+	customFieldsQueryOptions,
+	findEpicType,
+	findSubtaskType,
+	getNormalTaskTypes,
+	isEpicType,
+	isSubtaskType,
+	projectQueryOptions,
+} from "@/lib/project-api";
 import { cn } from "@/lib/utils";
 import { getTaskTypeIconComponent } from "../../task-types/task-type-icons";
 import { getPriority } from "../priority";
@@ -50,6 +60,7 @@ export function TaskDetailModal({
 	canEdit = true,
 }: TaskDetailModalProps) {
 	const qc = useQueryClient();
+	const navigate = useNavigate();
 
 	// Fetch project to get task ID prefix
 	const { data: project } = useQuery({
@@ -95,10 +106,37 @@ export function TaskDetailModal({
 	const assignee = members.find((m) => m.id === task?.assignee_id);
 	const reporter = members.find((m) => m.id === task?.reporter_id);
 
+	// ── Task role detection ────────────────────────────────────────────────────
+	const isEpic = isEpicType(taskType);
+	const isSubtask = isSubtaskType(taskType);
+	const taskRole = isEpic ? "epic" : isSubtask ? "subtask" : "normal";
+
+	const epicType = findEpicType(taskTypes);
+	const subtaskType = findSubtaskType(taskTypes);
+	const normalTaskTypes = getNormalTaskTypes(taskTypes);
+
+	// For normal tasks: fetch all epics to populate the Epic picker
+	const { data: epicTasks = [] } = useQuery({
+		...epicTasksQueryOptions(projectId ?? "", epicType?.id ?? ""),
+		enabled: !!projectId && !!epicType?.id && taskRole === "normal" && (open || mode === "page"),
+	});
+
+	// For subtasks: fetch parent task to display its title
+	const { data: parentTask } = useQuery({
+		...taskQueryOptions(projectId ?? "", task?.parent_task_id ?? ""),
+		enabled: !!projectId && !!task?.parent_task_id && (open || mode === "page"),
+	});
+
 	// ── Title inline edit ─────────────────────────────────────────────────────
 	const [editingTitle, setEditingTitle] = useState(false);
 	const [titleDraft, setTitleDraft] = useState("");
 	const titleInputRef = useRef<HTMLTextAreaElement>(null);
+
+	// ── Navigation ────────────────────────────────────────────────────────────
+	function navigateToTask(taskId: string) {
+		if (!projectId) return;
+		navigate({ to: "/projects/$projectId/tasks/$taskId", params: { projectId, taskId } });
+	}
 
 	// ── Update mutation ────────────────────────────────────────────────────────
 	const updateMutation = useMutation({
@@ -284,7 +322,11 @@ export function TaskDetailModal({
 								projectId={projectId}
 								initialCustomFields={customFieldDefs}
 								canEdit={canEdit}
+								taskRole={taskRole}
+								epicTasks={epicTasks}
+								parentTask={parentTask}
 								onUpdate={handleUpdate}
+								onNavigateToTask={navigateToTask}
 							/>
 						</div>
 
@@ -295,36 +337,45 @@ export function TaskDetailModal({
 							onUpdate={handleUpdate}
 						/>
 
-						{/* Subtasks */}
-						<SubtasksSection
-							projectId={projectId}
-							parentTaskId={task.id}
-							subtasks={subtasks}
-							statuses={statuses}
-							taskTypes={taskTypes}
-							members={members}
-							canEdit={canEdit}
-							task={task}
-							onSubtaskUpdate={(subtaskId, payload) => {
-								if (!projectId) return;
-								updateTask(projectId, subtaskId, payload).then(() => {
-									qc.invalidateQueries({
-										queryKey: subtasksQueryOptions(projectId, task.id).queryKey,
+						{/* Subtasks / Tasks section – hidden for subtasks */}
+						{taskRole !== "subtask" && (
+							<SubtasksSection
+								projectId={projectId}
+								parentTaskId={task.id}
+								subtasks={subtasks}
+								statuses={statuses}
+								taskTypes={taskTypes}
+								members={members}
+								canEdit={canEdit}
+								task={task}
+								taskIdPrefix={taskIdPrefix}
+								mode={isEpic ? "tasks" : "subtasks"}
+								subtaskType={subtaskType}
+								normalTaskTypes={normalTaskTypes}
+								onSubtaskClick={(sub) => navigateToTask(sub.id)}
+								onSubtaskUpdate={(subtaskId, payload) => {
+									if (!projectId) return;
+									updateTask(projectId, subtaskId, payload).then(() => {
+										qc.invalidateQueries({
+											queryKey: subtasksQueryOptions(projectId, task.id).queryKey,
+										});
 									});
-								});
-							}}
-							onSubtaskCreate={(payload) => {
-								if (!projectId) return;
-								createTask(projectId, {
-									...payload,
-									parent_task_id: task.id,
-								}).then(() => {
-									qc.invalidateQueries({
-										queryKey: subtasksQueryOptions(projectId, task.id).queryKey,
+								}}
+								onSubtaskCreate={(payload) => {
+									if (!projectId) return;
+									const todoStatus = statuses.find((s) => s.category === "todo") ?? statuses[0];
+									createTask(projectId, {
+										...payload,
+										status_id: todoStatus?.id ?? payload.status_id ?? null,
+										parent_task_id: task.id,
+									}).then(() => {
+										qc.invalidateQueries({
+											queryKey: subtasksQueryOptions(projectId, task.id).queryKey,
+										});
 									});
-								});
-							}}
-						/>
+								}}
+							/>
+						)}
 
 						{/* Checklists */}
 						<ChecklistsSection />
@@ -359,7 +410,6 @@ export function TaskDetailModal({
 		</div>
 	);
 
-	// ── Modal wrapper ──────────────────────────────────────────────────────────
 	if (mode === "page") {
 		return (
 			<div className="flex h-full flex-col overflow-hidden bg-background">
@@ -400,6 +450,7 @@ export function TaskDetailModal({
 			>
 				{content}
 			</div>
+
 		</>
 	);
 }

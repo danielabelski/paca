@@ -27,6 +27,7 @@ export interface ListViewProps {
 	taskTypes: TaskType[];
 	members?: ProjectMember[];
 	customFields?: CustomFieldDefinition[];
+	epics?: Task[];
 	viewConfig?: ViewConfig;
 	canCreate: boolean;
 	searchQuery: string;
@@ -66,6 +67,7 @@ export function ListView({
 	taskTypes,
 	members = [],
 	customFields = [],
+	epics = [],
 	viewConfig,
 	canCreate,
 	searchQuery,
@@ -162,8 +164,7 @@ export function ListView({
 						statuses={statuses}
 						taskTypes={taskTypes}
 						members={members}
-						customFields={customFields}
-						canCreate={canCreate}
+						customFields={customFields}					epics={epics}						canCreate={canCreate}
 						defaultCollapsed={isDone}
 						fieldSum={fieldSum}
 						swimlaneDefs={swimlaneDefs}

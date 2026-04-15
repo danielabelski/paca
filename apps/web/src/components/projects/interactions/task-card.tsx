@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, GripVertical, Link, User } from "lucide-react";
+import { Check, GripVertical, Layers, Link, User } from "lucide-react";
 
 import { getTaskTypeIconComponent } from "@/components/projects/task-types/task-type-icons";
 import {
@@ -33,6 +33,7 @@ interface TaskCardProps {
 	statuses: TaskStatus[];
 	taskTypes: TaskType[];
 	members?: ProjectMember[];
+	epics?: Task[];
 	visibleFields?: string[];
 	customFields?: CustomFieldDefinition[];
 	onClick?: () => void;
@@ -56,6 +57,7 @@ export function TaskCard({
 	statuses,
 	taskTypes,
 	members = [],
+	epics = [],
 	visibleFields = DEFAULT_VISIBLE_FIELDS,
 	customFields = [],
 	onClick,
@@ -394,6 +396,69 @@ export function TaskCard({
 						{formatDate(task.created_at)}
 					</span>
 				);
+
+			case "epic": {
+				const epic = task.parent_task_id
+					? epics.find((e) => e.id === task.parent_task_id)
+					: undefined;
+				return canEdit ? (
+					<Popover key="epic">
+						<PopoverTrigger
+							type="button"
+							onClick={(e) => e.stopPropagation()}
+							className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium border border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400 hover:opacity-80 transition-opacity shrink-0"
+						>
+							<Layers className="size-2.5 shrink-0 opacity-70" />
+							{epic ? (
+								<span className="max-w-20 truncate">{epic.title}</span>
+							) : (
+								<span className="text-muted-foreground/40">Epic</span>
+							)}
+						</PopoverTrigger>
+						<PopoverContent
+							className="w-56 p-1 rounded-xl border border-border/40 shadow-lg"
+							align="start"
+						>
+							<button
+								type="button"
+								className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[13px] text-muted-foreground hover:bg-muted/60 transition-colors duration-100"
+								onClick={(e) => {
+									e.stopPropagation();
+									onUpdate?.(task.id, { parent_task_id: null });
+								}}
+							>
+								<span className="flex-1 text-left">No Epic</span>
+								{!task.parent_task_id && <Check className="size-3.5 text-primary" />}
+							</button>
+							{epics.map((e) => (
+								<button
+									key={e.id}
+									type="button"
+									className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[13px] hover:bg-muted/60 transition-colors duration-100"
+									onClick={(ev) => {
+										ev.stopPropagation();
+										onUpdate?.(task.id, { parent_task_id: e.id });
+									}}
+								>
+									<Layers className="size-3.5 shrink-0 text-violet-500 opacity-70" />
+									<span className="flex-1 text-left truncate">{e.title}</span>
+									{e.id === task.parent_task_id && (
+										<Check className="size-3.5 text-primary" />
+									)}
+								</button>
+							))}
+						</PopoverContent>
+					</Popover>
+				) : epic ? (
+					<span
+						key="epic"
+						className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium border border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400 shrink-0"
+					>
+						<Layers className="size-2.5 shrink-0 opacity-70" />
+						<span className="max-w-20 truncate">{epic.title}</span>
+					</span>
+				) : null;
+			}
 
 			default: {
 				// Custom field
