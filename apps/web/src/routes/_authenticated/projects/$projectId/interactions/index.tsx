@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 export const Route = createFileRoute(
 	"/_authenticated/projects/$projectId/interactions/",
 )({
-	component: IntegrationsPage,
+	component: InteractionsPage,
 });
 
 const FEATURES = [
@@ -36,7 +36,7 @@ const FEATURES = [
 	},
 ] as const;
 
-function IntegrationsPage() {
+function InteractionsPage() {
 	return (
 		<div className="flex flex-col">
 			<div className="relative overflow-hidden border-b border-border/30">
@@ -61,7 +61,7 @@ function IntegrationsPage() {
 						</Badge>
 					</div>
 					<h1 className="font-[Syne] text-[26px] font-bold tracking-tight">
-						Integrations
+						Interactions
 					</h1>
 					<p className="mt-1.5 max-w-lg text-[14px] text-muted-foreground">
 						Product backlog and sprint management — the core of your scrumban
