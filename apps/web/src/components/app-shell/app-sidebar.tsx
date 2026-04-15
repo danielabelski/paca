@@ -191,7 +191,6 @@ function NavItem({
 // ── Project Nav ───────────────────────────────────────────────────────────────
 const PROJECT_NAV_ITEMS = [
 	{ segment: "", icon: LayoutDashboard, label: "Dashboard" },
-	{ segment: "interactions", icon: BookOpen, label: "Interactions" },
 	{ segment: "docs", icon: FileText, label: "Docs" },
 	{ segment: "team", icon: Users, label: "Team" },
 	{ segment: "settings", icon: Settings, label: "Settings" },
@@ -396,6 +395,23 @@ function ProjectInteractionsSection({ projectId }: { projectId: string }) {
 			{!collapsed && (
 				<SidebarGroupContent>
 					<SidebarMenu>
+						{/* Timeline */}
+						<SidebarMenuItem>
+							<SidebarMenuButton
+								isActive={isTimelineActive}
+								tooltip="Timeline"
+								render={<Link to={timelineHref} />}
+								className={cn(
+									"relative transition-all duration-150",
+									isTimelineActive
+										? "bg-primary/10 text-primary font-medium before:absolute before:left-0 before:inset-y-2 before:w-0.75 before:rounded-full before:bg-primary"
+										: "hover:bg-sidebar-accent/60",
+								)}
+							>
+								<GanttChart className="size-4" />
+								<span>Timeline</span>
+							</SidebarMenuButton>
+						</SidebarMenuItem>
 						{/* Product Backlog — always shown */}
 						<SidebarMenuItem
 							onDragOver={(e) => handleInteractionDragOver(e, "backlog")}
@@ -417,23 +433,6 @@ function ProjectInteractionsSection({ projectId }: { projectId: string }) {
 							>
 								<BookOpen className="size-4" />
 								<span>Product Backlog</span>
-							</SidebarMenuButton>
-						</SidebarMenuItem>
-						{/* Timeline */}
-						<SidebarMenuItem>
-							<SidebarMenuButton
-								isActive={isTimelineActive}
-								tooltip="Timeline"
-								render={<Link to={timelineHref} />}
-								className={cn(
-									"relative transition-all duration-150",
-									isTimelineActive
-										? "bg-primary/10 text-primary font-medium before:absolute before:left-0 before:inset-y-2 before:w-0.75 before:rounded-full before:bg-primary"
-										: "hover:bg-sidebar-accent/60",
-								)}
-							>
-								<GanttChart className="size-4" />
-								<span>Timeline</span>
 							</SidebarMenuButton>
 						</SidebarMenuItem>
 						{/* Open sprints */}
@@ -581,9 +580,9 @@ export function AppSidebar() {
 					<>
 						<ProjectNav />
 						<SidebarSeparator />
-						<ProjectNavItems projectId={projectId} />
-						<SidebarSeparator />
 						<ProjectInteractionsSection projectId={projectId} />
+						<SidebarSeparator />
+						<ProjectNavItems projectId={projectId} />
 					</>
 				) : (
 					<>

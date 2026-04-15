@@ -20,7 +20,6 @@ import { Route as AuthenticatedAdminUsersIndexRouteImport } from './routes/_auth
 import { Route as AuthenticatedAdminGlobalRolesIndexRouteImport } from './routes/_authenticated/admin/global-roles/index'
 import { Route as AuthenticatedProjectsProjectIdTeamIndexRouteImport } from './routes/_authenticated/projects/$projectId/team/index'
 import { Route as AuthenticatedProjectsProjectIdSettingsIndexRouteImport } from './routes/_authenticated/projects/$projectId/settings/index'
-import { Route as AuthenticatedProjectsProjectIdInteractionsIndexRouteImport } from './routes/_authenticated/projects/$projectId/interactions/index'
 import { Route as AuthenticatedProjectsProjectIdDocsIndexRouteImport } from './routes/_authenticated/projects/$projectId/docs/index'
 import { Route as AuthenticatedProjectsProjectIdTasksTaskIdRouteImport } from './routes/_authenticated/projects/$projectId/tasks/$taskId'
 import { Route as AuthenticatedProjectsProjectIdInteractionsTimelineRouteImport } from './routes/_authenticated/projects/$projectId/interactions/timeline'
@@ -88,12 +87,6 @@ const AuthenticatedProjectsProjectIdSettingsIndexRoute =
     path: '/settings/',
     getParentRoute: () => AuthenticatedProjectsProjectIdRoute,
   } as any)
-const AuthenticatedProjectsProjectIdInteractionsIndexRoute =
-  AuthenticatedProjectsProjectIdInteractionsIndexRouteImport.update({
-    id: '/interactions/',
-    path: '/interactions/',
-    getParentRoute: () => AuthenticatedProjectsProjectIdRoute,
-  } as any)
 const AuthenticatedProjectsProjectIdDocsIndexRoute =
   AuthenticatedProjectsProjectIdDocsIndexRouteImport.update({
     id: '/docs/',
@@ -138,7 +131,6 @@ export interface FileRoutesByFullPath {
   '/projects/$projectId/interactions/timeline': typeof AuthenticatedProjectsProjectIdInteractionsTimelineRoute
   '/projects/$projectId/tasks/$taskId': typeof AuthenticatedProjectsProjectIdTasksTaskIdRoute
   '/projects/$projectId/docs/': typeof AuthenticatedProjectsProjectIdDocsIndexRoute
-  '/projects/$projectId/interactions/': typeof AuthenticatedProjectsProjectIdInteractionsIndexRoute
   '/projects/$projectId/settings/': typeof AuthenticatedProjectsProjectIdSettingsIndexRoute
   '/projects/$projectId/team/': typeof AuthenticatedProjectsProjectIdTeamIndexRoute
   '/projects/$projectId/interactions/sprints/$sprintId': typeof AuthenticatedProjectsProjectIdInteractionsSprintsSprintIdRoute
@@ -155,7 +147,6 @@ export interface FileRoutesByTo {
   '/projects/$projectId/interactions/timeline': typeof AuthenticatedProjectsProjectIdInteractionsTimelineRoute
   '/projects/$projectId/tasks/$taskId': typeof AuthenticatedProjectsProjectIdTasksTaskIdRoute
   '/projects/$projectId/docs': typeof AuthenticatedProjectsProjectIdDocsIndexRoute
-  '/projects/$projectId/interactions': typeof AuthenticatedProjectsProjectIdInteractionsIndexRoute
   '/projects/$projectId/settings': typeof AuthenticatedProjectsProjectIdSettingsIndexRoute
   '/projects/$projectId/team': typeof AuthenticatedProjectsProjectIdTeamIndexRoute
   '/projects/$projectId/interactions/sprints/$sprintId': typeof AuthenticatedProjectsProjectIdInteractionsSprintsSprintIdRoute
@@ -175,7 +166,6 @@ export interface FileRoutesById {
   '/_authenticated/projects/$projectId/interactions/timeline': typeof AuthenticatedProjectsProjectIdInteractionsTimelineRoute
   '/_authenticated/projects/$projectId/tasks/$taskId': typeof AuthenticatedProjectsProjectIdTasksTaskIdRoute
   '/_authenticated/projects/$projectId/docs/': typeof AuthenticatedProjectsProjectIdDocsIndexRoute
-  '/_authenticated/projects/$projectId/interactions/': typeof AuthenticatedProjectsProjectIdInteractionsIndexRoute
   '/_authenticated/projects/$projectId/settings/': typeof AuthenticatedProjectsProjectIdSettingsIndexRoute
   '/_authenticated/projects/$projectId/team/': typeof AuthenticatedProjectsProjectIdTeamIndexRoute
   '/_authenticated/projects/$projectId/interactions/sprints/$sprintId': typeof AuthenticatedProjectsProjectIdInteractionsSprintsSprintIdRoute
@@ -195,7 +185,6 @@ export interface FileRouteTypes {
     | '/projects/$projectId/interactions/timeline'
     | '/projects/$projectId/tasks/$taskId'
     | '/projects/$projectId/docs/'
-    | '/projects/$projectId/interactions/'
     | '/projects/$projectId/settings/'
     | '/projects/$projectId/team/'
     | '/projects/$projectId/interactions/sprints/$sprintId'
@@ -212,7 +201,6 @@ export interface FileRouteTypes {
     | '/projects/$projectId/interactions/timeline'
     | '/projects/$projectId/tasks/$taskId'
     | '/projects/$projectId/docs'
-    | '/projects/$projectId/interactions'
     | '/projects/$projectId/settings'
     | '/projects/$projectId/team'
     | '/projects/$projectId/interactions/sprints/$sprintId'
@@ -231,7 +219,6 @@ export interface FileRouteTypes {
     | '/_authenticated/projects/$projectId/interactions/timeline'
     | '/_authenticated/projects/$projectId/tasks/$taskId'
     | '/_authenticated/projects/$projectId/docs/'
-    | '/_authenticated/projects/$projectId/interactions/'
     | '/_authenticated/projects/$projectId/settings/'
     | '/_authenticated/projects/$projectId/team/'
     | '/_authenticated/projects/$projectId/interactions/sprints/$sprintId'
@@ -322,13 +309,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProjectsProjectIdSettingsIndexRouteImport
       parentRoute: typeof AuthenticatedProjectsProjectIdRoute
     }
-    '/_authenticated/projects/$projectId/interactions/': {
-      id: '/_authenticated/projects/$projectId/interactions/'
-      path: '/interactions'
-      fullPath: '/projects/$projectId/interactions/'
-      preLoaderRoute: typeof AuthenticatedProjectsProjectIdInteractionsIndexRouteImport
-      parentRoute: typeof AuthenticatedProjectsProjectIdRoute
-    }
     '/_authenticated/projects/$projectId/docs/': {
       id: '/_authenticated/projects/$projectId/docs/'
       path: '/docs'
@@ -373,7 +353,6 @@ interface AuthenticatedProjectsProjectIdRouteChildren {
   AuthenticatedProjectsProjectIdInteractionsTimelineRoute: typeof AuthenticatedProjectsProjectIdInteractionsTimelineRoute
   AuthenticatedProjectsProjectIdTasksTaskIdRoute: typeof AuthenticatedProjectsProjectIdTasksTaskIdRoute
   AuthenticatedProjectsProjectIdDocsIndexRoute: typeof AuthenticatedProjectsProjectIdDocsIndexRoute
-  AuthenticatedProjectsProjectIdInteractionsIndexRoute: typeof AuthenticatedProjectsProjectIdInteractionsIndexRoute
   AuthenticatedProjectsProjectIdSettingsIndexRoute: typeof AuthenticatedProjectsProjectIdSettingsIndexRoute
   AuthenticatedProjectsProjectIdTeamIndexRoute: typeof AuthenticatedProjectsProjectIdTeamIndexRoute
   AuthenticatedProjectsProjectIdInteractionsSprintsSprintIdRoute: typeof AuthenticatedProjectsProjectIdInteractionsSprintsSprintIdRoute
@@ -391,8 +370,6 @@ const AuthenticatedProjectsProjectIdRouteChildren: AuthenticatedProjectsProjectI
       AuthenticatedProjectsProjectIdTasksTaskIdRoute,
     AuthenticatedProjectsProjectIdDocsIndexRoute:
       AuthenticatedProjectsProjectIdDocsIndexRoute,
-    AuthenticatedProjectsProjectIdInteractionsIndexRoute:
-      AuthenticatedProjectsProjectIdInteractionsIndexRoute,
     AuthenticatedProjectsProjectIdSettingsIndexRoute:
       AuthenticatedProjectsProjectIdSettingsIndexRoute,
     AuthenticatedProjectsProjectIdTeamIndexRoute:
