@@ -84,6 +84,9 @@ export function StartSprintModal({
 			onClick={(e) => {
 				if (e.target === e.currentTarget) onOpenChange(false);
 			}}
+			onKeyDown={(e) => {
+				if (e.key === "Escape") onOpenChange(false);
+			}}
 		>
 			{/* biome-ignore lint/a11y/noStaticElementInteractions: modal panel */}
 			<div
