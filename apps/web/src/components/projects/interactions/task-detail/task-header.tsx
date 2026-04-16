@@ -30,7 +30,7 @@ export function TaskHeader({
 		const taskUrl = projectId
 			? `${window.location.origin}/projects/${projectId}/tasks/${task.id}`
 			: window.location.href;
-		navigator.clipboard?.writeText(taskUrl).catch(() => {});
+		navigator.clipboard?.writeText(taskUrl)?.catch(() => {});
 		setLinkCopied(true);
 		setTimeout(() => setLinkCopied(false), 2000);
 	};
