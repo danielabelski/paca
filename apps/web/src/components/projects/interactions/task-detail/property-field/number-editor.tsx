@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export function NumberEditor({
 	value,
@@ -8,6 +8,10 @@ export function NumberEditor({
 	onChange?: (value: number) => void;
 }) {
 	const [local, setLocal] = useState(value);
+
+	useEffect(() => {
+		setLocal(value);
+	}, [value]);
 
 	return (
 		<input
