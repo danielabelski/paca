@@ -30,8 +30,9 @@ type Service interface {
 	// ListTaskAttachments returns all confirmed attachments for the given task.
 	ListTaskAttachments(ctx context.Context, taskID uuid.UUID) ([]*TaskAttachment, error)
 
-	// DeleteTaskAttachment removes the task→file association and deletes the
-	// object from storage (if no other attachments reference the file).
+	// DeleteTaskAttachment removes the task→file association for the given
+	// attachment. It does not delete the underlying file record or storage
+	// object.
 	DeleteTaskAttachment(ctx context.Context, attachmentID uuid.UUID) error
 }
 
