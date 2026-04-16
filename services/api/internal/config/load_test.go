@@ -58,6 +58,8 @@ func TestLoad_Success(t *testing.T) {
 	t.Setenv("REDIS_URL", "redis://localhost:6379/0")
 	t.Setenv("ADMIN_USERNAME", "admin")
 	t.Setenv("ADMIN_PASSWORD", "password")
+	t.Setenv("STORAGE_ACCESS_KEY_ID", "access-key")
+	t.Setenv("STORAGE_SECRET_ACCESS_KEY", "secret-key")
 
 	cfg, err := Load()
 	if err != nil {
