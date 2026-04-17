@@ -33,12 +33,13 @@ export function DescriptionSection({
 }: DescriptionSectionProps) {
 	const { resolvedMode } = useThemeMode();
 
-	const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	// Tracks the last value we wrote to the API, to avoid redundant saves and
 	// to skip external refetch updates that match what we already have.
 	const lastSavedRef = useRef<string | null>(null);
 	// Whether the editor has been initialized with the description content.
 	const initializedRef = useRef(false);
+	// Whether there are unsaved changes pending a blur-save.
+	const pendingRef = useRef(false);
 
 	// Keep projectId / taskId in refs so the stable editor callbacks always
 	// reference the latest prop values without recreating the editor.
@@ -99,24 +100,39 @@ export function DescriptionSection({
 
 	const handleChange = useCallback(() => {
 		if (!canEdit) return;
-		if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-		saveTimerRef.current = setTimeout(() => {
-			const blocks = editor.document;
-			// Consider empty when there is only one empty paragraph block
-			const isEmpty =
-				blocks.length === 1 &&
-				blocks[0].type === "paragraph" &&
-				Array.isArray(blocks[0].content) &&
-				blocks[0].content.length === 0;
+		// Track dirty state so blur can save without re-reading document
+		pendingRef.current = true;
+	}, [canEdit]);
 
-			const value: unknown[] | null = isEmpty ? null : (blocks as unknown[]);
-			const valueStr = value ? JSON.stringify(value) : null;
-			if (valueStr !== lastSavedRef.current) {
-				lastSavedRef.current = valueStr;
-				onUpdate?.({ description: value });
-			}
-		}, 600);
+	const save = useCallback(() => {
+		if (!canEdit || !pendingRef.current) return;
+		pendingRef.current = false;
+		const blocks = editor.document;
+		// Consider empty when there is only one empty paragraph block
+		const isEmpty =
+			blocks.length === 1 &&
+			blocks[0].type === "paragraph" &&
+			Array.isArray(blocks[0].content) &&
+			blocks[0].content.length === 0;
+
+		const value: unknown[] | null = isEmpty ? null : (blocks as unknown[]);
+		const valueStr = value ? JSON.stringify(value) : null;
+		if (valueStr !== lastSavedRef.current) {
+			lastSavedRef.current = valueStr;
+			onUpdate?.({ description: value });
+		}
 	}, [canEdit, editor, onUpdate]);
+
+	// Save when focus leaves the entire editor container (mirrors title onBlur).
+	const handleBlur = useCallback(
+		(e: React.FocusEvent<HTMLDivElement>) => {
+			// relatedTarget is the element receiving focus next.
+			// If it's still inside this container, it's an internal focus move — don't save.
+			if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+			save();
+		},
+		[save],
+	);
 
 	return (
 		<div className="space-y-3">
@@ -134,7 +150,7 @@ export function DescriptionSection({
 				</button>
 			</div>
 
-			<div className="rounded-xl border border-border/25 bg-card/50 hover:border-border/50 transition-all duration-200 [&_.bn-editor]:min-h-20 [&_.bn-editor]:py-3 [&_.bn-editor]:text-[14px] [&_.bn-editor]:leading-relaxed">
+			<div className="rounded-xl border border-border/25 bg-card/50 hover:border-border/50 transition-all duration-200 [&_.bn-editor]:min-h-20 [&_.bn-editor]:py-3 [&_.bn-editor]:text-[14px] [&_.bn-editor]:leading-relaxed" onBlur={handleBlur}>
 				<BlockNoteView
 					editor={editor}
 					editable={canEdit}
