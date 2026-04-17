@@ -397,7 +397,7 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 		SprintID:     req.SprintID,
 		ParentTaskID: req.ParentTaskID,
 		Title:        req.Title,
-		Description:  req.Description,
+		Description:  req.NormalizedDescription(),
 		Importance:   req.Importance,
 		AssigneeID:   req.AssigneeID,
 		ReporterID:   req.ReporterID,

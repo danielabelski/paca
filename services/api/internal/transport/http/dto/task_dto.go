@@ -233,19 +233,29 @@ func TaskStatusFromEntity(s *taskdom.TaskStatus) TaskStatusResponse {
 
 // CreateTaskRequest is the body for POST /projects/:projectId/tasks.
 type CreateTaskRequest struct {
-	Title        string          `json:"title"`
-	TaskTypeID   *uuid.UUID      `json:"task_type_id"`
-	StatusID     *uuid.UUID      `json:"status_id"`
-	SprintID     *uuid.UUID      `json:"sprint_id"`
-	ParentTaskID *uuid.UUID      `json:"parent_task_id"`
-	Description  json.RawMessage `json:"description"`
-	Importance   int             `json:"importance"`
-	AssigneeID   *uuid.UUID      `json:"assignee_id"`
-	ReporterID   *uuid.UUID      `json:"reporter_id"`
-	CustomFields map[string]any  `json:"custom_fields"`
-	StartDate    *time.Time      `json:"start_date"`
-	DueDate      *time.Time      `json:"due_date"`
-	Tags         []string        `json:"tags"`
+	Title        string           `json:"title"`
+	TaskTypeID   *uuid.UUID       `json:"task_type_id"`
+	StatusID     *uuid.UUID       `json:"status_id"`
+	SprintID     *uuid.UUID       `json:"sprint_id"`
+	ParentTaskID *uuid.UUID       `json:"parent_task_id"`
+	Description  *json.RawMessage `json:"description"`
+	Importance   int              `json:"importance"`
+	AssigneeID   *uuid.UUID       `json:"assignee_id"`
+	ReporterID   *uuid.UUID       `json:"reporter_id"`
+	CustomFields map[string]any   `json:"custom_fields"`
+	StartDate    *time.Time       `json:"start_date"`
+	DueDate      *time.Time       `json:"due_date"`
+	Tags         []string         `json:"tags"`
+}
+
+// NormalizedDescription returns the description as a json.RawMessage suitable
+// for CreateTaskInput. Both a missing field (nil pointer) and an explicit JSON
+// null value are normalized to nil (SQL NULL).
+func (r CreateTaskRequest) NormalizedDescription() json.RawMessage {
+	if r.Description == nil || string(*r.Description) == "null" {
+		return nil
+	}
+	return *r.Description
 }
 
 // UpdateTaskRequest is the body for PATCH /projects/:projectId/tasks/:taskId.
