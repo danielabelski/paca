@@ -1,16 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import {
+	type ActivityEntry,
+	ActivityPane,
+} from "@/components/shared/activity-pane";
+import {
+	type Activity,
 	addComment,
 	listTaskActivities,
 	sprintsQueryOptions,
-	type Activity,
 } from "@/lib/interaction-api";
 import { projectMembersQueryOptions } from "@/lib/project-api";
-import {
-	ActivityPane,
-	type ActivityEntry,
-} from "@/components/shared/activity-pane";
 import { describeTaskChange } from "./activity-item";
 
 type FieldChange = {
@@ -105,9 +105,7 @@ export function TaskActivityPane({ projectId, taskId }: TaskActivityPaneProps) {
 			queryFn={() => listTaskActivities(projectId, taskId)}
 			addComment={(text) => addComment(projectId, taskId, text)}
 			describeActivity={describeActivity}
-			getCommentText={(content) =>
-				(content as { text?: string }).text ?? ""
-			}
+			getCommentText={(content) => (content as { text?: string }).text ?? ""}
 		/>
 	);
 }

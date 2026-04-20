@@ -11,7 +11,10 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DocActivityPane } from "@/components/projects/docs/doc-activity-pane";
-import { DocEditor, type DocEditorHandle } from "@/components/projects/docs/doc-editor";
+import {
+	DocEditor,
+	type DocEditorHandle,
+} from "@/components/projects/docs/doc-editor";
 import { DocHistoryPanel } from "@/components/projects/docs/doc-history-panel";
 import { Button } from "@/components/ui/button";
 import { useDebouncedCallback } from "@/hooks/use-debounced-callback";
@@ -329,7 +332,11 @@ function DocEditorPage() {
 				{/* Right panel: activity */}
 				{rightPanel === "activity" && doc && (
 					<div className="w-80 shrink-0 h-full overflow-hidden">
-						<DocActivityPane projectId={projectId} docId={docId} currentUserId={currentUserId} />
+						<DocActivityPane
+							projectId={projectId}
+							docId={docId}
+							currentUserId={currentUserId}
+						/>
 					</div>
 				)}
 

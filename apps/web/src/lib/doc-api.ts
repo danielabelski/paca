@@ -82,7 +82,8 @@ export interface DocActivity {
 
 export function getCommentText(content: DocActivity["content"]): string {
 	if (typeof content === "string") return content;
-	if (content && typeof content === "object" && "text" in content) return String(content.text);
+	if (content && typeof content === "object" && "text" in content)
+		return String(content.text);
 	return "";
 }
 
@@ -376,10 +377,7 @@ async function initiateDocUpload(
 ): Promise<DocUploadSession> {
 	const { data } = await apiClient.instance.post<
 		SuccessEnvelope<DocUploadSession>
-	>(
-		`/projects/${projectId}/docs/${docId}/files/initiate-upload`,
-		payload,
-	);
+	>(`/projects/${projectId}/docs/${docId}/files/initiate-upload`, payload);
 	return data.data;
 }
 

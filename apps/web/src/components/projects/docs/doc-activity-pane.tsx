@@ -1,16 +1,16 @@
 import {
+	type ActivityEntry,
+	ActivityPane,
+} from "@/components/shared/activity-pane";
+import {
 	addDocComment,
-	deleteDocComment,
 	type DocActivity,
+	deleteDocComment,
 	docQueryKeys,
 	getCommentText,
 	listActivities,
 	updateDocComment,
 } from "@/lib/doc-api";
-import {
-	ActivityPane,
-	type ActivityEntry,
-} from "@/components/shared/activity-pane";
 
 function describeDocActivity(entry: ActivityEntry): string {
 	const activity = entry as DocActivity;

@@ -19,7 +19,10 @@ function label(value: unknown): string {
 	return String(value);
 }
 
-export function describeTaskChange(change: FieldChange, names: ActivityNameMaps): string {
+export function describeTaskChange(
+	change: FieldChange,
+	names: ActivityNameMaps,
+): string {
 	const oldVal = label(change.old);
 	const newVal = label(change.new);
 	const hasOld =
