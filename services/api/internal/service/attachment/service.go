@@ -24,21 +24,25 @@ const (
 
 // Service is the concrete implementation of attachmentdom.Service.
 type Service struct {
-	repo   attachmentdom.Repository
-	store  storage.Client
-	bucket string
+	repo        attachmentdom.Repository
+	taskChecker attachmentdom.TaskOwnerChecker
+	store       storage.Client
+	bucket      string
 }
 
 // New returns a configured attachment service.
-func New(repo attachmentdom.Repository, store storage.Client, bucket string) *Service {
-	return &Service{repo: repo, store: store, bucket: bucket}
+func New(repo attachmentdom.Repository, taskChecker attachmentdom.TaskOwnerChecker, store storage.Client, bucket string) *Service {
+	return &Service{repo: repo, taskChecker: taskChecker, store: store, bucket: bucket}
 }
 
 // InitiateUpload creates a pending File record and returns a presigned upload
 // session.  For files >= MultipartThreshold a multipart upload is initiated
 // with pre-signed URLs for each part; otherwise a single-part presigned PUT
 // URL is returned.
-func (s *Service) InitiateUpload(ctx context.Context, in attachmentdom.InitiateUploadInput) (*attachmentdom.UploadSession, error) {
+func (s *Service) InitiateUpload(ctx context.Context, projectID uuid.UUID, in attachmentdom.InitiateUploadInput) (*attachmentdom.UploadSession, error) {
+	if err := s.taskChecker.TaskBelongsToProject(ctx, projectID, in.TaskID); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(in.FileName) == "" {
 		return nil, attachmentdom.ErrFileNameEmpty
 	}
@@ -101,7 +105,10 @@ func (s *Service) InitiateUpload(ctx context.Context, in attachmentdom.InitiateU
 // CompleteUpload marks the file as uploaded and creates the TaskAttachment
 // join record.  For multipart uploads the caller must supply the completed
 // parts so the service can call CompleteMultipartUpload on the object store.
-func (s *Service) CompleteUpload(ctx context.Context, in attachmentdom.CompleteUploadInput) (*attachmentdom.TaskAttachment, error) {
+func (s *Service) CompleteUpload(ctx context.Context, projectID uuid.UUID, in attachmentdom.CompleteUploadInput) (*attachmentdom.TaskAttachment, error) {
+	if err := s.taskChecker.TaskBelongsToProject(ctx, projectID, in.TaskID); err != nil {
+		return nil, err
+	}
 	f, err := s.repo.FindFileByID(ctx, in.FileID)
 	if err != nil {
 		return nil, err
@@ -166,7 +173,10 @@ func (s *Service) CompleteUpload(ctx context.Context, in attachmentdom.CompleteU
 // When forceDownload is true the URL includes a Content-Disposition: attachment
 // header so the browser downloads the file rather than previewing it inline.
 // Verifies the attachment belongs to taskID before generating the URL.
-func (s *Service) GetDownloadURL(ctx context.Context, taskID, attachmentID uuid.UUID, ttl time.Duration, forceDownload bool) (string, error) {
+func (s *Service) GetDownloadURL(ctx context.Context, projectID, taskID, attachmentID uuid.UUID, ttl time.Duration, forceDownload bool) (string, error) {
+	if err := s.taskChecker.TaskBelongsToProject(ctx, projectID, taskID); err != nil {
+		return "", err
+	}
 	a, err := s.repo.FindTaskAttachmentByID(ctx, attachmentID)
 	if err != nil {
 		return "", err
@@ -215,7 +225,10 @@ func (s *Service) GetDownloadURL(ctx context.Context, taskID, attachmentID uuid.
 }
 
 // ListTaskAttachments returns all confirmed attachments for the given task.
-func (s *Service) ListTaskAttachments(ctx context.Context, taskID uuid.UUID) ([]*attachmentdom.TaskAttachment, error) {
+func (s *Service) ListTaskAttachments(ctx context.Context, projectID, taskID uuid.UUID) ([]*attachmentdom.TaskAttachment, error) {
+	if err := s.taskChecker.TaskBelongsToProject(ctx, projectID, taskID); err != nil {
+		return nil, err
+	}
 	return s.repo.ListTaskAttachments(ctx, taskID)
 }
 
@@ -223,7 +236,10 @@ func (s *Service) ListTaskAttachments(ctx context.Context, taskID uuid.UUID) ([]
 // The underlying file record and object-store object are intentionally kept
 // so the file can be referenced by other tasks or restored later.
 // Verifies the attachment belongs to taskID before deleting.
-func (s *Service) DeleteTaskAttachment(ctx context.Context, taskID, attachmentID uuid.UUID) error {
+func (s *Service) DeleteTaskAttachment(ctx context.Context, projectID, taskID, attachmentID uuid.UUID) error {
+	if err := s.taskChecker.TaskBelongsToProject(ctx, projectID, taskID); err != nil {
+		return err
+	}
 	a, err := s.repo.FindTaskAttachmentByID(ctx, attachmentID)
 	if err != nil {
 		return err
