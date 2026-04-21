@@ -82,11 +82,12 @@ export async function getSessionsBatch(
 	const values = await redis.mget(...keys);
 	const corruptKeys: string[] = [];
 	const results = values.map((v, i) => {
+		const key = keys[i];
 		if (!v) return null;
 		try {
 			return JSON.parse(v) as Session;
 		} catch {
-			corruptKeys.push(keys[i]);
+			if (key) corruptKeys.push(key);
 			return null;
 		}
 	});
