@@ -108,7 +108,9 @@ export function createSocketServer(
 		//    a non-string value which would produce a malformed Authorization header.
 		const rawAuthToken = socket.handshake.auth?.token;
 		let token: string | undefined =
-			typeof rawAuthToken === "string" && rawAuthToken ? rawAuthToken : undefined;
+			typeof rawAuthToken === "string" && rawAuthToken
+				? rawAuthToken
+				: undefined;
 
 		// 2. Fall back to the HttpOnly cookie sent by browsers.
 		if (!token) {
