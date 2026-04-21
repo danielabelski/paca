@@ -50,11 +50,15 @@ httpServer.listen(config.port, () => {
 function shutdown(signal: string): void {
 	logger.info({ signal }, "shutdown signal received");
 
-	httpServer.close(() => {
-		subscriber.disconnect();
-		sessionRedis.disconnect();
-		logger.info("shutdown complete");
-		process.exit(0);
+	// Close Socket.IO first to actively terminate WebSocket connections,
+	// then close the HTTP server so it stops accepting new connections.
+	io.close(() => {
+		httpServer.close(() => {
+			subscriber.disconnect();
+			sessionRedis.disconnect();
+			logger.info("shutdown complete");
+			process.exit(0);
+		});
 	});
 
 	setTimeout(() => {

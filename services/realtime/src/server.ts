@@ -104,7 +104,11 @@ export function createSocketServer(
 
 	io.use(async (socket, next) => {
 		// 1. Prefer explicit token in handshake auth payload.
-		let token = socket.handshake.auth?.token as string | undefined;
+		//    Runtime-validate that it's a non-empty string — clients could send
+		//    a non-string value which would produce a malformed Authorization header.
+		const rawAuthToken = socket.handshake.auth?.token;
+		let token: string | undefined =
+			typeof rawAuthToken === "string" && rawAuthToken ? rawAuthToken : undefined;
 
 		// 2. Fall back to the HttpOnly cookie sent by browsers.
 		if (!token) {
@@ -118,7 +122,7 @@ export function createSocketServer(
 		try {
 			const authResult = await verifyTokenWithAPI(config.apiUrl, token);
 
-			// Persist the session in Valkey so the Pub/Sub subscriber can read it.
+			// Persist the session in Valkey for auditing and recovery purposes.
 			const session: Session = {
 				userId: authResult.userId,
 				username: authResult.username,
