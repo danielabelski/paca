@@ -165,7 +165,8 @@ func New(cfg *config.Config) (*App, error) {
 		}
 		githubRepo := pgRepo.NewGitHubRepository(db)
 		githubService := githubsvc.New(githubRepo, ghEncryptor, cfg.GitHub.WebhookURL).
-			WithTaskLookup(&projectTaskLookup{projectRepo: projectRepo, taskRepo: taskRepo})
+			WithTaskLookup(&projectTaskLookup{projectRepo: projectRepo, taskRepo: taskRepo}).
+			WithPublisher(publisher)
 		githubHandler = handler.NewGitHubHandler(githubService)
 	}
 

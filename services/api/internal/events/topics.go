@@ -82,4 +82,15 @@ const (
 	// notification is created.  The payload includes recipient_user_id so the
 	// realtime service can route the event to the correct user room.
 	TopicNotificationCreated = "notification.created"
+
+	// --- GitHub events ------------------------------------------------------
+	// TopicGitHubBranchLinked is published when a git branch is linked to a
+	// task — either via the API (CreateBranch) or automatically via a push
+	// webhook event.  Payload includes project_id, task_id, repo_id and branch_name.
+	TopicGitHubBranchLinked = "github.branch.linked"
+
+	// TopicGitHubPRLinked is published when a pull request is linked to a task
+	// — either automatically on "opened"/"reopened" webhook events.
+	// Payload includes project_id, task_id, repo_id and pr_number.
+	TopicGitHubPRLinked = "github.pr.linked"
 )

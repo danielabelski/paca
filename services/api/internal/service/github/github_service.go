@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/paca/api/internal/apierr"
 	githubdom "github.com/paca/api/internal/domain/github"
+	"github.com/paca/api/internal/events"
 	"github.com/paca/api/internal/platform/githubclient"
 	"github.com/paca/api/internal/platform/secret"
 )
@@ -44,9 +45,10 @@ type TaskLookup interface {
 type Service struct {
 	repo          githubdom.Repository
 	enc           *secret.Encryptor
-	webhookURL    string     // public URL where GitHub will POST events
-	clientBaseURL string     // optional override for the GitHub API base URL (used in tests)
-	taskLookup    TaskLookup // optional; enables automatic branch → task linking on push events
+	webhookURL    string           // public URL where GitHub will POST events
+	clientBaseURL string           // optional override for the GitHub API base URL (used in tests)
+	taskLookup    TaskLookup       // optional; enables automatic branch → task linking on push events
+	publisher     events.Publisher // optional; publishes real-time events after webhook matches
 }
 
 // New creates a new GitHub integration Service.
@@ -60,6 +62,13 @@ func New(repo githubdom.Repository, enc *secret.Encryptor, webhookURL string) *S
 // to tasks when a push webhook event arrives.
 func (s *Service) WithTaskLookup(tl TaskLookup) *Service {
 	s.taskLookup = tl
+	return s
+}
+
+// WithPublisher configures the optional event publisher used to broadcast
+// real-time notifications when a branch or PR is linked to a task via webhook.
+func (s *Service) WithPublisher(p events.Publisher) *Service {
+	s.publisher = p
 	return s
 }
 
@@ -398,6 +407,20 @@ func (s *Service) CreateBranch(ctx context.Context, projectID, taskID, repoID uu
 			"error", linkErr,
 		)
 	}
+
+	// Publish real-time event so other project members see the new branch
+	// immediately without needing to reload.
+	if s.publisher != nil {
+		_ = s.publisher.Publish(ctx, events.ChannelRealtime, map[string]any{
+			"type": events.TopicGitHubBranchLinked,
+			"payload": map[string]any{
+				"project_id":  projectID.String(),
+				"task_id":     taskID.String(),
+				"repo_id":     linked.ID.String(),
+				"branch_name": branchName,
+			},
+		})
+	}
 	return branchName, nil
 }
 
@@ -515,6 +538,19 @@ func (s *Service) handlePREvent(ctx context.Context, linked *githubdom.LinkedRep
 			if linkErr != nil && !errors.Is(linkErr, githubdom.ErrPRAlreadyLinked) {
 				_ = linkErr // non-fatal
 			}
+
+			// Publish real-time event so connected clients refresh task GitHub data.
+			if s.publisher != nil {
+				_ = s.publisher.Publish(ctx, events.ChannelRealtime, map[string]any{
+					"type": events.TopicGitHubPRLinked,
+					"payload": map[string]any{
+						"project_id": linked.ProjectID.String(),
+						"task_id":    branch.TaskID.String(),
+						"repo_id":    linked.ID.String(),
+						"pr_number":  pr.PRNumber,
+					},
+				})
+			}
 		}
 	}
 
@@ -554,7 +590,7 @@ func (s *Service) handlePushEvent(ctx context.Context, linked *githubdom.LinkedR
 		return nil
 	}
 
-	taskID, _, err := s.taskLookup.FindTaskByProjectPrefixAndNumber(ctx, prefix, taskNumber)
+	taskID, projectID, err := s.taskLookup.FindTaskByProjectPrefixAndNumber(ctx, prefix, taskNumber)
 	if err != nil {
 		return nil // task not found — ignore
 	}
@@ -569,6 +605,19 @@ func (s *Service) handlePushEvent(ctx context.Context, linked *githubdom.LinkedR
 	})
 	if linkErr != nil && !errors.Is(linkErr, githubdom.ErrBranchAlreadyLinked) {
 		_ = linkErr // non-fatal
+	}
+
+	// Publish real-time event so connected clients refresh task GitHub data.
+	if s.publisher != nil {
+		_ = s.publisher.Publish(ctx, events.ChannelRealtime, map[string]any{
+			"type": events.TopicGitHubBranchLinked,
+			"payload": map[string]any{
+				"project_id":  projectID.String(),
+				"task_id":     taskID.String(),
+				"repo_id":     linked.ID.String(),
+				"branch_name": branchName,
+			},
+		})
 	}
 	return nil
 }
