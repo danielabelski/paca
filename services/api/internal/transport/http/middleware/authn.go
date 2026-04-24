@@ -4,6 +4,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -87,7 +88,16 @@ func Authn(tm *jwttoken.Manager, apiKeyAuth ...APIKeyAuthenticator) gin.HandlerF
 			}
 			key, err := apiKeyAuthenticator.Authenticate(c.Request.Context(), tokenStr)
 			if err != nil {
-				presenter.Error(c, apierr.New(apierr.CodeTokenInvalid, "invalid or expired API key"))
+				switch {
+				case errors.Is(err, apikeydom.ErrRevoked):
+					presenter.Error(c, apierr.New(apierr.CodeAPIKeyRevoked, "API key has been revoked"))
+				case errors.Is(err, apikeydom.ErrExpired):
+					presenter.Error(c, apierr.New(apierr.CodeAPIKeyExpired, "API key has expired"))
+				default:
+					// Return a generic token-invalid code for not-found and unexpected
+					// errors to avoid leaking key existence information.
+					presenter.Error(c, apierr.New(apierr.CodeTokenInvalid, "invalid or expired API key"))
+				}
 				return
 			}
 			// Build synthetic claims so downstream handlers work unchanged.

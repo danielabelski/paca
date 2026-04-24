@@ -190,6 +190,60 @@ func TestAuthn_APIKey_InvalidKey(t *testing.T) {
 	}
 }
 
+func TestAuthn_APIKey_RevokedKey(t *testing.T) {
+	stub := &stubAPIKeyAuth{err: apikeydom.ErrRevoked}
+
+	r := gin.New()
+	r.GET("/protected", Authn(newTestTokenManager(), stub), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/protected", nil)
+	req.Header.Set("X-API-Key", "revoked-key")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+	var env struct {
+		ErrorCode string `json:"error_code"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&env); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if env.ErrorCode != "API_KEY_REVOKED" {
+		t.Fatalf("expected API_KEY_REVOKED, got %q", env.ErrorCode)
+	}
+}
+
+func TestAuthn_APIKey_ExpiredKey(t *testing.T) {
+	stub := &stubAPIKeyAuth{err: apikeydom.ErrExpired}
+
+	r := gin.New()
+	r.GET("/protected", Authn(newTestTokenManager(), stub), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/protected", nil)
+	req.Header.Set("X-API-Key", "expired-key")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+	var env struct {
+		ErrorCode string `json:"error_code"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&env); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if env.ErrorCode != "API_KEY_EXPIRED" {
+		t.Fatalf("expected API_KEY_EXPIRED, got %q", env.ErrorCode)
+	}
+}
+
 func TestAuthn_APIKey_NotConfigured(t *testing.T) {
 	// No API key authenticator passed — should reject ApiKey header.
 	r := gin.New()

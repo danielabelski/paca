@@ -25,9 +25,15 @@ type apiKeyRecord struct {
 
 func (apiKeyRecord) TableName() string { return "api_keys" }
 
-func apiKeyToEntity(r *apiKeyRecord) *apikeydom.APIKey {
-	id, _ := uuid.Parse(r.ID)
-	userID, _ := uuid.Parse(r.UserID)
+func apiKeyToEntity(r *apiKeyRecord) (*apikeydom.APIKey, error) {
+	id, err := uuid.Parse(r.ID)
+	if err != nil {
+		return nil, fmt.Errorf("api key repo: parse record id %q: %w", r.ID, err)
+	}
+	userID, err := uuid.Parse(r.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("api key repo: parse record user_id %q: %w", r.UserID, err)
+	}
 	return &apikeydom.APIKey{
 		ID:         id,
 		UserID:     userID,
@@ -37,7 +43,7 @@ func apiKeyToEntity(r *apiKeyRecord) *apikeydom.APIKey {
 		ExpiresAt:  r.ExpiresAt,
 		CreatedAt:  r.CreatedAt,
 		RevokedAt:  r.RevokedAt,
-	}
+	}, nil
 }
 
 // APIKeyRepository is the GORM implementation of apikeydom.Repository.
@@ -62,7 +68,11 @@ func (r *APIKeyRepository) FindByID(ctx context.Context, id uuid.UUID) (*apikeyd
 		}
 		return nil, fmt.Errorf("api key repo: find by id: %w", result.Error)
 	}
-	return apiKeyToEntity(&rec), nil
+	entity, err := apiKeyToEntity(&rec)
+	if err != nil {
+		return nil, err
+	}
+	return entity, nil
 }
 
 // FindByHash looks up an API key by its SHA-256 hash.
@@ -77,7 +87,11 @@ func (r *APIKeyRepository) FindByHash(ctx context.Context, keyHash string) (*api
 		}
 		return nil, fmt.Errorf("api key repo: find by hash: %w", result.Error)
 	}
-	return apiKeyToEntity(&rec), nil
+	entity, err := apiKeyToEntity(&rec)
+	if err != nil {
+		return nil, err
+	}
+	return entity, nil
 }
 
 // ListByUserID returns all non-revoked API keys for the given user.
@@ -91,7 +105,11 @@ func (r *APIKeyRepository) ListByUserID(ctx context.Context, userID uuid.UUID) (
 	}
 	keys := make([]*apikeydom.APIKey, 0, len(recs))
 	for i := range recs {
-		keys = append(keys, apiKeyToEntity(&recs[i]))
+		entity, err := apiKeyToEntity(&recs[i])
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, entity)
 	}
 	return keys, nil
 }
