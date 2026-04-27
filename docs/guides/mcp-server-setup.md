@@ -12,26 +12,19 @@ Before setting up the MCP server, ensure you have:
 
 ## Quick Start
 
-The Paca MCP server is published as an npm package `@paca-ai/paca`, so you don't need to clone the repository or build it yourself. Simply configure your MCP client to use the published package.
+The Paca MCP server is available as a GitHub package — no installation or build step required. Simply configure your MCP client to pull and run it directly using `npx`.
 
 ### Package Information
 
-- **Package name**: `@paca-ai/paca`
-- **Registry**: [npmjs.com/package/@paca-ai/paca](https://www.npmjs.com/package/@paca-ai/paca)
-- **Repository**: [github.com/paca-ai/paca](https://github.com/paca-ai/paca)
+- **Package**: `github:paca-ai/paca-mcp`
+- **Repository**: [github.com/paca-ai/paca-mcp](https://github.com/paca-ai/paca-mcp)
 
-### Checking Available Versions
+### Checking the Package
 
-To see available versions of the package:
-
-```bash
-npm view @paca-ai/paca versions
-```
-
-To view the latest version:
+To inspect the latest version of the MCP package:
 
 ```bash
-npm view @paca-ai/paca version
+npx github:paca-ai/paca-mcp --version
 ```
 
 ## Agent-Specific Setup
@@ -57,7 +50,7 @@ Claude Desktop provides the most seamless integration with the Paca MCP server.
       "command": "npx",
       "args": [
         "-y",
-        "@paca-ai/paca"
+        "github:paca-ai/paca-mcp"
       ],
       "env": {
         "PACA_API_KEY": "your-api-key-here",
@@ -74,7 +67,7 @@ Claude Desktop provides the most seamless integration with the Paca MCP server.
 
 4. Restart Claude Desktop
 
-**Note**: The `npx -y @paca-ai/paca` command automatically downloads and runs the latest version of the Paca MCP server from npm. To use a specific version, replace `@paca-ai/paca` with `@paca-ai/paca@1.0.0` (or your desired version).
+**Note**: The `npx -y github:paca-ai/paca-mcp` command automatically downloads and runs the latest version of the Paca MCP server directly from GitHub.
 
 **Usage in Claude Desktop:**
 
@@ -92,7 +85,7 @@ The Paca MCP server follows the standard MCP protocol and can be used with any M
 
 **Required Configuration:**
 
-1. **Command**: Use `npx -y @paca-ai/paca` to automatically download and run the latest version
+1. **Command**: Use `npx -y github:paca-ai/paca-mcp` to automatically download and run the latest version
 2. **Environment Variables**:
    - `PACA_API_KEY` (required): Your Paca API key
    - `PACA_API_URL` (optional): Paca API URL (default: `http://localhost:8080`)
@@ -107,7 +100,7 @@ Most MCP clients will accept configuration in this format:
   "command": "npx",
   "args": [
     "-y",
-    "@paca-ai/paca"
+    "github:paca-ai/paca-mcp"
   ],
   "env": {
     "PACA_API_KEY": "your-api-key-here",
@@ -126,7 +119,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 const transport = new StdioClientTransport({
   command: "npx",
-  args: ["-y", "@paca-ai/paca"],
+  args: ["-y", "github:paca-ai/paca-mcp"],
   env: {
     PACA_API_KEY: "your-api-key-here",
     PACA_API_URL: "http://localhost:8080"
@@ -245,13 +238,13 @@ Use the client's built-in testing tools to:
 - Call sample tools
 - Verify API authentication
 
-### Development Testing
+### For Contributors / Advanced Testing
 
-For development or advanced testing, you can clone the repository and use the MCP Inspector:
+To test with the MCP Inspector, clone the repository and run it locally:
 
 ```bash
-git clone https://github.com/paca-ai/paca.git
-cd paca/apps/mcp
+git clone https://github.com/paca-ai/paca-mcp.git
+cd paca-mcp
 npm install
 npm run inspector
 ```
@@ -272,8 +265,8 @@ npm run inspector
 **Issue**: Claude Desktop doesn't show Paca tools
 - **Solution**: Check config file path, verify JSON syntax, and restart Claude Desktop
 
-**Issue**: "Cannot find package '@paca-ai/paca'" error
-- **Solution**: Ensure you have internet connectivity and npm registry access
+**Issue**: "Cannot find package 'github:paca-ai/paca-mcp'" error
+- **Solution**: Ensure you have internet connectivity and access to GitHub
 
 ### Debug Mode
 

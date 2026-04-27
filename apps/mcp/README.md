@@ -1,10 +1,90 @@
 # Paca MCP Server
 
-Model Context Protocol (MCP) server for Paca - an open-source, AI-native project management platform.
+Model Context Protocol (MCP) server for Paca — an open-source, AI-native project management platform.
 
-## Overview
+Connect your AI assistant (Claude, Cursor, VS Code Copilot, etc.) to your Paca workspace and manage projects, tasks, sprints, and documents using natural language.
 
-This MCP server provides access to Paca's API through the Model Context Protocol, allowing AI assistants to interact with Paca projects, tasks, sprints, and documents using API key authentication.
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- A running Paca instance (local or deployed)
+- A Paca API key (generate one in your Paca user settings)
+
+## Setup
+
+No installation or build step required. Configure your AI agent client to use the MCP server directly via `npx`.
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `PACA_API_KEY` | ✅ | — | Your Paca API key |
+| `PACA_API_URL` | ❌ | `http://localhost:8080` | URL of your Paca API instance |
+
+### Claude Desktop
+
+Add the following to your Claude Desktop config file:
+
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "paca": {
+      "command": "npx",
+      "args": ["-y", "github:paca-ai/paca-mcp"],
+      "env": {
+        "PACA_API_KEY": "your-api-key-here",
+        "PACA_API_URL": "http://localhost:8080"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Desktop after saving. Claude will automatically have access to all Paca tools.
+
+### VS Code (GitHub Copilot)
+
+Add to your VS Code `settings.json` or `.vscode/mcp.json`:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "paca": {
+        "command": "npx",
+        "args": ["-y", "github:paca-ai/paca-mcp"],
+        "env": {
+          "PACA_API_KEY": "your-api-key-here",
+          "PACA_API_URL": "http://localhost:8080"
+        }
+      }
+    }
+  }
+}
+```
+
+### Other MCP-Compatible Clients
+
+Any MCP-compatible client can use the server with:
+
+```json
+{
+  "name": "paca",
+  "command": "npx",
+  "args": ["-y", "github:paca-ai/paca-mcp"],
+  "env": {
+    "PACA_API_KEY": "your-api-key-here",
+    "PACA_API_URL": "http://localhost:8080"
+  }
+}
+```
+
+For a full setup walkthrough, see the [MCP Server Setup Guide](../../docs/guides/mcp-server-setup.md).
 
 ## Features
 
@@ -17,33 +97,6 @@ This MCP server provides access to Paca's API through the Model Context Protocol
 - **GitHub Integration**: Repository linking, PR management, and branch creation
 - **Collaboration Tools**: Comments, activities, and BDD scenarios for team collaboration
 - **BlockNote Integration**: Automatic conversion between BlockNote JSON and Markdown
-- **Modular Architecture**: Clean separation of concerns for easy maintenance and contribution
-
-## Installation
-
-1. Clone the repository and navigate to the MCP server directory:
-   ```bash
-   cd apps/mcp
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Build the server:
-   ```bash
-   npm run build
-   ```
-
-## Configuration
-
-Set the following environment variables:
-
-```bash
-export PACA_API_KEY="your-api-key-here"
-export PACA_API_URL="http://localhost:8080"  # Default: http://localhost:8080
-```
 
 ## Available Tools
 
@@ -169,87 +222,18 @@ The MCP server provides **86 tools** across **17 categories** for comprehensive 
 
 For a complete list of all tools with detailed descriptions, see [ALL_TOOLS.md](./ALL_TOOLS.md).
 
-## Architecture
-
-The project follows a modular architecture with clear separation of concerns:
-
-```
-src/
-├── api/          # API client and HTTP communication
-├── tools/        # MCP tool definitions and handlers
-├── types/        # TypeScript type definitions
-├── utils/        # Utility functions (converters, formatters)
-├── server.ts     # MCP server setup
-└── index.ts      # Entry point
-```
-
-For detailed architecture information, see [DEVELOPMENT.md](./DEVELOPMENT.md).
-
 ## Markdown/BlockNote Conversion
 
 The MCP server automatically handles conversion between Markdown and BlockNote JSON format:
 
-- **Reading**: When fetching tasks or documents with descriptions/content, the server converts BlockNote JSON to Markdown for easier readability
-- **Writing**: When creating or updating tasks or documents with descriptions/content, the server converts Markdown to BlockNote JSON format
+- **Reading**: Fetches content as BlockNote JSON and converts to Markdown for readability
+- **Writing**: Accepts Markdown input and converts to BlockNote JSON for storage
 
 This allows AI assistants to work with familiar Markdown format while the API stores content in BlockNote's rich text format.
 
-## Usage with MCP Clients
+## API Key Authentication
 
-### Claude Desktop
-
-Add the following to your Claude Desktop config:
-
-```json
-{
-  "mcpServers": {
-    "paca": {
-      "command": "node",
-      "args": ["/path/to/paca/apps/mcp/build/index.js"],
-      "env": {
-        "PACA_API_KEY": "your-api-key-here",
-        "PACA_API_URL": "http://localhost:8080"
-      }
-    }
-  }
-}
-```
-
-### Other MCP Clients
-
-The server can be run with any MCP-compatible client by providing:
-1. The path to the built server executable
-2. Required environment variables (PACA_API_KEY, optionally PACA_API_URL)
-
-## Development
-
-### Build
-
-```bash
-npm run build
-```
-
-### Watch Mode
-
-For development with auto-rebuild:
-```bash
-npm run watch
-```
-
-### MCP Inspector
-
-To test the server with the MCP Inspector:
-```bash
-npm run inspector
-```
-
-### Project Structure
-
-For detailed information about the codebase structure and how to contribute, see [DEVELOPMENT.md](./DEVELOPMENT.md).
-
-## API Key Support
-
-All endpoints in this MCP server support API key authentication. The server uses the `X-API-Key` header for authentication, which is compatible with Paca's API key system.
+All tools authenticate via the `X-API-Key` header. Generate an API key in your Paca user settings and set it as `PACA_API_KEY` in your MCP client configuration.
 
 ## Examples
 
@@ -281,16 +265,34 @@ Arguments:
 - The server requires a running Paca API instance
 - API keys can be created through the Paca web interface under user settings
 - All descriptions and document contents are automatically converted between Markdown and BlockNote format
-- Date fields should be provided in ISO 8601 format (e.g., "2024-01-01T00:00:00Z")
+- Date fields should be provided in ISO 8601 format (e.g., `2024-01-01T00:00:00Z`)
 
 ## Contributing
 
-We welcome contributions! Please see [DEVELOPMENT.md](./DEVELOPMENT.md) for information about:
-- Code architecture and structure
-- How to add new tools
-- Code style guidelines
-- Testing procedures
+Interested in contributing to the MCP server? Clone the repository and follow the steps below:
+
+```bash
+git clone https://github.com/paca-ai/paca.git
+cd paca/apps/mcp
+npm install
+npm run build
+```
+
+For development with auto-rebuild:
+
+```bash
+npm run watch
+```
+
+To test with the MCP Inspector:
+
+```bash
+npm run inspector
+```
+
+For detailed information about the codebase structure, how to add new tools, and code style guidelines, see [DEVELOPMENT.md](./DEVELOPMENT.md).
 
 ## License
 
 Apache License 2.0
+

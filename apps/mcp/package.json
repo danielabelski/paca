@@ -1,5 +1,5 @@
 {
-  "name": "@paca-ai/paca",
+  "name": "@paca-ai/paca-mcp",
   "version": "0.1.0",
   "description": "Paca MCP server - Complete API access for AI-powered project management",
   "type": "module",
