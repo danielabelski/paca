@@ -402,10 +402,10 @@ export async function handleTaskActivityTool(
 		}
 
 		case "link_pr_to_task": {
-			const { projectId, taskId, prId, repositoryName } =
+			const { projectId, taskId, prId, repoId } =
 				LinkPRToTaskSchema.parse(args);
 			const pr = await client.linkPRToTask(projectId, taskId, {
-				repo_id: repositoryName,
+				repo_id: repoId,
 				pr_number: prId,
 			});
 			return {
