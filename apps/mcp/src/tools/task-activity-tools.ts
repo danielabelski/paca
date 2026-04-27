@@ -48,6 +48,7 @@ const UnlinkPRFromTaskSchema = z.object({
 const CreateBranchForTaskSchema = z.object({
 	projectId: z.string(),
 	taskId: z.string(),
+	repoId: z.string(),
 	branchName: z.string(),
 	baseBranch: z.string().optional(),
 });
@@ -242,6 +243,10 @@ export function getTaskGitHubTools(): Tool[] {
 						type: "string",
 						description: "The ID of the task",
 					},
+					repoId: {
+						type: "string",
+						description: "The ID of the repository",
+					},
 					branchName: {
 						type: "string",
 						description: "The name of the branch to create",
@@ -251,7 +256,7 @@ export function getTaskGitHubTools(): Tool[] {
 						description: "The base branch to branch from (optional)",
 					},
 				},
-				required: ["projectId", "taskId", "branchName"],
+				required: ["projectId", "taskId", "repoId", "branchName"],
 			},
 		},
 		{
@@ -427,10 +432,10 @@ export async function handleTaskActivityTool(
 		}
 
 		case "create_branch_for_task": {
-			const { projectId, taskId, branchName, baseBranch } =
+			const { projectId, taskId, repoId, branchName, baseBranch } =
 				CreateBranchForTaskSchema.parse(args);
 			const branch = await client.createBranch(projectId, taskId, {
-				repo_id: "", // This needs to be provided by the user
+				repo_id: repoId,
 				branch_name: branchName,
 				source_branch: baseBranch,
 			});

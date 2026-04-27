@@ -1,9 +1,6 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import type {
-	PacaAPIDocClient,
-	PacaAPIGitHubClient,
-} from "../api/index.js";
+import type { PacaAPIDocClient, PacaAPIGitHubClient } from "../api/index.js";
 import { formatList } from "../utils/index.js";
 
 const ListDocFoldersSchema = z.object({
