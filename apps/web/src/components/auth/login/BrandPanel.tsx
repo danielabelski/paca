@@ -52,9 +52,7 @@ export function BrandPanel() {
 
 				<h2 className="display-title mb-3 text-[1.85rem] font-bold leading-tight text-balance text-white">
 					One team, one board,{" "}
-					<span className="text-[#9ed957]">
-						human and AI.
-					</span>
+					<span className="text-[#9ed957]">human and AI.</span>
 				</h2>
 				<p className="mb-8 text-sm leading-relaxed text-white/55">
 					Paca is the open-source collaborative task management engine where

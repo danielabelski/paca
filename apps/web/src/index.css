@@ -204,12 +204,11 @@ body::before {
 }
 
 .dark body::before {
-	background:
-		radial-gradient(
-			ellipse 70% 40% at 50% -5%,
-			rgba(158, 217, 87, 0.05),
-			transparent
-		);
+	background: radial-gradient(
+		ellipse 70% 40% at 50% -5%,
+		rgba(158, 217, 87, 0.05),
+		transparent
+	);
 }
 
 body::after {

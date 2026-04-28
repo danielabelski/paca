@@ -37,7 +37,6 @@ export function LoginFormPanel() {
 
 	return (
 		<div className="relative flex flex-col justify-center px-8 py-10 sm:px-10">
-
 			<div className="relative">
 				{/* Mobile logo */}
 				<div className="mb-7 flex items-center gap-2.5 lg:hidden">

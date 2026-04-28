@@ -368,9 +368,7 @@ export function ChangePasswordForm({ onSuccess }: ChangePasswordFormProps) {
 				<p className="text-sm text-destructive">{formError}</p>
 			) : null}
 			{success ? (
-				<p className="text-sm text-primary">
-					Password changed successfully.
-				</p>
+				<p className="text-sm text-primary">Password changed successfully.</p>
 			) : null}
 
 			<button

@@ -652,12 +652,12 @@ function HomePage() {
 							</Card>
 
 							<Card className="relative overflow-hidden border-border/60">
-							<div className="absolute inset-x-0 top-0 h-px bg-primary/30" />
-							<div className="pointer-events-none absolute -bottom-8 -right-8 size-32 rounded-full bg-primary/5" />
+								<div className="absolute inset-x-0 top-0 h-px bg-primary/30" />
+								<div className="pointer-events-none absolute -bottom-8 -right-8 size-32 rounded-full bg-primary/5" />
 								<CardContent className="relative p-5">
 									<div className="mb-2 flex items-center gap-2">
-									<Zap className="size-3.5 text-primary" />
-									<p className="font-[Syne] text-xs font-bold uppercase tracking-widest text-primary">
+										<Zap className="size-3.5 text-primary" />
+										<p className="font-[Syne] text-xs font-bold uppercase tracking-widest text-primary">
 											How Paca works
 										</p>
 									</div>
