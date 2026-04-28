@@ -195,15 +195,16 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build
-        run: bun run build
-
       # Strip the leading 'v' from the release tag (v1.2.3 → 1.2.3) so it
       # matches npm's semver format, then stamp package.json without a git tag.
+      # Must run BEFORE build so the version is baked into build/package.json.
       - name: Set package version
         run: |
           VERSION="${{ github.event.release.tag_name }}"
           npm version "${VERSION#v}" --no-git-tag-version
+
+      - name: Build
+        run: bun run build
 
       - name: Setup Node.js with npm registry
         uses: actions/setup-node@v4
@@ -215,5 +216,17 @@ jobs:
       - name: Upgrade npm
         run: npm install -g npm@latest
 
+      # Publish from build/ where package.json has the correct bin path (./index.js).
+      # For prerelease versions (e.g. 1.0.0-alpha.1), npm requires an explicit
+      # --tag to avoid accidentally tagging as "latest".
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          CLEAN_VERSION="${VERSION#v}"
+          if [[ "$CLEAN_VERSION" == *"-"* ]]; then
+            PRERELEASE_LABEL=$(echo "$CLEAN_VERSION" | sed 's/[^-]*-\([a-zA-Z]*\).*/\1/')
+            npm publish --provenance --access public --tag "${PRERELEASE_LABEL:-next}"
+          else
+            npm publish --provenance --access public
+          fi
+        working-directory: apps/mcp/build
