@@ -25,7 +25,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-
+import { Skeleton } from "@/components/ui/skeleton";
 import {
 	allTasksQueryOptions,
 	bulkMoveViewTaskPositions,
@@ -72,6 +72,116 @@ import {
 	type TaskFieldUpdate,
 	type ViewContext,
 } from "./view-utils";
+
+// ── Loading skeletons ─────────────────────────────────────────────────────────
+
+function ListViewSkeleton() {
+	return (
+		<div className="flex flex-col overflow-hidden h-full">
+			{/* group header */}
+			<div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/30 bg-muted/20">
+				<Skeleton className="size-4 rounded" />
+				<Skeleton className="h-3.5 w-20" />
+				<Skeleton className="h-4 w-6 rounded-full ml-1" />
+			</div>
+			{/* column header row */}
+			<div className="flex items-center gap-4 px-4 py-2 border-b border-border/20 bg-muted/10">
+				<Skeleton className="h-3 w-14 shrink-0" />
+				<Skeleton className="h-3 flex-1" />
+				<Skeleton className="h-3 w-16 shrink-0" />
+				<Skeleton className="h-3 w-14 shrink-0" />
+				<Skeleton className="h-3 w-20 shrink-0" />
+				<Skeleton className="h-3 w-16 shrink-0" />
+			</div>
+			{/* task rows */}
+			{[
+				{ id: "sk-r1", w: "w-48", wp: "w-16", ws: "w-20" },
+				{ id: "sk-r2", w: "w-64", wp: "w-14", ws: "w-24" },
+				{ id: "sk-r3", w: "w-40", wp: "w-20", ws: "w-16" },
+				{ id: "sk-r4", w: "w-56", wp: "w-12", ws: "w-20" },
+				{ id: "sk-r5", w: "w-52", wp: "w-18", ws: "w-24" },
+			].map(({ id, w, wp, ws }) => (
+				<div
+					key={id}
+					className="flex items-center gap-4 px-4 py-3 border-b border-border/15 last:border-0"
+				>
+					<Skeleton className="size-5 rounded shrink-0" />
+					<Skeleton className={`h-3.5 ${w} shrink-0`} />
+					<div className="flex-1" />
+					<Skeleton className={`h-3 ${wp} shrink-0`} />
+					<Skeleton className={`h-3 ${ws} shrink-0`} />
+					<Skeleton className="size-6 rounded-full shrink-0" />
+				</div>
+			))}
+		</div>
+	);
+}
+
+function BoardViewSkeleton() {
+	const cols = [
+		{
+			id: "sk-col1",
+			w: "w-24",
+			cards: [
+				{ id: "sk-c1r1", tw: "w-32", th: "h-3.5" },
+				{ id: "sk-c1r2", tw: "w-40", th: "h-3" },
+				{ id: "sk-c1r3", tw: "w-28", th: "h-4" },
+			],
+		},
+		{
+			id: "sk-col2",
+			w: "w-20",
+			cards: [
+				{ id: "sk-c2r1", tw: "w-36", th: "h-3.5" },
+				{ id: "sk-c2r2", tw: "w-24", th: "h-3" },
+			],
+		},
+		{
+			id: "sk-col3",
+			w: "w-28",
+			cards: [
+				{ id: "sk-c3r1", tw: "w-28", th: "h-4" },
+				{ id: "sk-c3r2", tw: "w-44", th: "h-3.5" },
+				{ id: "sk-c3r3", tw: "w-32", th: "h-3" },
+				{ id: "sk-c3r4", tw: "w-20", th: "h-3.5" },
+			],
+		},
+		{
+			id: "sk-col4",
+			w: "w-16",
+			cards: [{ id: "sk-c4r1", tw: "w-40", th: "h-3" }],
+		},
+	];
+	return (
+		<div className="flex h-full gap-3 overflow-x-auto px-4 py-4">
+			{cols.map((col) => (
+				<div key={col.id} className="flex w-64 shrink-0 flex-col gap-2">
+					{/* column header */}
+					<div className="flex items-center gap-2 px-1">
+						<Skeleton className={`h-3.5 ${col.w}`} />
+						<Skeleton className="h-4 w-5 rounded-full" />
+					</div>
+					{/* cards */}
+					{col.cards.map(({ id, tw, th }) => (
+						<div
+							key={id}
+							className="rounded-xl border border-border/50 bg-card p-3.5 space-y-3"
+						>
+							<div className="flex items-center gap-2">
+								<Skeleton className="size-4 rounded shrink-0" />
+								<Skeleton className={`${th} ${tw}`} />
+							</div>
+							<div className="flex items-center justify-between">
+								<Skeleton className="h-4 w-16 rounded-full" />
+								<Skeleton className="size-5 rounded-full" />
+							</div>
+						</div>
+					))}
+				</div>
+			))}
+		</div>
+	);
+}
 
 interface InteractionLayoutProps {
 	projectId: string;
@@ -959,9 +1069,11 @@ export function InteractionLayout({
 			{/* View content */}
 			<div className="flex flex-1 flex-col overflow-hidden">
 				{tasksLoading ? (
-					<div className="flex h-full items-center justify-center">
-						<div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-					</div>
+					activeView?.layout === "Board" ? (
+						<BoardViewSkeleton />
+					) : (
+						<ListViewSkeleton />
+					)
 				) : activeView?.layout === "Board" ? (
 					<BoardView
 						projectId={projectId}

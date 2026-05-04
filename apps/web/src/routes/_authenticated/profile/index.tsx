@@ -17,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { apiClient } from "@/lib/api-client";
 import type { SuccessEnvelope } from "@/lib/api-error";
 import type { User as UserType } from "@/lib/auth-api";
@@ -80,7 +81,77 @@ function ProfilePage() {
 		},
 	});
 
-	if (!user) return null;
+	if (!user) {
+		return (
+			<div className="flex flex-col gap-6 p-6 max-w-2xl">
+				{/* Header skeleton */}
+				<div>
+					<div className="flex items-center gap-2">
+						<Skeleton className="size-5 rounded" />
+						<Skeleton className="h-5 w-24" />
+					</div>
+					<Skeleton className="mt-1.5 h-3.5 w-64" />
+				</div>
+				<Separator />
+				{/* Profile card skeleton */}
+				<Card>
+					<CardHeader>
+						<div className="flex items-center gap-4">
+							<Skeleton className="size-14 rounded-xl shrink-0" />
+							<div className="space-y-2">
+								<Skeleton className="h-5 w-36" />
+								<Skeleton className="h-3.5 w-24" />
+								<div className="flex items-center gap-2 mt-1">
+									<Skeleton className="h-5 w-16 rounded-full" />
+									<Skeleton className="h-3.5 w-28" />
+								</div>
+							</div>
+						</div>
+					</CardHeader>
+					<Separator />
+					<CardContent className="pt-5">
+						<div className="flex flex-col gap-4">
+							<div className="flex flex-col gap-1.5">
+								<Skeleton className="h-3.5 w-20" />
+								<Skeleton className="h-4 w-40 mt-1" />
+							</div>
+							<div className="flex flex-col gap-1.5">
+								<Skeleton className="h-3.5 w-20" />
+								<Skeleton className="h-4 w-32 mt-1" />
+							</div>
+						</div>
+					</CardContent>
+					<CardFooter className="border-t pt-4">
+						<Skeleton className="h-8 w-24 rounded-md" />
+					</CardFooter>
+				</Card>
+				{/* Change password card skeleton */}
+				<Card>
+					<CardHeader>
+						<Skeleton className="h-5 w-36" />
+						<Skeleton className="h-3.5 w-64 mt-1" />
+					</CardHeader>
+					<CardContent className="space-y-3">
+						<div className="flex flex-col gap-1.5">
+							<Skeleton className="h-3.5 w-28" />
+							<Skeleton className="h-9 w-full rounded-md" />
+						</div>
+						<div className="flex flex-col gap-1.5">
+							<Skeleton className="h-3.5 w-32" />
+							<Skeleton className="h-9 w-full rounded-md" />
+						</div>
+						<div className="flex flex-col gap-1.5">
+							<Skeleton className="h-3.5 w-36" />
+							<Skeleton className="h-9 w-full rounded-md" />
+						</div>
+					</CardContent>
+					<CardFooter className="border-t pt-4">
+						<Skeleton className="h-8 w-32 rounded-md" />
+					</CardFooter>
+				</Card>
+			</div>
+		);
+	}
 
 	const displayName = user.full_name || user.username;
 	const initials = getInitials(displayName);

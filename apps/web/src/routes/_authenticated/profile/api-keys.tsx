@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
 	Table,
 	TableBody,
@@ -158,9 +159,45 @@ function APIKeysPage() {
 
 				<CardContent>
 					{isLoading ? (
-						<p className="text-sm text-muted-foreground py-4 text-center">
-							Loading…
-						</p>
+						<Table>
+							<TableHeader>
+								<TableRow>
+									<TableHead>Name</TableHead>
+									<TableHead>Prefix</TableHead>
+									<TableHead>Created</TableHead>
+									<TableHead>Expires</TableHead>
+									<TableHead>Last used</TableHead>
+									<TableHead className="w-10" />
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{[...Array(3)].map((_, i) => (
+									<TableRow
+										// biome-ignore lint/suspicious/noArrayIndexKey: static skeleton
+										key={i}
+									>
+										<TableCell>
+											<Skeleton className="h-4 w-28" />
+										</TableCell>
+										<TableCell>
+											<Skeleton className="h-4 w-24" />
+										</TableCell>
+										<TableCell>
+											<Skeleton className="h-4 w-20" />
+										</TableCell>
+										<TableCell>
+											<Skeleton className="h-4 w-20" />
+										</TableCell>
+										<TableCell>
+											<Skeleton className="h-4 w-20" />
+										</TableCell>
+										<TableCell>
+											<Skeleton className="size-8 rounded-md" />
+										</TableCell>
+									</TableRow>
+								))}
+							</TableBody>
+						</Table>
 					) : keys.length === 0 ? (
 						<div className="flex flex-col items-center gap-2 py-10 text-center">
 							<Key className="size-8 text-muted-foreground/50" />

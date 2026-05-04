@@ -18,6 +18,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { Sprint, Task } from "@/lib/interaction-api";
 import type { ProjectMember, TaskStatus, TaskType } from "@/lib/project-api";
 import { getTaskTypeIconComponent } from "../../task-types/task-type-icons";
@@ -448,9 +449,7 @@ export function PropertiesPanel({
 								);
 							})()
 						) : task.parent_task_id ? (
-							<span className="text-[12px] text-muted-foreground/60 italic">
-								Loading…
-							</span>
+							<Skeleton className="h-3.5 w-28" />
 						) : (
 							<span className="text-[12px] text-muted-foreground/50 italic">
 								No parent

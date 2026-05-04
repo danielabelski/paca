@@ -624,11 +624,23 @@ function TeamPage() {
 				{isLoading ? (
 					<div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
 						{[...Array(4)].map((_, i) => (
-							<Skeleton
+							<div
 								// biome-ignore lint/suspicious/noArrayIndexKey: static skeleton
 								key={i}
-								className="h-16 w-full rounded-xl"
-							/>
+								className="flex items-center gap-3 rounded-xl border border-border/50 bg-card px-4 py-3"
+							>
+								{/* Avatar */}
+								<Skeleton className="size-9 rounded-full shrink-0" />
+								{/* Name + username */}
+								<div className="min-w-0 flex-1 space-y-1.5">
+									<Skeleton className="h-3.5 w-32" />
+									<Skeleton className="h-3 w-20" />
+								</div>
+								{/* Role chip */}
+								<Skeleton className="h-6 w-24 rounded-full shrink-0" />
+								{/* Action button */}
+								<Skeleton className="size-7 rounded-md shrink-0" />
+							</div>
 						))}
 					</div>
 				) : !members?.length ? (

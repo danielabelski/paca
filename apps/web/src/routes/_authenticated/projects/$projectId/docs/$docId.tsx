@@ -17,6 +17,7 @@ import {
 } from "@/components/projects/docs/doc-editor";
 import { DocHistoryPanel } from "@/components/projects/docs/doc-history-panel";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useDebouncedCallback } from "@/hooks/use-debounced-callback";
 import { useProjectPermissions } from "@/hooks/use-project-permissions";
 import { currentUserQueryOptions } from "@/lib/auth-api";
@@ -195,11 +196,13 @@ function DocEditorPage() {
 							<ChevronRight className="size-3.5 text-muted-foreground/30 shrink-0" />
 						</span>
 					))}
-					{doc?.title && (
+					{doc?.title ? (
 						<span className="text-foreground/70 font-medium truncate max-w-60">
 							{doc.title}
 						</span>
-					)}
+					) : !doc ? (
+						<Skeleton className="h-3 w-28" />
+					) : null}
 				</div>
 
 				{/* Right: save status + panel toggles */}
@@ -333,10 +336,28 @@ function DocEditorPage() {
 						)}
 
 						{!doc && (
-							<div className="h-40 flex items-center justify-center">
-								<span className="text-muted-foreground/50 text-sm animate-pulse">
-									Loading…
-								</span>
+							<div className="space-y-6">
+								{/* Title skeleton */}
+								<Skeleton className="h-9 w-2/3 rounded-md" />
+								{/* Content blocks skeleton */}
+								<div className="space-y-3 pt-2">
+									<Skeleton className="h-4 w-full" />
+									<Skeleton className="h-4 w-11/12" />
+									<Skeleton className="h-4 w-5/6" />
+								</div>
+								<div className="space-y-3 pt-2">
+									<Skeleton className="h-4 w-full" />
+									<Skeleton className="h-4 w-3/4" />
+								</div>
+								<div className="space-y-3 pt-2">
+									<Skeleton className="h-4 w-full" />
+									<Skeleton className="h-4 w-11/12" />
+									<Skeleton className="h-4 w-4/5" />
+									<Skeleton className="h-4 w-2/3" />
+								</div>
+								<div className="space-y-3 pt-2">
+									<Skeleton className="h-4 w-1/2" />
+								</div>
 							</div>
 						)}
 
