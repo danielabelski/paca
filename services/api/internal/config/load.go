@@ -53,6 +53,13 @@ func Load() (*Config, error) {
 	}
 
 	dbDriver := env("DATABASE_DRIVER", "postgres")
+	switch dbDriver {
+	case "postgres", "dsql":
+		// valid values
+	default:
+		errs = append(errs, fmt.Errorf("config: DATABASE_DRIVER must be one of: postgres, dsql"))
+	}
+
 	dbAWSRegion := env("DATABASE_AWS_REGION", "")
 	if dbDriver == "dsql" && dbAWSRegion == "" {
 		errs = append(errs, fmt.Errorf("config: DATABASE_AWS_REGION must be set when DATABASE_DRIVER=dsql"))
