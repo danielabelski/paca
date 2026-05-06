@@ -64,6 +64,8 @@ services:
       # GitHub integration — fixed E2E test key (32-byte AES-256, hex-encoded).
       GITHUB_ENCRYPTION_KEY: "3b4a93a4f2ffa732a5f7cf44b9a37050e49f5f9c3f105c3995432b9dd49e28ac"
       PUBLIC_URL: http://localhost
+      # Plugin subsystem — load WASM binaries + migrations from the local plugin store.
+      PLUGINS_WASM_DIR: /plugins
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,6 +73,10 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    volumes:
+      # Backend plugin store — WASM binaries and SQL migrations only.
+      # Never mounted to the gateway, so the WASM files are not publicly reachable.
+      - ../plugins/local/backend:/plugins:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO/dev/null -T 3 --tries=1 http://127.0.0.1:8080/api/healthz || exit 1"]
       interval: 5s
@@ -125,6 +131,8 @@ services:
       - "80:80"
     volumes:
       - ./nginx/gateway.conf:/etc/nginx/conf.d/default.conf:ro
+      # Frontend plugin store — built JS bundles only, no WASM or migrations.
+      - ../plugins/local/frontend:/var/www/plugins:ro
     depends_on:
       api:
         condition: service_healthy

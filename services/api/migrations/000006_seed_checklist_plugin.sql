@@ -29,7 +29,7 @@ VALUES (
             ]
         },
         "frontend": {
-            "remoteEntryUrl": "http://localhost:5201/assets/remoteEntry.js",
+            "remoteEntryUrl": "/plugins/com.paca.checklist/assets/remoteEntry.js",
             "extensionPoints": [
                 {
                     "point": "task.detail.section",

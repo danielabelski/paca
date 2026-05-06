@@ -33,4 +33,4 @@ playwright
 *.wasm
 
 # Local plugin development artifacts
-services/api/plugins
+plugins/local

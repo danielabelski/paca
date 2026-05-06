@@ -79,8 +79,14 @@ services:
       # GitHub integration — leave empty to disable the feature entirely.
       GITHUB_ENCRYPTION_KEY: "3b4a93a4f2ffa732a5f7cf44b9a37050e49f5f9c3f105c3995432b9dd49e28ac"
       PUBLIC_URL: http://localhost
+      # Plugin subsystem — load WASM binaries + migrations from the local plugin store.
+      PLUGINS_WASM_DIR: /plugins
     volumes:
       - ../services/api:/workspace
+      # Backend plugin store — WASM binaries and SQL migrations only.
+      # Never mounted to the gateway, so the WASM files are not publicly reachable.
+      # Layout: /plugins/<plugin-id>/backend.wasm  +  /plugins/<plugin-id>/migrations/
+      - ../plugins/local/backend:/plugins:ro
       # go modules are pre-downloaded into the image layer; no volume needed.
       # Persist the Go build cache so the first build after a container restart
       # reuses previously compiled packages instead of starting cold.
@@ -138,6 +144,9 @@ services:
       - "80:80"
     volumes:
       - ./nginx/gateway.conf:/etc/nginx/conf.d/default.conf:ro
+      # Frontend plugin store — built JS bundles only, no WASM or migrations.
+      # Layout: /var/www/plugins/<plugin-id>/assets/remoteEntry.js
+      - ../plugins/local/frontend:/var/www/plugins:ro
     depends_on:
       - api
       - web
