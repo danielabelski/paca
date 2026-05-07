@@ -38,6 +38,13 @@ func wasmMalloc(size int32) int32 {
 	return ptr
 }
 
+// wasmResetAllocator resets the malloc offset to allow reuse of the buffer.
+// This should be called after the host has copied out the response data.
+// SAFETY: The host MUST copy out all allocated data before calling this.
+func wasmResetAllocator() {
+	mallocOffset = 0
+}
+
 // ── WASM DB backend ───────────────────────────────────────────────────────────
 
 type wasmDBBackend struct{}

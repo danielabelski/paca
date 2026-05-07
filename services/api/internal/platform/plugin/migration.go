@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 )
 
 // MigrationRunner runs plugin-owned SQL migration files within the plugin's
@@ -26,20 +27,27 @@ func NewMigrationRunner(db *sql.DB, store *Store, log *slog.Logger) *MigrationRu
 	return &MigrationRunner{db: db, store: store, log: log}
 }
 
+// quoteIdentifier safely quotes a PostgreSQL identifier to prevent SQL injection.
+// It doubles any embedded quotes and wraps the result in double quotes.
+func quoteIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
 // Run applies any new migration files for the given plugin.
 // It creates the plugin schema and migrations tracking table if they do not
 // exist, then applies files that are not yet recorded there.
 func (mr *MigrationRunner) Run(ctx context.Context, pluginName string) error {
 	schema := schemaName(pluginName)
+	quotedSchema := quoteIdentifier(schema)
 
 	// 1. Ensure the plugin schema exists.
-	if _, err := mr.db.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+schema); err != nil {
+	if _, err := mr.db.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+quotedSchema); err != nil {
 		return fmt.Errorf("plugin migration %q: create schema: %w", pluginName, err)
 	}
 
 	// 2. Ensure the plugin KV store table exists (used by paca.storage_* host fns).
 	if _, err := mr.db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS `+schema+`.plugin_kv (
+		CREATE TABLE IF NOT EXISTS `+quotedSchema+`.plugin_kv (
 			key   TEXT PRIMARY KEY,
 			value TEXT NOT NULL DEFAULT ''
 		)`); err != nil {
@@ -48,7 +56,7 @@ func (mr *MigrationRunner) Run(ctx context.Context, pluginName string) error {
 
 	// 3. Ensure the migrations tracking table exists.
 	if _, err := mr.db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS `+schema+`.plugin_schema_migrations (
+		CREATE TABLE IF NOT EXISTS `+quotedSchema+`.plugin_schema_migrations (
 			filename   TEXT        PRIMARY KEY,
 			applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`); err != nil {
@@ -65,7 +73,7 @@ func (mr *MigrationRunner) Run(ctx context.Context, pluginName string) error {
 
 	// 5. Determine which migrations have already been applied.
 	rows, err := mr.db.QueryContext(ctx,
-		"SELECT filename FROM "+schema+".plugin_schema_migrations")
+		"SELECT filename FROM "+quotedSchema+".plugin_schema_migrations")
 	if err != nil {
 		return fmt.Errorf("plugin migration %q: query applied: %w", pluginName, err)
 	}
@@ -97,7 +105,7 @@ func (mr *MigrationRunner) Run(ctx context.Context, pluginName string) error {
 		}
 
 		// Set search path so the plugin SQL can reference tables without schema prefix.
-		if _, err := tx.ExecContext(ctx, "SET LOCAL search_path TO "+schema+",public"); err != nil {
+		if _, err := tx.ExecContext(ctx, "SET LOCAL search_path TO "+quotedSchema+",public"); err != nil {
 			tx.Rollback() //nolint:errcheck
 			return fmt.Errorf("plugin migration %q %q: set search_path: %w", pluginName, f.Name, err)
 		}
@@ -108,7 +116,7 @@ func (mr *MigrationRunner) Run(ctx context.Context, pluginName string) error {
 		}
 
 		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO "+schema+".plugin_schema_migrations (filename) VALUES ($1)", f.Name); err != nil {
+			"INSERT INTO "+quotedSchema+".plugin_schema_migrations (filename) VALUES ($1)", f.Name); err != nil {
 			tx.Rollback() //nolint:errcheck
 			return fmt.Errorf("plugin migration %q %q: record: %w", pluginName, f.Name, err)
 		}

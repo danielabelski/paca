@@ -85,6 +85,17 @@ func (s *Service) UpdateExtensionSetting(ctx context.Context, input plugindom.Up
 	if err := s.repo.UpsertSetting(ctx, setting); err != nil {
 		return nil, err
 	}
+	// Re-query to get the actual persisted ID (upsert may have kept existing ID)
+	settings, err := s.repo.ListSettings(ctx, input.PluginID)
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range settings {
+		if s.ExtensionPoint == input.ExtensionPoint {
+			return s, nil
+		}
+	}
+	// Fallback: return what we tried to insert (should not happen)
 	return setting, nil
 }
 

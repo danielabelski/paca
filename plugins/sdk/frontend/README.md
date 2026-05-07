@@ -21,7 +21,7 @@ export function ChecklistSection() {
 
   const { data: items = [] } = usePluginQuery(
     meta.pluginId,
-    ["items", api.projectId],
+    ["items"],
     () => api.pluginGet(meta.pluginId, "/items"),
   );
 
