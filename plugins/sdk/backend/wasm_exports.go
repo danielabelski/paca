@@ -56,8 +56,8 @@ func HandleRequest(ptr, length int32) int64 {
 	}
 	copy(out, result)
 	// Return offset and length combined into int64
-	// NOTE: Host MUST copy out the response before the next request,
-	// as the allocator will be reset.
+	// NOTE: Host MUST copy out the response before calling ResetAllocator,
+	// which is called after each HandleRequest completes.
 	return (int64(outPtr) << 32) | int64(len(result))
 }
 
