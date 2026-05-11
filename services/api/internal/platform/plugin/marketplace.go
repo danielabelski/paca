@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -65,6 +67,10 @@ func (c *MarketplaceClient) List(ctx context.Context) (*MarketplaceCatalog, erro
 		return nil, fmt.Errorf("marketplace catalog URL is not configured")
 	}
 
+	if err := validateMarketplaceURL(c.catalogURL); err != nil {
+		return nil, fmt.Errorf("marketplace: invalid catalog URL: %w", err)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.catalogURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("marketplace: build request: %w", err)
@@ -120,14 +126,99 @@ func validateMarketplacePlugin(p MarketplacePlugin) error {
 	if strings.TrimSpace(p.Artifacts.BackendTarGzURL) == "" {
 		return fmt.Errorf("artifacts.backend_tar_gz_url is required")
 	}
+	if err := validateMarketplaceURL(p.Artifacts.BackendTarGzURL); err != nil {
+		return fmt.Errorf("artifacts.backend_tar_gz_url: %w", err)
+	}
 	if strings.TrimSpace(p.Artifacts.FrontendTarGzURL) == "" {
 		return fmt.Errorf("artifacts.frontend_tar_gz_url is required")
+	}
+	if err := validateMarketplaceURL(p.Artifacts.FrontendTarGzURL); err != nil {
+		return fmt.Errorf("artifacts.frontend_tar_gz_url: %w", err)
 	}
 	if strings.TrimSpace(p.Artifacts.MigrationsTarGzURL) == "" {
 		return fmt.Errorf("artifacts.migrations_tar_gz_url is required")
 	}
+	if err := validateMarketplaceURL(p.Artifacts.MigrationsTarGzURL); err != nil {
+		return fmt.Errorf("artifacts.migrations_tar_gz_url: %w", err)
+	}
 	if strings.TrimSpace(p.Artifacts.ManifestTarGzURL) == "" {
 		return fmt.Errorf("artifacts.manifest_tar_gz_url is required")
 	}
+	if err := validateMarketplaceURL(p.Artifacts.ManifestTarGzURL); err != nil {
+		return fmt.Errorf("artifacts.manifest_tar_gz_url: %w", err)
+	}
 	return nil
+}
+
+// validateMarketplaceURL validates that a URL is safe for marketplace operations.
+// It enforces HTTPS and blocks private/internal IP ranges to prevent SSRF attacks.
+func validateMarketplaceURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+
+	// Require HTTPS
+	if u.Scheme != "https" {
+		return fmt.Errorf("only HTTPS URLs are allowed, got %q", u.Scheme)
+	}
+
+	// Extract hostname for IP validation
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("URL has no hostname")
+	}
+
+	// Resolve hostname to IP addresses
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return fmt.Errorf("failed to resolve hostname: %w", err)
+	}
+
+	// Check each resolved IP against private/internal ranges
+	for _, ip := range ips {
+		if isPrivateOrInternalIP(ip) {
+			return fmt.Errorf("URL resolves to private/internal IP address: %s", ip.String())
+		}
+	}
+
+	return nil
+}
+
+// isPrivateOrInternalIP checks if an IP is in a private or internal range.
+func isPrivateOrInternalIP(ip net.IP) bool {
+	// Check for loopback
+	if ip.IsLoopback() {
+		return true
+	}
+
+	// Check for link-local
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return true
+	}
+
+	// Check for private IPv4 ranges
+	privateIPv4Ranges := []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"169.254.0.0/16", // link-local
+	}
+
+	for _, cidr := range privateIPv4Ranges {
+		_, ipNet, _ := net.ParseCIDR(cidr)
+		if ipNet.Contains(ip) {
+			return true
+		}
+	}
+
+	// Check for private IPv6 ranges
+	if ip.To4() == nil { // IPv6
+		// Unique local addresses (fc00::/7)
+		if len(ip) == 16 && (ip[0]&0xfe) == 0xfc {
+			return true
+		}
+	}
+
+	return false
 }

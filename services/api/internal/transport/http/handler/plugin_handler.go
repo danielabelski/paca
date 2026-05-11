@@ -243,7 +243,7 @@ func (h *PluginHandler) DeletePlugin(c *gin.Context) {
 	if h.installer != nil && pluginName != "" {
 		if err := h.installer.Uninstall(pluginName); err != nil {
 			// Log but don't fail the request — the DB record is already gone.
-			_ = err
+			slog.Error("failed to uninstall plugin artifacts", "name", pluginName, "error", err)
 		}
 	}
 	presenter.NoContent(c)

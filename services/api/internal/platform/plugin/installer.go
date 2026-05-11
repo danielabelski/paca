@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	plugindom "github.com/Paca-AI/api/internal/domain/plugin"
 )
@@ -28,7 +29,7 @@ type Installer struct {
 // NewInstaller creates a marketplace installer.
 func NewInstaller(backendDir, frontendDir string, httpClient *http.Client, log *slog.Logger) *Installer {
 	if httpClient == nil {
-		httpClient = &http.Client{}
+		httpClient = &http.Client{Timeout: 5 * time.Minute}
 	}
 	return &Installer{
 		backendDir:  backendDir,
@@ -199,13 +200,17 @@ func (i *Installer) downloadAndExtractTarGz(ctx context.Context, url, dest strin
 		return fmt.Errorf("unexpected status code %d", resp.StatusCode)
 	}
 
-	if err := untarGz(resp.Body, dest); err != nil {
+	// Limit download size to 100MB
+	const maxDownloadSize = 100 * 1024 * 1024
+	limitedReader := io.LimitReader(resp.Body, maxDownloadSize+1)
+
+	if err := untarGz(limitedReader, dest, maxDownloadSize); err != nil {
 		return fmt.Errorf("extract artifact: %w", err)
 	}
 	return nil
 }
 
-func untarGz(r io.Reader, dest string) error {
+func untarGz(r io.Reader, dest string, maxExtractedSize int64) error {
 	gz, err := gzip.NewReader(r)
 	if err != nil {
 		return err
@@ -214,6 +219,11 @@ func untarGz(r io.Reader, dest string) error {
 
 	tr := tar.NewReader(gz)
 	destClean := filepath.Clean(dest)
+	
+	const maxFiles = 10000
+	var fileCount int
+	var totalExtracted int64
+
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -221,6 +231,11 @@ func untarGz(r io.Reader, dest string) error {
 		}
 		if err != nil {
 			return err
+		}
+
+		fileCount++
+		if fileCount > maxFiles {
+			return fmt.Errorf("archive contains too many files (max %d)", maxFiles)
 		}
 
 		name := filepath.Clean(hdr.Name)
@@ -239,6 +254,12 @@ func untarGz(r io.Reader, dest string) error {
 				return err
 			}
 		case tar.TypeReg:
+			// Check individual file size
+			const maxFileSize = 50 * 1024 * 1024 // 50MB per file
+			if hdr.Size > maxFileSize {
+				return fmt.Errorf("file %q exceeds maximum size of %d bytes", hdr.Name, maxFileSize)
+			}
+
 			if err := os.MkdirAll(filepath.Dir(targetClean), 0o755); err != nil {
 				return err
 			}
@@ -246,12 +267,21 @@ func untarGz(r io.Reader, dest string) error {
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(f, tr); err != nil {
+
+			// Limit bytes written per file
+			limitedReader := io.LimitReader(tr, hdr.Size)
+			written, err := io.Copy(f, limitedReader)
+			if err != nil {
 				_ = f.Close()
 				return err
 			}
 			if err := f.Close(); err != nil {
 				return err
+			}
+
+			totalExtracted += written
+			if totalExtracted > maxExtractedSize {
+				return fmt.Errorf("total extracted size exceeds maximum of %d bytes", maxExtractedSize)
 			}
 		}
 	}
