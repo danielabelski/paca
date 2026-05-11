@@ -104,7 +104,7 @@ type PluginsConfig struct {
 
 	// WASMDir is the local filesystem directory that contains plugin WASM
 	// binaries.  Each plugin is expected at {WASMDir}/{pluginName}/backend.wasm.
-	// Only used when Store is "local".  Defaults to "./plugins".
+	// Only used when Store is "local".  Defaults to "./plugins/local/backend".
 	WASMDir string
 
 	// FrontendDir is the local filesystem directory that contains extracted
