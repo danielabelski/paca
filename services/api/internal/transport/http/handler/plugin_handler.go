@@ -279,6 +279,17 @@ func (h *PluginHandler) UpgradeMarketplacePlugin(c *gin.Context) {
 		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "failed to install plugin artifacts: "+err.Error()))
 		return
 	}
+	if manifest.Version != entry.Version {
+		presenter.Error(c, apierr.New(
+			apierr.CodeBadRequest,
+			fmt.Sprintf(
+				"downloaded plugin manifest version %q does not match marketplace version %q",
+				manifest.Version,
+				entry.Version,
+			),
+		))
+		return
+	}
 
 	// Capture the currently persisted plugin state so we can delay DB writes
 	// until the upgraded runtime is active and best-effort roll back on failure.
