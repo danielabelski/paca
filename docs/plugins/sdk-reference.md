@@ -1,13 +1,15 @@
 # Plugin SDK Reference
 
-The Paca Plugin SDK consists of two packages:
+The Paca Plugin SDK consists of three packages:
 
 - **`@paca-ai/plugin-sdk-react`** — TypeScript/React SDK for frontend plugin components.
   - Repository: [github.com/Paca-AI/plugin-sdk-react](https://github.com/Paca-AI/plugin-sdk-react)
 - **`github.com/Paca-AI/plugin-sdk-go`** — Go SDK for backend WASM plugins.
   - Repository: [github.com/Paca-AI/plugin-sdk-go](https://github.com/Paca-AI/plugin-sdk-go)
+- **`@paca-ai/plugin-sdk-mcp`** — TypeScript SDK for MCP tool extensions.
+  - Repository: [github.com/Paca-AI/plugin-sdk-mcp](https://github.com/Paca-AI/plugin-sdk-mcp)
 
-Both packages are maintained in separate repositories for better modularity and easier dependency management.
+All packages are maintained in separate repositories for better modularity and easier dependency management.
 
 See [paca-plugin-example](https://github.com/Paca-AI/paca-plugin-example) for a working reference implementation that exercises every API documented here.
 
@@ -482,3 +484,138 @@ Key `plugintest` API:
 | `tc.PluginContext()` | Return `*plugin.Context` to pass to `Plugin.Init`. |
 | `tc.Call(method, path, req)` | Dispatch a test request; returns `*plugin.Response`. |
 | `plugin.DispatchEvent(ctx, topic, payload)` | Fire a platform event directly to the plugin's handler. |
+
+---
+
+## MCP SDK (`@paca-ai/plugin-sdk-mcp`)
+
+Use this SDK to add MCP tools to your plugin. The Paca MCP server loads your plugin's entry module at startup and merges the exported tools into its tool list.
+
+See [mcp-plugin-system.md](mcp-plugin-system.md) for the full architecture.
+
+### Installation
+
+```sh
+npm install @paca-ai/plugin-sdk-mcp
+# or
+bun add @paca-ai/plugin-sdk-mcp
+```
+
+### `PluginMCPEntry`
+
+The default export of your plugin's MCP entry module must satisfy this interface.
+
+```ts
+interface PluginMCPEntry {
+  /** Full MCP tool definitions contributed by this plugin. */
+  tools: Tool[];
+
+  /**
+   * Handle a tool call routed to this plugin.
+   * Called only when `name` matches one of the declared tools.
+   */
+  handleToolCall(
+    name: string,
+    args: Record<string, unknown>,
+    context: PluginMCPContext,
+  ): Promise<PluginToolResult>;
+}
+```
+
+### `PluginMCPContext`
+
+Runtime context injected by the host into every `handleToolCall` invocation.
+
+```ts
+interface PluginMCPContext {
+  pluginId: string;  // e.g. "com.paca.checklist"
+  baseURL:  string;  // e.g. "http://localhost:8080"
+  apiKey:   string;  // Paca API key for authentication
+}
+```
+
+### `PluginAPIClient`
+
+Scoped HTTP client. Construct one instance per tool call using the injected context.
+
+```ts
+class PluginAPIClient {
+  constructor(context: PluginMCPContext)
+
+  // Plugin route helpers (prefix: /api/v1/plugins/{pluginId}/)
+  pluginGet<T>(path: string): Promise<T>
+  pluginPost<T>(path: string, body: unknown): Promise<T>
+  pluginPatch<T>(path: string, body: unknown): Promise<T>
+  pluginDelete(path: string): Promise<void>
+
+  // Core Paca API (prefix: /api/v1/)
+  coreGet<T>(path: string): Promise<T>
+}
+```
+
+### `PluginToolResult`
+
+The value returned by `handleToolCall`.
+
+```ts
+interface PluginToolResult {
+  content: ToolResultContent[];
+  isError?: boolean;  // set to true to signal an error to the AI client
+}
+
+type ToolResultContent =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string }
+  | { type: "resource"; resource: { uri: string; text?: string; mimeType?: string } };
+```
+
+### Helper functions
+
+```ts
+/** Build a successful text tool result. */
+function textResult(text: string): PluginToolResult
+
+/** Build an error tool result (isError: true). */
+function errorResult(message: string): PluginToolResult
+```
+
+### Minimal example
+
+```ts
+// src/mcp.ts
+import type { PluginMCPEntry } from "@paca-ai/plugin-sdk-mcp";
+import { PluginAPIClient, textResult, errorResult } from "@paca-ai/plugin-sdk-mcp";
+
+const entry: PluginMCPEntry = {
+  tools: [
+    {
+      name: "checklist_list_items",
+      description: "List checklist items attached to a task.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          project_id: { type: "string" },
+          task_id:    { type: "string" },
+        },
+        required: ["project_id", "task_id"],
+      },
+    },
+  ],
+
+  async handleToolCall(name, args, context) {
+    const api = new PluginAPIClient(context);
+    const { project_id, task_id } = args as { project_id: string; task_id: string };
+
+    try {
+      const items = await api.pluginGet(
+        `projects/${project_id}/tasks/${task_id}/items`,
+      );
+      return textResult(JSON.stringify(items, null, 2));
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : String(err));
+    }
+  },
+};
+
+export default entry;
+```

@@ -112,6 +112,11 @@ type PluginsConfig struct {
 	// Each plugin is expected at {FrontendDir}/{pluginName}/assets/remoteEntry.js.
 	FrontendDir string
 
+	// MCPDir is the local filesystem directory that contains extracted MCP
+	// bundles for installed plugins.  Served at /plugins-mcp/<pluginName>/.
+	// Each plugin is expected at {MCPDir}/{pluginName}/mcp.js.
+	MCPDir string
+
 	// S3Prefix is the S3 key prefix used when Store is "s3".
 	// Plugin WASM binaries are fetched from {S3Prefix}/{pluginName}/backend.wasm.
 	S3Prefix string

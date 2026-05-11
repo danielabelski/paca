@@ -37,11 +37,13 @@ type MarketplacePlugin struct {
 }
 
 // MarketplacePluginArtifact contains downloadable plugin package URLs.
+// All fields are optional; the installer only processes artifacts whose URL is non-empty.
 type MarketplacePluginArtifact struct {
-	BackendTarGzURL    string `json:"backend_tar_gz_url"`
-	FrontendTarGzURL   string `json:"frontend_tar_gz_url"`
-	MigrationsTarGzURL string `json:"migrations_tar_gz_url"`
+	BackendTarGzURL    string `json:"backend_tar_gz_url,omitempty"`
+	FrontendTarGzURL   string `json:"frontend_tar_gz_url,omitempty"`
+	MigrationsTarGzURL string `json:"migrations_tar_gz_url,omitempty"`
 	ManifestTarGzURL   string `json:"manifest_tar_gz_url"`
+	MCPTarGzURL        string `json:"mcp_tar_gz_url,omitempty"`
 }
 
 // MarketplaceClient fetches the plugin catalog from a public URL.
@@ -123,29 +125,31 @@ func validateMarketplacePlugin(ctx context.Context, p MarketplacePlugin) error {
 	if strings.TrimSpace(p.Version) == "" {
 		return fmt.Errorf("version is required")
 	}
-	if strings.TrimSpace(p.Artifacts.BackendTarGzURL) == "" {
-		return fmt.Errorf("artifacts.backend_tar_gz_url is required")
+	if strings.TrimSpace(p.Artifacts.BackendTarGzURL) != "" {
+		if err := validateMarketplaceURL(ctx, p.Artifacts.BackendTarGzURL); err != nil {
+			return fmt.Errorf("artifacts.backend_tar_gz_url: %w", err)
+		}
 	}
-	if err := validateMarketplaceURL(ctx, p.Artifacts.BackendTarGzURL); err != nil {
-		return fmt.Errorf("artifacts.backend_tar_gz_url: %w", err)
+	if strings.TrimSpace(p.Artifacts.FrontendTarGzURL) != "" {
+		if err := validateMarketplaceURL(ctx, p.Artifacts.FrontendTarGzURL); err != nil {
+			return fmt.Errorf("artifacts.frontend_tar_gz_url: %w", err)
+		}
 	}
-	if strings.TrimSpace(p.Artifacts.FrontendTarGzURL) == "" {
-		return fmt.Errorf("artifacts.frontend_tar_gz_url is required")
-	}
-	if err := validateMarketplaceURL(ctx, p.Artifacts.FrontendTarGzURL); err != nil {
-		return fmt.Errorf("artifacts.frontend_tar_gz_url: %w", err)
-	}
-	if strings.TrimSpace(p.Artifacts.MigrationsTarGzURL) == "" {
-		return fmt.Errorf("artifacts.migrations_tar_gz_url is required")
-	}
-	if err := validateMarketplaceURL(ctx, p.Artifacts.MigrationsTarGzURL); err != nil {
-		return fmt.Errorf("artifacts.migrations_tar_gz_url: %w", err)
+	if strings.TrimSpace(p.Artifacts.MigrationsTarGzURL) != "" {
+		if err := validateMarketplaceURL(ctx, p.Artifacts.MigrationsTarGzURL); err != nil {
+			return fmt.Errorf("artifacts.migrations_tar_gz_url: %w", err)
+		}
 	}
 	if strings.TrimSpace(p.Artifacts.ManifestTarGzURL) == "" {
 		return fmt.Errorf("artifacts.manifest_tar_gz_url is required")
 	}
 	if err := validateMarketplaceURL(ctx, p.Artifacts.ManifestTarGzURL); err != nil {
 		return fmt.Errorf("artifacts.manifest_tar_gz_url: %w", err)
+	}
+	if strings.TrimSpace(p.Artifacts.MCPTarGzURL) != "" {
+		if err := validateMarketplaceURL(ctx, p.Artifacts.MCPTarGzURL); err != nil {
+			return fmt.Errorf("artifacts.mcp_tar_gz_url: %w", err)
+		}
 	}
 	return nil
 }

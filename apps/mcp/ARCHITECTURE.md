@@ -14,47 +14,37 @@
 │                       index.ts (Entry)                          │
 │  - Load configuration (PACA_API_KEY, PACA_API_URL)             │
 │  - Initialize PacaAPIClient                                     │
-│  - Create MCP Server                                            │
+│  - Create MCP Server (async — loads plugin modules)            │
 │  - Connect to stdio transport                                   │
 └────────────────────────┬────────────────────────────────────────┘
                          │
                          ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                        server.ts                                │
-│  - Create Server instance                                      │
+│                        server.ts  (async)                       │
+│  - Load plugins: GET /api/v1/plugins → import(remoteEntryUrl)  │
+│  - Create Server instance                                       │
 │  - Register ListToolsRequestSchema handler                     │
 │  - Register CallToolRequestSchema handler                      │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-                         │ Tool Call
-                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    tools/index.ts (Router)                      │
-│  - getAllTools(): Returns all tool definitions                  │
-│  - handleToolCall(): Routes to appropriate handler              │
-└───────────┬───────────┬───────────┬───────────┬────────────────┘
-            │           │           │           │
-            │           │           │           │
-            ▼           ▼           ▼           ▼
-    ┌───────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐
-    │  project- │ │  task-   │ │ sprint-  │ │  document-   │
-    │  tools.ts │ │ tools.ts │ │ tools.ts │ │  tools.ts    │
-    └─────┬─────┘ └────┬─────┘ └────┬─────┘ └──────┬───────┘
-          │            │            │              │
-          │            │            │              │
-          └────────────┴────────────┴──────────────┘
-                           │
-                           ▼
-                  ┌─────────────────┐
-                  │  api/client.ts  │
-                  │  PacaAPIClient  │
-                  └────────┬────────┘
-                           │
-                           │ HTTP + X-API-Key
-                           ▼
-                  ┌─────────────────┐
-                  │   Paca API      │
-                  └─────────────────┘
+└──────────┬──────────────────────────┬───────────────────────────┘
+           │                          │
+           │ core tools               │ plugin tools
+           ▼                          ▼
+┌──────────────────────┐   ┌──────────────────────────────────────┐
+│  tools/index.ts      │   │  plugin-loader.ts (PluginRegistry)   │
+│  getAllTools()        │   │  - getAllTools() → plugin tool defs  │
+│  handleToolCall()    │   │  - handleToolCall() → dispatch to    │
+└──────┬───────┬───────┘   │    plugin entry.handleToolCall()     │
+       │       │           └──────────────────┬───────────────────┘
+       │       │                              │
+       ▼       ▼                              ▼ HTTP + X-API-Key
+  [core tool handlers]           /api/v1/plugins/{pluginId}/…
+       │
+       ▼
+  api/client.ts (PacaAPIClient)
+       │
+       │ HTTP + X-API-Key
+       ▼
+  Paca API (/api/v1/…)
 ```
 
 ## Layer Responsibilities
@@ -64,24 +54,32 @@
 - **Responsibilities**:
   - Load environment variables
   - Validate configuration
-  - Create API client
-  - Initialize server
+  - Initialize server (awaits plugin loading)
   - Handle startup errors
 
 ### Server Layer (`server.ts`)
 - **Purpose**: MCP protocol implementation
 - **Responsibilities**:
+  - Call `loadPlugins()` to fetch and import plugin MCP modules
   - Create MCP Server instance
-  - Define capabilities
-  - Register request handlers
+  - Register request handlers that merge core + plugin tools
   - Connect to transport
 
-### Tools Layer (`tools/`)
-- **Purpose**: Business logic and tool definitions
+### Plugin Loader (`plugin-loader.ts`)
+- **Purpose**: Dynamic plugin MCP module loading
 - **Responsibilities**:
-  - Define tool schemas
-  - Implement tool handlers
-  - Route requests
+  - Fetch enabled plugins from `GET /api/v1/plugins`
+  - Filter plugins that declare `manifest.mcp.remoteEntryUrl`
+  - Dynamically `import()` each plugin's MCP entry module
+  - Validate the default export against the `PluginMCPEntry` contract
+  - Build a `PluginRegistry` that owns tool dispatch
+
+### Tools Layer (`tools/`)
+- **Purpose**: Core business logic and tool definitions
+- **Responsibilities**:
+  - Define core tool schemas
+  - Implement core tool handlers
+  - Route core tool calls
   - Format responses
 
 ### API Layer (`api/`)
@@ -108,6 +106,23 @@
 
 ## Data Flow
 
+### Startup: Plugin Loading
+
+```
+1. index.ts calls createServer(config)  [async]
+   ↓
+2. server.ts calls loadPlugins(config)
+   ↓
+3. plugin-loader.ts fetches GET /api/v1/plugins
+   ↓
+4. For each plugin with mcp.remoteEntryUrl:
+     import(remoteEntryUrl)  →  validate PluginMCPEntry  →  register
+   ↓
+5. PluginRegistry built (tool name → plugin mapping)
+   ↓
+6. Server instance created with merged tool list
+```
+
 ### Tool Call Flow
 
 ```
@@ -115,9 +130,13 @@
    ↓
 2. stdio transport receives message
    ↓
-3. server.ts routes to handleToolCall
+3. server.ts routes to CallToolRequestSchema handler
    ↓
-4. tools/index.ts routes to domain handler
+4. Try PluginRegistry.handleToolCall(name, args, config)
+     → if plugin owns tool: dispatch to plugin entry module
+     → plugin calls /api/v1/plugins/{pluginId}/…
+   ↓ (if not a plugin tool)
+5. tools/index.ts routes to domain handler
    ↓
 5. Domain handler calls API client
    ↓

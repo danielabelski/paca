@@ -317,6 +317,139 @@ Output goes to `dist/remoteEntry.js` (and associated chunks).
 
 ---
 
+## Step 3b — Write MCP Tools (optional)
+
+If you want your plugin's functionality to be accessible to AI clients (Claude, GitHub Copilot, Cursor, etc.) through the Paca MCP server, add an MCP entry module.
+
+### Add `mcp` to your manifest
+
+```json
+{
+  "id": "com.example.my-plugin",
+  "displayName": "My Plugin",
+  "version": "0.1.0",
+  "mcp": {
+    "remoteEntryUrl": "https://cdn.example.com/my-plugin/0.1.0/mcp.js"
+  }
+}
+```
+
+> During local development you can use `"http://localhost:5174/mcp.js"` and serve it with `vite --config vite.mcp.config.ts`.
+
+### Install the SDK
+
+```sh
+npm install @paca-ai/plugin-sdk-mcp
+```
+
+### Write `src/mcp.ts`
+
+```ts
+import type { PluginMCPEntry } from "@paca-ai/plugin-sdk-mcp";
+import { PluginAPIClient, textResult, errorResult } from "@paca-ai/plugin-sdk-mcp";
+
+const entry: PluginMCPEntry = {
+  tools: [
+    {
+      name: "my_plugin_list_items",
+      description: "List items for a task in My Plugin.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          project_id: { type: "string", description: "Project ID" },
+          task_id:    { type: "string", description: "Task ID" },
+        },
+        required: ["project_id", "task_id"],
+      },
+    },
+    {
+      name: "my_plugin_create_item",
+      description: "Create a new item in My Plugin for a task.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          project_id: { type: "string", description: "Project ID" },
+          task_id:    { type: "string", description: "Task ID" },
+          title:      { type: "string", description: "Item title" },
+        },
+        required: ["project_id", "task_id", "title"],
+      },
+    },
+  ],
+
+  async handleToolCall(name, args, context) {
+    const api = new PluginAPIClient(context);
+    const { project_id, task_id } = args as { project_id: string; task_id: string };
+
+    try {
+      if (name === "my_plugin_list_items") {
+        const items = await api.pluginGet(
+          `projects/${project_id}/tasks/${task_id}/my-items`,
+        );
+        return textResult(JSON.stringify(items, null, 2));
+      }
+
+      if (name === "my_plugin_create_item") {
+        const { title } = args as { title: string };
+        const item = await api.pluginPost(
+          `projects/${project_id}/tasks/${task_id}/my-items`,
+          { title },
+        );
+        return textResult(JSON.stringify(item, null, 2));
+      }
+
+      return errorResult(`Unknown tool: ${name}`);
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : String(err));
+    }
+  },
+};
+
+export default entry;
+```
+
+### Build the MCP entry module
+
+Add a Vite config for the MCP bundle:
+
+```ts
+// vite.mcp.config.ts
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  build: {
+    lib: {
+      entry: "./src/mcp.ts",
+      formats: ["es"],
+      fileName: () => "mcp.js",
+    },
+    outDir: "dist/mcp",
+    rollupOptions: {
+      external: ["@paca-ai/plugin-sdk-mcp"],
+    },
+  },
+});
+```
+
+```sh
+vite build --config vite.mcp.config.ts
+```
+
+Deploy `dist/mcp/mcp.js` to your CDN and update `mcp.remoteEntryUrl` in `plugin.json`.
+
+### Tool naming
+
+Prefix all tool names with a short identifier to avoid collisions with other plugins:
+
+| Plugin ID | Prefix | Example |
+|---|---|---|
+| `com.example.my-plugin` | `my_plugin_` | `my_plugin_list_items` |
+| `com.paca.checklist` | `checklist_` | `checklist_list_items` |
+
+See [mcp-plugin-system.md](mcp-plugin-system.md) for the full architecture and security notes.
+
+---
+
 ## Step 4 — Install the Plugin Locally
 
 1. Copy the plugin bundle into your local Paca plugin store path:

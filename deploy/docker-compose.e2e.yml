@@ -66,6 +66,8 @@ services:
       PUBLIC_URL: http://localhost
       # Plugin subsystem — load WASM binaries + migrations from the local plugin store.
       PLUGINS_WASM_DIR: /plugins
+      PLUGINS_FRONTEND_DIR: /plugins-frontend
+      PLUGINS_MCP_DIR: /plugins-mcp
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,8 +77,15 @@ services:
         condition: service_healthy
     volumes:
       # Backend plugin store — WASM binaries and SQL migrations only.
+      # Writable so the marketplace installer can download and extract artifacts.
       # Never mounted to the gateway, so the WASM files are not publicly reachable.
-      - ../plugins/local/backend:/plugins:ro
+      - ../plugins/local/backend:/plugins
+      # Frontend plugin store — built JS bundles, served at /plugins/.
+      # Writable for API marketplace installs; also mounted read-only by the gateway.
+      - ../plugins/local/frontend:/plugins-frontend
+      # MCP plugin store — self-contained ESM bundles, served at /plugins-mcp/.
+      # Writable for API marketplace installs; also mounted read-only by the gateway.
+      - ../plugins/local/mcp:/plugins-mcp
     healthcheck:
       test: ["CMD-SHELL", "wget -qO/dev/null -T 3 --tries=1 http://127.0.0.1:8080/api/healthz || exit 1"]
       interval: 5s
@@ -131,8 +140,12 @@ services:
       - "80:80"
     volumes:
       - ./nginx/gateway.conf:/etc/nginx/conf.d/default.conf:ro
-      # Frontend plugin store — built JS bundles only, no WASM or migrations.
+      # Frontend plugin store — built JS bundles, served at /plugins/.
+      # Layout: /var/www/plugins/<plugin-id>/assets/remoteEntry.js
       - ../plugins/local/frontend:/var/www/plugins:ro
+      # MCP plugin store — self-contained ESM bundles, served at /plugins-mcp/.
+      # Layout: /var/www/plugins-mcp/<plugin-id>/mcp.js
+      - ../plugins/local/mcp:/var/www/plugins-mcp:ro
     depends_on:
       api:
         condition: service_healthy

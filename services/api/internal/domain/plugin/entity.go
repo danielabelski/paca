@@ -37,8 +37,20 @@ type PluginManifest struct {
 	Backend *BackendManifest `json:"backend,omitempty"`
 	// Frontend holds frontend-specific manifest settings.
 	Frontend *FrontendManifest `json:"frontend,omitempty"`
+	// MCP holds MCP-server-specific manifest settings.
+	MCP *MCPManifest `json:"mcp,omitempty"`
 	// Permissions lists the host function scopes the plugin requires.
 	Permissions []string `json:"permissions,omitempty"`
+}
+
+// MCPManifest describes the MCP (Model Context Protocol) side of the plugin.
+// When present, the Paca MCP server loads the module at RemoteEntryURL at
+// startup and merges the exported tools into the server's tool list.
+type MCPManifest struct {
+	// RemoteEntryURL is the URL to the plugin's MCP entry module.
+	// The module must be a Node.js-compatible ESM bundle that exports a
+	// PluginMCPEntry as its default export (see @paca-ai/plugin-sdk-mcp).
+	RemoteEntryURL string `json:"remoteEntryUrl"`
 }
 
 // BackendManifest describes the backend (WASM) side of the plugin.

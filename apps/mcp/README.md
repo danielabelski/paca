@@ -97,6 +97,7 @@ For a full setup walkthrough, see the [MCP Server Setup Guide](../../docs/guides
 - **GitHub Integration**: Repository linking, PR management, and branch creation
 - **Collaboration Tools**: Comments, activities, and BDD scenarios for team collaboration
 - **BlockNote Integration**: Automatic conversion between BlockNote JSON and Markdown
+- **Plugin MCP Tools**: Plugins can contribute additional MCP tools, loaded automatically at startup
 
 ## Available Tools
 
@@ -221,6 +222,14 @@ The MCP server provides **86 tools** across **17 categories** for comprehensive 
 - `list_task_branches` - List branches for a task
 
 For a complete list of all tools with detailed descriptions, see [ALL_TOOLS.md](./ALL_TOOLS.md).
+
+### 🔌 Plugin Tools
+
+Installed Paca plugins can contribute additional MCP tools. When the server starts it fetches `GET /api/v1/plugins`, and for each enabled plugin that declares an `mcp.remoteEntryUrl` in its manifest, dynamically loads the plugin's tool module and merges its tools into the list above.
+
+Plugin tools appear alongside core tools — there is no distinction from the AI client's perspective.
+
+To add MCP tools to your own plugin, see the [MCP Plugin System](../../docs/plugins/mcp-plugin-system.md) docs and the [`@paca-ai/plugin-sdk-mcp`](../../plugin-sdk-mcp/README.md) SDK.
 
 ## Markdown/BlockNote Conversion
 

@@ -22,18 +22,20 @@ import (
 type Installer struct {
 	backendDir  string
 	frontendDir string
+	mcpDir      string
 	httpClient  *http.Client
 	log         *slog.Logger
 }
 
 // NewInstaller creates a marketplace installer.
-func NewInstaller(backendDir, frontendDir string, httpClient *http.Client, log *slog.Logger) *Installer {
+func NewInstaller(backendDir, frontendDir, mcpDir string, httpClient *http.Client, log *slog.Logger) *Installer {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 5 * time.Minute}
 	}
 	return &Installer{
 		backendDir:  backendDir,
 		frontendDir: frontendDir,
+		mcpDir:      mcpDir,
 		httpClient:  httpClient,
 		log:         log,
 	}
@@ -59,25 +61,25 @@ func (i *Installer) Install(ctx context.Context, item MarketplacePlugin) (plugin
 	frontendExtract := filepath.Join(tmpRoot, "frontend")
 	migrationsExtract := filepath.Join(tmpRoot, "migrations")
 	manifestExtract := filepath.Join(tmpRoot, "manifest")
+	mcpExtract := filepath.Join(tmpRoot, "mcp")
 
-	if err := i.downloadAndExtractTarGz(ctx, item.Artifacts.BackendTarGzURL, backendExtract); err != nil {
-		return plugindom.PluginManifest{}, fmt.Errorf("download backend: %w", err)
-	}
-	if err := i.downloadAndExtractTarGz(ctx, item.Artifacts.FrontendTarGzURL, frontendExtract); err != nil {
-		return plugindom.PluginManifest{}, fmt.Errorf("download frontend: %w", err)
-	}
-	if err := i.downloadAndExtractTarGz(ctx, item.Artifacts.MigrationsTarGzURL, migrationsExtract); err != nil {
-		return plugindom.PluginManifest{}, fmt.Errorf("download migrations: %w", err)
-	}
 	if err := i.downloadAndExtractTarGz(ctx, item.Artifacts.ManifestTarGzURL, manifestExtract); err != nil {
 		return plugindom.PluginManifest{}, fmt.Errorf("download manifest: %w", err)
 	}
-
-	backendWASM, err := findFirstFile(backendExtract, func(path string) bool {
-		return strings.HasSuffix(strings.ToLower(filepath.Base(path)), ".wasm")
-	})
-	if err != nil {
-		return plugindom.PluginManifest{}, fmt.Errorf("resolve .wasm file: %w", err)
+	if strings.TrimSpace(item.Artifacts.BackendTarGzURL) != "" {
+		if err := i.downloadAndExtractTarGz(ctx, item.Artifacts.BackendTarGzURL, backendExtract); err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("download backend: %w", err)
+		}
+	}
+	if strings.TrimSpace(item.Artifacts.FrontendTarGzURL) != "" {
+		if err := i.downloadAndExtractTarGz(ctx, item.Artifacts.FrontendTarGzURL, frontendExtract); err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("download frontend: %w", err)
+		}
+	}
+	if strings.TrimSpace(item.Artifacts.MigrationsTarGzURL) != "" {
+		if err := i.downloadAndExtractTarGz(ctx, item.Artifacts.MigrationsTarGzURL, migrationsExtract); err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("download migrations: %w", err)
+		}
 	}
 
 	manifestPath, err := findFirstFile(manifestExtract, func(path string) bool {
@@ -102,48 +104,86 @@ func (i *Installer) Install(ctx context.Context, item MarketplacePlugin) (plugin
 	backendPluginDir := filepath.Join(i.backendDir, item.Name)
 	frontendPluginDir := filepath.Join(i.frontendDir, item.Name)
 
-	if err := os.MkdirAll(backendPluginDir, 0o755); err != nil {
-		return plugindom.PluginManifest{}, fmt.Errorf("mkdir backend plugin dir: %w", err)
-	}
-	if err := os.MkdirAll(i.frontendDir, 0o755); err != nil {
-		return plugindom.PluginManifest{}, fmt.Errorf("mkdir frontend root: %w", err)
-	}
-
-	if err := copyFile(backendWASM, filepath.Join(backendPluginDir, "backend.wasm")); err != nil {
-		return plugindom.PluginManifest{}, fmt.Errorf("write backend.wasm: %w", err) //nolint:govet
-	}
-	if err := copyFile(manifestPath, filepath.Join(backendPluginDir, "plugin.json")); err != nil {
-		return plugindom.PluginManifest{}, fmt.Errorf("write plugin.json: %w", err)
-	}
-
-	migrationsDst := filepath.Join(backendPluginDir, "migrations")
-	if err := os.RemoveAll(migrationsDst); err != nil {
-		return plugindom.PluginManifest{}, fmt.Errorf("clear migrations dir: %w", err)
-	}
-	if err := os.MkdirAll(migrationsDst, 0o755); err != nil {
-		return plugindom.PluginManifest{}, fmt.Errorf("mkdir migrations dir: %w", err)
-	}
-	migrationFiles, err := findAllFiles(migrationsExtract, func(path string) bool {
-		return strings.HasSuffix(strings.ToLower(path), ".sql")
-	})
-	if err != nil {
-		return plugindom.PluginManifest{}, fmt.Errorf("list migration files: %w", err)
-	}
-	for _, path := range migrationFiles {
-		if err := copyFile(path, filepath.Join(migrationsDst, filepath.Base(path))); err != nil {
-			return plugindom.PluginManifest{}, fmt.Errorf("copy migration %q: %w", filepath.Base(path), err)
+	// Backend WASM — optional.
+	if strings.TrimSpace(item.Artifacts.BackendTarGzURL) != "" {
+		backendWASM, err := findFirstFile(backendExtract, func(path string) bool {
+			return strings.HasSuffix(strings.ToLower(filepath.Base(path)), ".wasm")
+		})
+		if err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("resolve .wasm file: %w", err)
+		}
+		if err := os.MkdirAll(backendPluginDir, 0o755); err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("mkdir backend plugin dir: %w", err)
+		}
+		if err := copyFile(backendWASM, filepath.Join(backendPluginDir, "backend.wasm")); err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("write backend.wasm: %w", err) //nolint:govet
+		}
+		if err := copyFile(manifestPath, filepath.Join(backendPluginDir, "plugin.json")); err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("write plugin.json: %w", err)
 		}
 	}
 
-	frontendContentRoot, err := resolveSingleRootDir(frontendExtract)
-	if err != nil {
-		return plugindom.PluginManifest{}, fmt.Errorf("resolve frontend content root: %w", err)
+	// Migrations — optional.
+	if strings.TrimSpace(item.Artifacts.MigrationsTarGzURL) != "" {
+		if err := os.MkdirAll(backendPluginDir, 0o755); err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("mkdir backend plugin dir: %w", err)
+		}
+		migrationsDst := filepath.Join(backendPluginDir, "migrations")
+		if err := os.RemoveAll(migrationsDst); err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("clear migrations dir: %w", err)
+		}
+		if err := os.MkdirAll(migrationsDst, 0o755); err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("mkdir migrations dir: %w", err)
+		}
+		migrationFiles, err := findAllFiles(migrationsExtract, func(path string) bool {
+			return strings.HasSuffix(strings.ToLower(path), ".sql")
+		})
+		if err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("list migration files: %w", err)
+		}
+		for _, path := range migrationFiles {
+			if err := copyFile(path, filepath.Join(migrationsDst, filepath.Base(path))); err != nil {
+				return plugindom.PluginManifest{}, fmt.Errorf("copy migration %q: %w", filepath.Base(path), err)
+			}
+		}
 	}
-	if err := os.RemoveAll(frontendPluginDir); err != nil {
-		return plugindom.PluginManifest{}, fmt.Errorf("clear frontend dir: %w", err)
+
+	// Frontend bundle — optional.
+	if strings.TrimSpace(item.Artifacts.FrontendTarGzURL) != "" {
+		frontendContentRoot, err := resolveSingleRootDir(frontendExtract)
+		if err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("resolve frontend content root: %w", err)
+		}
+		if err := os.MkdirAll(i.frontendDir, 0o755); err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("mkdir frontend root: %w", err)
+		}
+		if err := os.RemoveAll(frontendPluginDir); err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("clear frontend dir: %w", err)
+		}
+		if err := copyDir(frontendContentRoot, frontendPluginDir); err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("copy frontend bundle: %w", err)
+		}
 	}
-	if err := copyDir(frontendContentRoot, frontendPluginDir); err != nil {
-		return plugindom.PluginManifest{}, fmt.Errorf("copy frontend bundle: %w", err)
+
+	// MCP bundle — optional, installed to a dedicated mcp store served at /plugins-mcp/.
+	if strings.TrimSpace(item.Artifacts.MCPTarGzURL) != "" {
+		if err := i.downloadAndExtractTarGz(ctx, item.Artifacts.MCPTarGzURL, mcpExtract); err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("download mcp: %w", err)
+		}
+		mcpContentRoot, err := resolveSingleRootDir(mcpExtract)
+		if err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("resolve mcp content root: %w", err)
+		}
+		mcpPluginDir := filepath.Join(i.mcpDir, item.Name)
+		if err := os.MkdirAll(i.mcpDir, 0o755); err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("mkdir mcp root: %w", err)
+		}
+		if err := os.RemoveAll(mcpPluginDir); err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("clear mcp dir: %w", err)
+		}
+		if err := copyDir(mcpContentRoot, mcpPluginDir); err != nil {
+			return plugindom.PluginManifest{}, fmt.Errorf("copy mcp bundle: %w", err)
+		}
 	}
 
 	if i.log != nil {
@@ -153,11 +193,12 @@ func (i *Installer) Install(ctx context.Context, item MarketplacePlugin) (plugin
 	return manifest, nil
 }
 
-// Uninstall removes all installed files for a plugin from the backend and
-// frontend stores. It does NOT touch the database.
+// Uninstall removes all installed files for a plugin from the backend,
+// frontend, and MCP stores. It does NOT touch the database.
 func (i *Installer) Uninstall(name string) error {
 	backendPluginDir := filepath.Join(i.backendDir, name)
 	frontendPluginDir := filepath.Join(i.frontendDir, name)
+	mcpPluginDir := filepath.Join(i.mcpDir, name)
 
 	var errs []error
 	if err := os.RemoveAll(backendPluginDir); err != nil {
@@ -165,6 +206,11 @@ func (i *Installer) Uninstall(name string) error {
 	}
 	if err := os.RemoveAll(frontendPluginDir); err != nil {
 		errs = append(errs, fmt.Errorf("remove frontend dir: %w", err))
+	}
+	if strings.TrimSpace(i.mcpDir) != "" {
+		if err := os.RemoveAll(mcpPluginDir); err != nil {
+			errs = append(errs, fmt.Errorf("remove mcp dir: %w", err))
+		}
 	}
 
 	if len(errs) > 0 {
