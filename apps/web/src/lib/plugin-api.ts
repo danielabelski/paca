@@ -108,6 +108,13 @@ export async function uninstallPlugin(pluginId: string): Promise<void> {
 	await apiClient.instance.delete(`/admin/plugins/${pluginId}`);
 }
 
+export async function upgradePlugin(pluginId: string): Promise<Plugin> {
+	const { data } = await apiClient.instance.post<SuccessEnvelope<Plugin>>(
+		`/admin/plugins/${pluginId}/upgrade`,
+	);
+	return data.data;
+}
+
 export async function updatePluginExtensionSetting(payload: {
 	plugin_id: string;
 	extension_point: string;
