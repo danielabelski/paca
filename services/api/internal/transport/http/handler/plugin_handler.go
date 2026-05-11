@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -138,6 +139,17 @@ func (h *PluginHandler) InstallMarketplacePlugin(c *gin.Context) {
 		return
 	}
 
+	// Ensure downloaded artifacts are cleaned up if any subsequent step fails.
+	pluginName := entry.Name
+	success := false
+	defer func() {
+		if !success {
+			if uninstallErr := h.installer.Uninstall(pluginName); uninstallErr != nil {
+				slog.Error("failed to clean up plugin artifacts after install failure", "name", pluginName, "error", uninstallErr)
+			}
+		}
+	}()
+
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled
@@ -170,6 +182,7 @@ func (h *PluginHandler) InstallMarketplacePlugin(c *gin.Context) {
 		}
 	}
 
+	success = true
 	presenter.Created(c, dto.PluginResponseFromEntity(pl))
 }
 
