@@ -752,6 +752,7 @@ func New(deps Deps) *gin.Engine {
 				adminPlugins.POST("/marketplace/install", deps.Plugin.InstallMarketplacePlugin)
 				adminPlugins.POST("", deps.Plugin.InstallPlugin)
 				adminPlugins.PATCH("/:pluginId", deps.Plugin.UpdatePlugin)
+				adminPlugins.POST("/:pluginId/upgrade", deps.Plugin.UpgradeMarketplacePlugin)
 				adminPlugins.DELETE("/:pluginId", deps.Plugin.DeletePlugin)
 			}
 

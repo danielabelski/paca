@@ -69,10 +69,11 @@ export async function listPlugins(): Promise<Plugin[]> {
 }
 
 export interface MarketplacePluginArtifacts {
-	backend_tar_gz_url: string;
-	frontend_tar_gz_url: string;
-	migrations_tar_gz_url: string;
+	backend_tar_gz_url?: string;
+	frontend_tar_gz_url?: string;
+	migrations_tar_gz_url?: string;
 	manifest_tar_gz_url: string;
+	mcp_tar_gz_url?: string;
 }
 
 export interface MarketplacePlugin {
@@ -105,6 +106,13 @@ export async function installMarketplacePlugin(payload: {
 
 export async function uninstallPlugin(pluginId: string): Promise<void> {
 	await apiClient.instance.delete(`/admin/plugins/${pluginId}`);
+}
+
+export async function upgradePlugin(pluginId: string): Promise<Plugin> {
+	const { data } = await apiClient.instance.post<SuccessEnvelope<Plugin>>(
+		`/admin/plugins/${pluginId}/upgrade`,
+	);
+	return data.data;
 }
 
 export async function updatePluginExtensionSetting(payload: {

@@ -409,7 +409,9 @@ func httpStatusForCode(code apierr.Code) int {
 		return http.StatusBadRequest
 	case apierr.CodePluginNotFound:
 		return http.StatusNotFound
-	case apierr.CodePluginNameTaken:
+	case apierr.CodePluginNameTaken,
+		apierr.CodePluginAlreadyUpToDate,
+		apierr.CodePluginDowngradeNotAllowed:
 		return http.StatusConflict
 	case apierr.CodeBadRequest:
 		return http.StatusBadRequest

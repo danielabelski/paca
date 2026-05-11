@@ -1,5 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, ExternalLink, Package, Search, Trash2 } from "lucide-react";
+import {
+	ArrowUpCircle,
+	Database,
+	Download,
+	ExternalLink,
+	LayoutTemplate,
+	Search,
+	Server,
+	Trash2,
+	Zap,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -12,6 +22,7 @@ import {
 	marketplacePluginsQueryOptions,
 	pluginsQueryOptions,
 	uninstallPlugin,
+	upgradePlugin,
 } from "@/lib/plugin-api";
 
 function initials(name: string): string {
@@ -34,23 +45,104 @@ function matchesQuery(plugin: MarketplacePlugin, query: string): boolean {
 	);
 }
 
+/**
+ * Returns >0 if a is newer, 0 if equal, <0 if a is older.
+ * Only strict "X.Y.Z" (or "vX.Y.Z") versions are accepted.
+ * Pre-release identifiers and build metadata cause an error.
+ */
+function compareSemver(a: string, b: string): number {
+	const parse = (v: string): [number, number, number] => {
+		v = v.replace(/^v/, "");
+		// Reject build metadata
+		if (v.includes("+")) {
+			throw new Error(
+				`Version "${v}" must not contain build metadata; only strict X.Y.Z versions are supported`,
+			);
+		}
+		// Reject pre-release identifiers
+		if (v.includes("-")) {
+			throw new Error(
+				`Version "${v}" must not contain pre-release identifiers; only strict X.Y.Z versions are supported`,
+			);
+		}
+		const parts = v.split(".");
+		if (parts.length !== 3) {
+			throw new Error(`Expected major.minor.patch, got "${v}"`);
+		}
+		const nums = parts.map((p) => {
+			const n = Number.parseInt(p, 10);
+			if (Number.isNaN(n) || n < 0) {
+				throw new Error(`Non-numeric version component "${p}" in "${v}"`);
+			}
+			return n;
+		});
+		return [nums[0], nums[1], nums[2]];
+	};
+	const pa = parse(a);
+	const pb = parse(b);
+	for (let i = 0; i < 3; i++) {
+		const diff = pa[i] - pb[i];
+		if (diff !== 0) return diff;
+	}
+	return 0;
+}
+
+interface FeatureBadgeProps {
+	icon: React.ReactNode;
+	label: string;
+}
+
+function FeatureBadge({ icon, label }: FeatureBadgeProps) {
+	return (
+		<Badge variant="secondary" className="gap-1.5 text-[10px] h-5">
+			{icon}
+			<span>{label}</span>
+		</Badge>
+	);
+}
+
 function PluginCard({
 	plugin,
 	isInstalled,
 	isInstalling,
 	isUninstalling,
+	isUpgrading,
+	installedVersion,
 	onInstall,
 	onUninstall,
+	onUpgrade,
 }: {
 	plugin: MarketplacePlugin;
 	isInstalled: boolean;
 	isInstalling: boolean;
 	isUninstalling: boolean;
+	isUpgrading: boolean;
+	installedVersion?: string;
 	onInstall: (name: string) => void;
 	onUninstall: (name: string) => void;
+	onUpgrade: (pluginName: string) => void;
 }) {
+	const { artifacts } = plugin;
+	const hasBackend = !!artifacts.backend_tar_gz_url;
+	const hasFrontend = !!artifacts.frontend_tar_gz_url;
+	const hasMigrations = !!artifacts.migrations_tar_gz_url;
+	const hasMCP = !!artifacts.mcp_tar_gz_url;
+
+	let upgradeAvailable = false;
+	if (isInstalled && installedVersion) {
+		try {
+			upgradeAvailable = compareSemver(plugin.version, installedVersion) > 0;
+		} catch (err) {
+			// Invalid version format - treat as no upgrade available
+			console.warn(
+				`Invalid version format for plugin ${plugin.name}: marketplace=${plugin.version}, installed=${installedVersion}`,
+				err,
+			);
+		}
+	}
+
 	return (
-		<div className="rounded-lg border border-border/60 bg-card p-4 space-y-3">
+		<div className="rounded-lg border border-border/60 bg-card p-4 space-y-3 hover:border-border/80 transition-colors">
 			<div className="flex items-start gap-3">
 				<Avatar size="lg">
 					<AvatarImage src={plugin.avatar_url} alt={plugin.display_name} />
@@ -67,6 +159,12 @@ function PluginCard({
 						{isInstalled ? (
 							<Badge className="text-[11px]">Installed</Badge>
 						) : null}
+						{upgradeAvailable ? (
+							<Badge variant="secondary" className="text-[11px] gap-1">
+								<ArrowUpCircle className="size-3" />
+								Update available
+							</Badge>
+						) : null}
 					</div>
 					<p className="text-xs text-muted-foreground truncate">
 						{plugin.name}
@@ -80,35 +178,70 @@ function PluginCard({
 				</p>
 			</div>
 
-			<div className="flex items-center justify-between gap-2">
-				<div className="text-[11px] text-muted-foreground flex items-center gap-1 truncate">
-					<Package className="size-3.5" />
-					<span className="truncate">
-						Backend / Frontend / Migrations / Manifest
-					</span>
+			<div className="space-y-2">
+				<div className="flex items-center gap-1.5 flex-wrap">
+					{hasBackend && (
+						<FeatureBadge
+							icon={<Server className="size-3" />}
+							label="Backend"
+						/>
+					)}
+					{hasFrontend && (
+						<FeatureBadge
+							icon={<LayoutTemplate className="size-3" />}
+							label="Frontend"
+						/>
+					)}
+					{hasMigrations && (
+						<FeatureBadge
+							icon={<Database className="size-3" />}
+							label="Migrations"
+						/>
+					)}
+					{hasMCP && (
+						<FeatureBadge icon={<Zap className="size-3" />} label="MCP" />
+					)}
 				</div>
-				<div className="flex items-center gap-2">
+
+				<div className="flex items-center justify-between gap-2">
 					{plugin.repository_url ? (
 						<a
 							href={plugin.repository_url}
 							target="_blank"
 							rel="noreferrer"
-							className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+							className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
 						>
 							<ExternalLink className="size-3.5" />
 							Source
 						</a>
-					) : null}
+					) : (
+						<span /> // Spacer for alignment
+					)}
 					{isInstalled ? (
-						<Button
-							size="sm"
-							variant="destructive"
-							disabled={isUninstalling}
-							onClick={() => onUninstall(plugin.name)}
-						>
-							<Trash2 className="size-4" />
-							{isUninstalling ? "Uninstalling..." : "Uninstall"}
-						</Button>
+						<div className="flex items-center gap-2">
+							{upgradeAvailable ? (
+								<Button
+									size="sm"
+									variant="secondary"
+									disabled={isUpgrading || isUninstalling}
+									onClick={() => onUpgrade(plugin.name)}
+								>
+									<ArrowUpCircle className="size-4" />
+									{isUpgrading
+										? "Upgrading..."
+										: `Upgrade to ${plugin.version}`}
+								</Button>
+							) : null}
+							<Button
+								size="sm"
+								variant="destructive"
+								disabled={isUninstalling || isUpgrading}
+								onClick={() => onUninstall(plugin.name)}
+							>
+								<Trash2 className="size-4" />
+								{isUninstalling ? "Uninstalling..." : "Uninstall"}
+							</Button>
+						</div>
 					) : (
 						<Button
 							size="sm"
@@ -162,6 +295,13 @@ export function PluginMarketplacePanel() {
 		},
 	});
 
+	const upgradeMutation = useMutation({
+		mutationFn: upgradePlugin,
+		onSuccess: async () => {
+			await qc.invalidateQueries({ queryKey: ["plugins"] });
+		},
+	});
+
 	if (isLoading) {
 		return (
 			<div className="text-sm text-muted-foreground py-6">
@@ -193,6 +333,7 @@ export function PluginMarketplacePanel() {
 							key={plugin.name}
 							plugin={plugin}
 							isInstalled={installedByName.has(plugin.name)}
+							installedVersion={installedByName.get(plugin.name)?.version}
 							isInstalling={
 								installMutation.isPending &&
 								installMutation.variables?.name === plugin.name
@@ -202,6 +343,11 @@ export function PluginMarketplacePanel() {
 								uninstallMutation.variables ===
 									installedByName.get(plugin.name)?.id
 							}
+							isUpgrading={
+								upgradeMutation.isPending &&
+								upgradeMutation.variables ===
+									installedByName.get(plugin.name)?.id
+							}
 							onInstall={(name) =>
 								installMutation.mutate({ name, enabled: true })
 							}
@@ -209,6 +355,11 @@ export function PluginMarketplacePanel() {
 								const pluginId = installedByName.get(name)?.id;
 								if (!pluginId) return;
 								uninstallMutation.mutate(pluginId);
+							}}
+							onUpgrade={(name) => {
+								const pluginId = installedByName.get(name)?.id;
+								if (!pluginId) return;
+								upgradeMutation.mutate(pluginId);
 							}}
 						/>
 					))}

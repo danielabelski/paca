@@ -2,9 +2,11 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/Paca-AI/api/internal/apierr"
@@ -208,6 +210,169 @@ func (h *PluginHandler) UpdatePlugin(c *gin.Context) {
 		return
 	}
 	presenter.OK(c, dto.PluginResponseFromEntity(plugin))
+}
+
+// UpgradeMarketplacePlugin handles POST /api/v1/admin/plugins/:pluginId/upgrade.
+// It fetches the latest version from the marketplace catalog, validates that the
+// marketplace version is strictly newer than the installed version, downloads and
+// replaces all artifacts, runs any new migrations, updates the DB record, and
+// reloads the plugin in the WASM runtime.
+func (h *PluginHandler) UpgradeMarketplacePlugin(c *gin.Context) {
+	if h.marketplace == nil || h.installer == nil {
+		presenter.Error(c, apierr.New(apierr.CodeInternalError, "marketplace installer not configured"))
+		return
+	}
+
+	id, err := parsePluginID(c)
+	if err != nil {
+		presenter.Error(c, err)
+		return
+	}
+
+	// Resolve the installed plugin record.
+	plugins, err := h.svc.ListPlugins(c.Request.Context())
+	if err != nil {
+		presenter.Error(c, err)
+		return
+	}
+	var installed *plugindom.Plugin
+	for _, p := range plugins {
+		if p.ID == id {
+			installed = p
+			break
+		}
+	}
+	if installed == nil {
+		presenter.Error(c, apierr.New(apierr.CodePluginNotFound, "plugin not found"))
+		return
+	}
+
+	// Look up the marketplace entry by the plugin's reverse-DNS name.
+	entry, err := h.marketplace.FindPlugin(c.Request.Context(), installed.Name)
+	if err != nil {
+		if err == pluginrt.ErrMarketplacePluginNotFound {
+			presenter.Error(c, apierr.New(apierr.CodePluginNotFound, "plugin not found in marketplace"))
+			return
+		}
+		presenter.Error(c, apierr.New(apierr.CodeInternalError, "failed to resolve marketplace plugin: "+err.Error()))
+		return
+	}
+
+	// Enforce semver ordering: refuse no-ops and downgrades.
+	cmp, err := compareSemver(entry.Version, installed.Version)
+	if err != nil {
+		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "version comparison failed: "+err.Error()))
+		return
+	}
+	switch {
+	case cmp == 0:
+		presenter.Error(c, apierr.New(apierr.CodePluginAlreadyUpToDate, "plugin is already up to date"))
+		return
+	case cmp < 0:
+		presenter.Error(c, apierr.New(apierr.CodePluginDowngradeNotAllowed, "marketplace version is older than installed version"))
+		return
+	}
+
+	// Download and overwrite existing artifacts.
+	manifest, err := h.installer.Install(c.Request.Context(), *entry)
+	if err != nil {
+		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "failed to install plugin artifacts: "+err.Error()))
+		return
+	}
+	if manifest.Version != entry.Version {
+		presenter.Error(c, apierr.New(
+			apierr.CodeBadRequest,
+			fmt.Sprintf(
+				"downloaded plugin manifest version %q does not match marketplace version %q",
+				manifest.Version,
+				entry.Version,
+			),
+		))
+		return
+	}
+
+	// Capture the currently persisted plugin state so we can delay DB writes
+	// until the upgraded runtime is active and best-effort roll back on failure.
+	plugins, err = h.svc.ListPlugins(c.Request.Context())
+	if err != nil {
+		if h.installer != nil {
+			if cleanupErr := h.installer.Uninstall(installed.Name); cleanupErr != nil {
+				slog.Error("plugin upgrade: failed to clean up installed artifacts after state lookup failure", "name", installed.Name, "error", cleanupErr)
+			}
+		}
+		presenter.Error(c, err)
+		return
+	}
+
+	var current *plugindom.Plugin
+	for i := range plugins {
+		if plugins[i].ID == id {
+			current = plugins[i]
+			break
+		}
+	}
+	if current == nil {
+		if h.installer != nil {
+			if cleanupErr := h.installer.Uninstall(installed.Name); cleanupErr != nil {
+				slog.Error("plugin upgrade: failed to clean up installed artifacts after missing plugin state", "name", installed.Name, "error", cleanupErr)
+			}
+		}
+		presenter.Error(c, apierr.New(apierr.CodePluginNotFound, "plugin not found"))
+		return
+	}
+
+	cleanupArtifacts := func(reason string) {
+		if h.installer == nil {
+			return
+		}
+		if cleanupErr := h.installer.Uninstall(installed.Name); cleanupErr != nil {
+			slog.Error("plugin upgrade: failed to clean up installed artifacts", "name", installed.Name, "reason", reason, "error", cleanupErr)
+		}
+	}
+
+	// Run any new migrations introduced by the upgraded version (idempotent).
+	if h.migrationRunner != nil {
+		if err := h.migrationRunner.Run(c.Request.Context(), installed.Name); err != nil {
+			cleanupArtifacts("migration failure")
+			presenter.Error(c, apierr.New(apierr.CodeInternalError, "failed to run plugin migrations: "+err.Error()))
+			return
+		}
+	}
+
+	newVersion := entry.Version
+
+	// Reload the WASM runtime with the new binary before persisting the new
+	// version so the DB only advances once the upgraded module is actually live.
+	runtimePlugin := *current
+	runtimePlugin.Version = newVersion
+	runtimePlugin.Manifest = manifest
+	if runtimePlugin.Enabled && h.runtime != nil {
+		if err := h.runtime.Load(c.Request.Context(), runtimePlugin); err != nil {
+			cleanupArtifacts("runtime reload failure")
+			slog.Error("plugin upgrade: failed to reload runtime", "name", runtimePlugin.Name, "error", err)
+			presenter.Error(c, apierr.New(apierr.CodeInternalError, "artifacts upgraded but runtime reload failed: "+err.Error()))
+			return
+		}
+	}
+
+	// Persist the new version and manifest only after migrations and runtime
+	// reload succeed.
+	updated, err := h.svc.UpdatePlugin(c.Request.Context(), id, plugindom.UpdateInput{
+		Version:  &newVersion,
+		Manifest: &manifest,
+	})
+	if err != nil {
+		if current.Enabled && h.runtime != nil {
+			if rollbackErr := h.runtime.Load(c.Request.Context(), *current); rollbackErr != nil {
+				slog.Error("plugin upgrade: failed to roll back runtime after DB update failure", "name", current.Name, "error", rollbackErr)
+			}
+		}
+		cleanupArtifacts("db update failure")
+		presenter.Error(c, err)
+		return
+	}
+
+	presenter.OK(c, dto.PluginResponseFromEntity(updated))
 }
 
 // DeletePlugin handles DELETE /api/v1/admin/plugins/:pluginId.
@@ -436,4 +601,54 @@ func parsePluginID(c *gin.Context) (uuid.UUID, error) {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid pluginId: "+raw)
 	}
 	return id, nil
+}
+
+// compareSemver returns a positive integer when a > b, 0 when equal, and a
+// negative integer when a < b. Only strict "X.Y.Z" (or "vX.Y.Z") versions
+// are accepted; pre-release identifiers and build metadata cause an error.
+func compareSemver(a, b string) (int, error) {
+	pa, err := parseSemver(a)
+	if err != nil {
+		return 0, fmt.Errorf("invalid version %q: %w", a, err)
+	}
+	pb, err := parseSemver(b)
+	if err != nil {
+		return 0, fmt.Errorf("invalid version %q: %w", b, err)
+	}
+	for i := range pa {
+		if pa[i] != pb[i] {
+			return pa[i] - pb[i], nil
+		}
+	}
+	return 0, nil
+}
+
+// parseSemver parses a strict "X.Y.Z" (or "vX.Y.Z") version string into its
+// major, minor, and patch integer components. Pre-release identifiers (e.g.
+// "1.0.0-beta.1") and build metadata (e.g. "1.0.0+001") are rejected with an
+// error so that callers never silently treat different precedence levels as
+// equal.
+func parseSemver(v string) ([3]int, error) {
+	v = strings.TrimPrefix(v, "v")
+	// Reject build metadata.
+	if strings.ContainsRune(v, '+') {
+		return [3]int{}, fmt.Errorf("version %q must not contain build metadata", v)
+	}
+	// Reject pre-release identifiers.
+	if strings.ContainsRune(v, '-') {
+		return [3]int{}, fmt.Errorf("version %q must not contain pre-release identifiers; only strict X.Y.Z versions are supported", v)
+	}
+	parts := strings.SplitN(v, ".", 3)
+	if len(parts) != 3 {
+		return [3]int{}, fmt.Errorf("expected major.minor.patch, got %q", v)
+	}
+	var result [3]int
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return [3]int{}, fmt.Errorf("non-numeric version component %q", p)
+		}
+		result[i] = n
+	}
+	return result, nil
 }

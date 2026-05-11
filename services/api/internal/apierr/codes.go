@@ -223,6 +223,10 @@ const (
 	CodePluginNotFound Code = "PLUGIN_NOT_FOUND"
 	// CodePluginNameTaken indicates a plugin with the same reverse-DNS name is already installed.
 	CodePluginNameTaken Code = "PLUGIN_NAME_TAKEN"
+	// CodePluginAlreadyUpToDate indicates the marketplace version matches the installed version.
+	CodePluginAlreadyUpToDate Code = "PLUGIN_ALREADY_UP_TO_DATE"
+	// CodePluginDowngradeNotAllowed indicates the marketplace version is older than the installed version.
+	CodePluginDowngradeNotAllowed Code = "PLUGIN_DOWNGRADE_NOT_ALLOWED"
 )
 
 // Error carries a machine-readable Code alongside a human-readable Message.
