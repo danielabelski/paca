@@ -449,7 +449,6 @@ func (r *fakeTaskRepo) DeleteCustomFieldDefinition(_ context.Context, id uuid.UU
 	return nil
 }
 
-
 // ---------------------------------------------------------------------------
 // In-memory fake activity repository
 // ---------------------------------------------------------------------------
@@ -2712,7 +2711,6 @@ func TestIntegrationCompleteSprint_Forbidden(t *testing.T) {
 		t.Fatalf("expected 403, got %d (%s)", w.Code, w.Body.String())
 	}
 }
-
 
 // ---------------------------------------------------------------------------
 // Activity & Comment integration tests

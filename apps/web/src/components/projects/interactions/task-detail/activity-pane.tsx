@@ -71,7 +71,6 @@ export function TaskActivityPane({
 			}
 		},
 		[nameMaps],
-
 	);
 
 	const queryKey = [
