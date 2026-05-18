@@ -138,9 +138,14 @@ if [[ ! -d "$PLUGIN_DIR/frontend" ]]; then
     exit 1
 fi
 
+if ! command -v jq >/dev/null 2>&1; then
+    print_error "jq is required but not installed"
+    exit 1
+fi
+
 # Extract plugin info
-PLUGIN_ID=$(grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' "$PLUGIN_DIR/plugin.json" | cut -d'"' -f4)
-PLUGIN_VERSION=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' "$PLUGIN_DIR/plugin.json" | cut -d'"' -f4)
+PLUGIN_ID=$(jq -r '.id // empty' "$PLUGIN_DIR/plugin.json")
+PLUGIN_VERSION=$(jq -r '.version // empty' "$PLUGIN_DIR/plugin.json")
 
 if [[ -z "$PLUGIN_ID" ]]; then
     print_error "Could not extract plugin ID from plugin.json"
