@@ -39,7 +39,7 @@ func TestMatchPluginRoute_PrefersMostSpecificPattern(t *testing.T) {
 		{Method: "GET", Path: "/items/*rest"},
 	}
 
-	got := matchPluginRoute(routes, "GET", "/items/new")
+	got, _ := matchPluginRoute(routes, "GET", "/items/new")
 	if got == nil {
 		t.Fatalf("expected route match, got nil")
 	}
@@ -54,7 +54,7 @@ func TestMatchPluginRoute_KeepsManifestOrderOnSpecificityTie(t *testing.T) {
 		{Method: "GET", Path: "/items/:name"},
 	}
 
-	got := matchPluginRoute(routes, "GET", "/items/42")
+	got, _ := matchPluginRoute(routes, "GET", "/items/42")
 	if got == nil {
 		t.Fatalf("expected route match, got nil")
 	}
