@@ -330,11 +330,11 @@ export async function listActivities(
 export async function addDocComment(
 	projectId: string,
 	docId: string,
-	text: string,
+	content: unknown[],
 ): Promise<DocActivity> {
 	const { data } = await apiClient.instance.post<SuccessEnvelope<DocActivity>>(
 		`/projects/${projectId}/docs/${docId}/comments`,
-		{ text },
+		{ content },
 	);
 	return data.data;
 }
@@ -343,11 +343,11 @@ export async function updateDocComment(
 	projectId: string,
 	docId: string,
 	commentId: string,
-	text: string,
+	content: unknown[],
 ): Promise<DocActivity> {
 	const { data } = await apiClient.instance.patch<SuccessEnvelope<DocActivity>>(
 		`/projects/${projectId}/docs/${docId}/comments/${commentId}`,
-		{ text },
+		{ content },
 	);
 	return data.data;
 }

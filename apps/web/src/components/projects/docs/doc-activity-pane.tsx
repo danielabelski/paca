@@ -1,16 +1,20 @@
+import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import {
 	type ActivityEntry,
 	ActivityPane,
 } from "@/components/shared/activity-pane";
+import { textToBlocks } from "@/components/shared/comment-blocknote";
+import { currentUserQueryOptions } from "@/lib/auth-api";
 import {
 	addDocComment,
 	type DocActivity,
 	deleteDocComment,
 	docQueryKeys,
-	getCommentText,
 	listActivities,
 	updateDocComment,
 } from "@/lib/doc-api";
+import { projectMembersQueryOptions } from "@/lib/project-api";
 
 type DocActivityChange = {
 	field: string;
@@ -53,22 +57,27 @@ function describeDocActivity(entry: ActivityEntry): string {
 			return "deleted the document";
 		case "doc.moved":
 			return "moved the document";
+		case "comment":
+			return "";
 		default:
-			return getCommentText(activity.content) || activity.activity_type;
+			return activity.activity_type;
 	}
 }
 
 interface DocActivityPaneProps {
 	projectId: string;
 	docId: string;
-	currentUserId?: string;
 }
 
-export function DocActivityPane({
-	projectId,
-	docId,
-	currentUserId,
-}: DocActivityPaneProps) {
+export function DocActivityPane({ projectId, docId }: DocActivityPaneProps) {
+	const { data: currentUser } = useQuery(currentUserQueryOptions);
+	const { data: membersData } = useQuery(projectMembersQueryOptions(projectId));
+
+	const myMemberId = useMemo(() => {
+		if (!currentUser || !membersData) return undefined;
+		return membersData.find((m) => m.user_id === currentUser.id)?.id;
+	}, [currentUser, membersData]);
+
 	const queryKey = docQueryKeys.activities(projectId, docId);
 
 	return (
@@ -77,17 +86,30 @@ export function DocActivityPane({
 			entityId={docId}
 			queryKey={queryKey}
 			queryFn={() => listActivities(projectId, docId)}
-			addComment={(text) => addDocComment(projectId, docId, text)}
-			updateComment={(commentId, text) =>
-				updateDocComment(projectId, docId, commentId, text)
+			addComment={(blocks) => addDocComment(projectId, docId, blocks)}
+			updateComment={(commentId, blocks) =>
+				updateDocComment(projectId, docId, commentId, blocks)
 			}
 			deleteComment={(commentId) =>
 				deleteDocComment(projectId, docId, commentId)
 			}
 			describeActivity={describeDocActivity}
-			getCommentText={getCommentText}
-			currentUserId={currentUserId}
+			getCommentBlocks={(content) => {
+				if (Array.isArray(content)) return content;
+				if (content && typeof content === "object" && !("length" in content)) {
+					if ("content" in content) {
+						const blockContent = (content as { content?: unknown }).content;
+						if (Array.isArray(blockContent)) return blockContent;
+					}
+					if ("text" in content) {
+						const text = (content as { text?: string }).text ?? "";
+						return textToBlocks(text);
+					}
+				}
+				return [];
+			}}
 			sortAscending
+			currentUserId={myMemberId}
 		/>
 	);
 }

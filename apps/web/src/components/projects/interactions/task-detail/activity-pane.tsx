@@ -1,11 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import { ActivityPane } from "@/components/shared/activity-pane";
+import { textToBlocks } from "@/components/shared/comment-blocknote";
+import { currentUserQueryOptions } from "@/lib/auth-api";
 import {
 	type Activity,
 	addComment,
+	deleteComment,
 	listTaskActivities,
 	sprintsQueryOptions,
+	updateComment,
 } from "@/lib/interaction-api";
 import { projectMembersQueryOptions } from "@/lib/project-api";
 import { describeTaskChange } from "./activity-item";
@@ -29,6 +33,12 @@ export function TaskActivityPane({
 }: TaskActivityPaneProps) {
 	const { data: membersData } = useQuery(projectMembersQueryOptions(projectId));
 	const { data: sprintsData } = useQuery(sprintsQueryOptions(projectId));
+	const { data: currentUser } = useQuery(currentUserQueryOptions);
+
+	const myMemberId = useMemo(() => {
+		if (!currentUser || !membersData) return undefined;
+		return membersData.find((m) => m.user_id === currentUser.id)?.id;
+	}, [currentUser, membersData]);
 
 	const nameMaps = useMemo(() => {
 		const members: Record<string, string> = {};
@@ -51,7 +61,9 @@ export function TaskActivityPane({
 				case "task.deleted":
 					return "deleted this task";
 				case "task.updated": {
-					const changes = c.changes as FieldChange[] | undefined;
+					const changes = (c as Record<string, unknown>).changes as
+						| FieldChange[]
+						| undefined;
 					if (changes && changes.length === 1) {
 						return describeTaskChange(changes[0], nameMaps);
 					}
@@ -63,11 +75,15 @@ export function TaskActivityPane({
 					return "updated this task";
 				}
 				case "task.attachment.added":
-					return `added attachment${c.file_name ? `: ${c.file_name}` : ""}`;
+					return `added attachment${(c as Record<string, unknown>).file_name ? `: ${(c as Record<string, unknown>).file_name}` : ""}`;
 				case "task.attachment.removed":
-					return `removed attachment${c.file_name ? `: ${c.file_name}` : ""}`;
+					return `removed attachment${(c as Record<string, unknown>).file_name ? `: ${(c as Record<string, unknown>).file_name}` : ""}`;
 				default:
-					return (c._description as string | undefined) ?? "made a change";
+					return (
+						((c as Record<string, unknown>)._description as
+							| string
+							| undefined) ?? "made a change"
+					);
 			}
 		},
 		[nameMaps],
@@ -88,10 +104,35 @@ export function TaskActivityPane({
 			queryKey={queryKey}
 			queryFn={() => listTaskActivities(projectId, taskId)}
 			addComment={
-				canEdit ? (text) => addComment(projectId, taskId, text) : undefined
+				canEdit ? (blocks) => addComment(projectId, taskId, blocks) : undefined
+			}
+			updateComment={
+				canEdit
+					? (commentId, blocks) =>
+							updateComment(projectId, taskId, commentId, blocks)
+					: undefined
+			}
+			deleteComment={
+				canEdit
+					? (commentId) => deleteComment(projectId, taskId, commentId)
+					: undefined
 			}
 			describeActivity={describeActivity}
-			getCommentText={(content) => (content as { text?: string }).text ?? ""}
+			getCommentBlocks={(content) => {
+				if (Array.isArray(content)) return content;
+				if (content && typeof content === "object" && !("length" in content)) {
+					if ("content" in content) {
+						const blockContent = (content as { content?: unknown }).content;
+						if (Array.isArray(blockContent)) return blockContent;
+					}
+					if ("text" in content) {
+						const text = (content as { text?: string }).text ?? "";
+						return textToBlocks(text);
+					}
+				}
+				return [];
+			}}
+			currentUserId={myMemberId}
 		/>
 	);
 }

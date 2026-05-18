@@ -422,3 +422,68 @@ a {
 	/* Side-menu drag handle */
 	--bn-colors-side-menu: #888888;
 }
+
+/* Make BlockNote side menu buttons smaller - Applied to all instances */
+.bn-root .bn-side-menu {
+	gap: 2px;
+	padding: 2px;
+	min-width: 20px;
+}
+
+.bn-root .bn-drag-handle-menu svg {
+	width: 10px;
+	height: 10px;
+}
+
+/* Reduce left padding/margin for side menu area */
+.bn-root .bn-editor {
+	padding-left: 24px;
+	padding-right: 24px;
+	font-size: 75%;
+}
+
+/* Drag handle menu */
+.bn-root .bn-drag-handle-menu {
+	min-width: 16px;
+}
+
+.bn-root .bn-drag-handle-menu button {
+	min-width: 16px;
+	min-height: 16px;
+}
+
+.bn-root .bn-side-menu > button {
+	width: 16px;
+	height: 16px;
+	padding: 3px;
+	min-width: 16px;
+	min-height: 16px;
+	transform: translateY(-4px);
+}
+
+.bn-root .bn-side-menu > button svg {
+	width: 10px;
+	height: 10px;
+}
+
+.bn-root .bn-side-menu button svg,
+.bn-root .bn-side-menu .bn-side-menu-button svg {
+	width: 12px;
+	height: 12px;
+}
+
+/* Comment display - remove left and right padding */
+.bn-comment-display .bn-container {
+	padding-left: 0;
+	padding-right: 0;
+}
+
+.bn-comment-display .bn-editor {
+	padding-left: 0;
+	padding-right: 0;
+}
+
+.bn-comment-display .bn-block-content {
+	padding-left: 0;
+	padding-right: 0;
+}

@@ -1,15 +1,19 @@
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
 
-import { useCreateBlockNote } from "@blocknote/react";
+import { SideMenuController, useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
 import { Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
+import { CustomSideMenu } from "@/components/shared/blocknote-custom-side-menu";
+import { customSchema } from "@/components/shared/blocknote-schema";
+import { MentionSuggestionMenus } from "@/components/shared/mention-suggestion-menus";
 import { useThemeMode } from "@/hooks/use-theme-mode";
 import {
 	getAttachmentDownloadURL,
 	uploadAttachment,
 } from "@/lib/attachment-api";
+import { useMentionData } from "@/lib/mention-api";
 
 type UpdateFn = (payload: { description?: unknown[] | null }) => void;
 
@@ -32,6 +36,7 @@ export function DescriptionSection({
 	onUpdate,
 }: DescriptionSectionProps) {
 	const { resolvedMode } = useThemeMode();
+	const { teamMembers, tasks, documents } = useMentionData(projectId);
 
 	// Tracks the last value we wrote to the API, to avoid redundant saves and
 	// to skip external refetch updates that match what we already have.
@@ -53,6 +58,7 @@ export function DescriptionSection({
 	}, [taskId]);
 
 	const editor = useCreateBlockNote({
+		schema: customSchema,
 		/**
 		 * Called by BlockNote when the user inserts an image / file / video / audio.
 		 * Uploads via the task attachment API and returns a stable custom URI.
@@ -163,7 +169,18 @@ export function DescriptionSection({
 					onChange={handleChange}
 					theme={resolvedMode}
 					className="bn-shadcn"
-				/>
+					sideMenu={false}
+				>
+					<SideMenuController sideMenu={CustomSideMenu} />
+					{canEdit && (
+						<MentionSuggestionMenus
+							editor={editor}
+							teamMembers={teamMembers}
+							tasks={tasks}
+							documents={documents}
+						/>
+					)}
+				</BlockNoteView>
 			</div>
 		</div>
 	);

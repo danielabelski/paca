@@ -803,7 +803,7 @@ func TestIntegrationDocuments_Comments_CRUD(t *testing.T) {
 
 	// Add comment
 	addW := serve(r, authedJSONReq(t.Context(), http.MethodPost, commentBase, tok, map[string]any{
-		"text": "Great documentation!",
+		"content": []map[string]any{{"type": "paragraph", "content": []map[string]any{{"type": "text", "text": "Great documentation!"}}}},
 	}))
 	if addW.Code != http.StatusCreated {
 		t.Fatalf("add comment: expected 201, got %d (%s)", addW.Code, addW.Body.String())
@@ -825,7 +825,7 @@ func TestIntegrationDocuments_Comments_CRUD(t *testing.T) {
 
 	// Update comment
 	patchW := serve(r, authedJSONReq(t.Context(), http.MethodPatch, commentBase+"/"+commentID, tok, map[string]any{
-		"text": "Excellent documentation!",
+		"content": []map[string]any{{"type": "paragraph", "content": []map[string]any{{"type": "text", "text": "Excellent documentation!"}}}},
 	}))
 	if patchW.Code != http.StatusOK {
 		t.Fatalf("update comment: expected 200, got %d (%s)", patchW.Code, patchW.Body.String())
@@ -858,12 +858,12 @@ func TestIntegrationDocuments_AddEmptyCommentReturns400(t *testing.T) {
 	docID := docIDFrom(t, "document", createW.Body.Bytes())
 
 	w := serve(r, authedJSONReq(t.Context(), http.MethodPost,
-		base+"/"+docID+"/comments", tok, map[string]any{"text": "   "}))
+		base+"/"+docID+"/comments", tok, map[string]any{"content": "   "}))
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d (%s)", w.Code, w.Body.String())
 	}
-	if code := decodeErrorCode(t, w); code != "DOC_COMMENT_TEXT_INVALID" {
-		t.Errorf("expected DOC_COMMENT_TEXT_INVALID, got %q", code)
+	if code := decodeErrorCode(t, w); code != "DOC_COMMENT_CONTENT_INVALID" {
+		t.Errorf("expected DOC_COMMENT_CONTENT_INVALID, got %q", code)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	projectdom "github.com/Paca-AI/api/internal/domain/project"
 	taskdom "github.com/Paca-AI/api/internal/domain/task"
 	"github.com/Paca-AI/api/internal/events"
+	mentionpkg "github.com/Paca-AI/api/internal/pkg/mention"
 	"github.com/Paca-AI/api/internal/platform/messaging"
 	"github.com/google/uuid"
 )
@@ -78,25 +79,20 @@ func (s *ActivitySvc) ListActivities(ctx context.Context, taskID uuid.UUID) ([]*
 
 // AddComment creates a user comment on the task.
 func (s *ActivitySvc) AddComment(ctx context.Context, in taskdom.AddCommentInput) (*taskdom.Activity, error) {
-	text := strings.TrimSpace(in.Text)
-	if text == "" {
-		return nil, taskdom.ErrCommentTextInvalid
+	if isContentEmpty(in.Content) || !isContentTypeValid(in.Content) {
+		return nil, taskdom.ErrCommentContentInvalid
 	}
-	// Resolve the authenticated user UUID to the project-member UUID so the
-	// stored actor_id satisfies the FK constraint on task_activities(actor_id)
-	// → project_members(id).
 	member, err := s.memberRepo.FindMemberByUserProject(ctx, in.ActorID, in.ProjectID)
 	if err != nil {
 		return nil, err
 	}
-	content, _ := json.Marshal(map[string]string{"text": text})
 	now := time.Now()
 	a := &taskdom.Activity{
 		ID:           uuid.New(),
 		TaskID:       in.TaskID,
 		ActorID:      &member.ID,
 		ActivityType: taskdom.ActivityTypeComment,
-		Content:      content,
+		Content:      in.Content,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
@@ -105,25 +101,47 @@ func (s *ActivitySvc) AddComment(ctx context.Context, in taskdom.AddCommentInput
 	}
 	s.publishRealtimeOnly(ctx, events.TopicTaskCommentAdded, activityPayload(a, in.ProjectID))
 
-	// Dispatch @mention notifications (best-effort).
 	if s.notificationSvc != nil {
-		_ = s.notificationSvc.NotifyMentioned(ctx, notificationdom.NotifyMentionedInput{
-			TaskID:        in.TaskID,
-			ProjectID:     in.ProjectID,
-			CommentText:   in.Text,
-			ActorMemberID: member.ID,
-			ActorUserID:   in.ActorID,
-		})
+		// Extract mentions from BlockNote JSON and notify mentioned users.
+		// Fall back to plain-text parsing when no structured mentions exist,
+		// to preserve compatibility with manually typed @mentions and legacy clients.
+		commentText := extractTextFromBlocks(in.Content)
+		teamMentions := mentionpkg.ExtractTeamMentionsFromBlocks(in.Content)
+		if len(teamMentions) == 0 {
+			_ = s.notificationSvc.NotifyMentioned(ctx, notificationdom.NotifyMentionedInput{
+				TaskID:          in.TaskID,
+				ProjectID:       in.ProjectID,
+				CommentText:     commentText,
+				ActorMemberID:   member.ID,
+				ActorUserID:     in.ActorID,
+				MentionedUserID: nil,
+			})
+		} else {
+			for _, m := range teamMentions {
+				mentionedUserID, err := uuid.Parse(m.ID)
+				if err != nil {
+					continue // invalid UUID, skip
+				}
+
+				_ = s.notificationSvc.NotifyMentioned(ctx, notificationdom.NotifyMentionedInput{
+					TaskID:          in.TaskID,
+					ProjectID:       in.ProjectID,
+					CommentText:     commentText,
+					ActorMemberID:   member.ID,
+					ActorUserID:     in.ActorID,
+					MentionedUserID: &mentionedUserID,
+				})
+			}
+		}
 	}
 
 	return a, nil
 }
 
-// UpdateComment edits the text of an existing comment.
-func (s *ActivitySvc) UpdateComment(ctx context.Context, id uuid.UUID, projectID uuid.UUID, actorID uuid.UUID, text string) (*taskdom.Activity, error) {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return nil, taskdom.ErrCommentTextInvalid
+// UpdateComment edits the content of an existing comment.
+func (s *ActivitySvc) UpdateComment(ctx context.Context, id uuid.UUID, projectID uuid.UUID, actorID uuid.UUID, content json.RawMessage) (*taskdom.Activity, error) {
+	if isContentEmpty(content) || !isContentTypeValid(content) {
+		return nil, taskdom.ErrCommentContentInvalid
 	}
 	a, err := s.repo.FindActivityByID(ctx, id)
 	if err != nil {
@@ -132,7 +150,6 @@ func (s *ActivitySvc) UpdateComment(ctx context.Context, id uuid.UUID, projectID
 	if a.ActivityType != taskdom.ActivityTypeComment {
 		return nil, taskdom.ErrActivityNotAComment
 	}
-	// Resolve caller's user UUID to their member UUID for ownership comparison.
 	member, err := s.memberRepo.FindMemberByUserProject(ctx, actorID, projectID)
 	if err != nil {
 		return nil, err
@@ -140,7 +157,6 @@ func (s *ActivitySvc) UpdateComment(ctx context.Context, id uuid.UUID, projectID
 	if a.ActorID == nil || *a.ActorID != member.ID {
 		return nil, taskdom.ErrActivityForbidden
 	}
-	content, _ := json.Marshal(map[string]string{"text": text})
 	a.Content = content
 	a.UpdatedAt = time.Now()
 	if err := s.repo.UpdateActivity(ctx, a); err != nil {
@@ -226,4 +242,68 @@ func (s *ActivitySvc) publishRealtimeOnly(ctx context.Context, topic string, pay
 		"type":    topic,
 		"payload": payload,
 	})
+}
+
+// extractTextFromBlocks walks a BlockNote JSON blocks array and concatenates
+// all "text" values found in inline content.  Falls back to the legacy
+// {"text":"..."} object format for backward compatibility.
+func extractTextFromBlocks(raw json.RawMessage) string {
+	var blocks []struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if json.Unmarshal(raw, &blocks) == nil && len(blocks) > 0 {
+		var parts []string
+		for _, b := range blocks {
+			for _, c := range b.Content {
+				if c.Text != "" {
+					parts = append(parts, c.Text)
+				}
+			}
+		}
+		return strings.Join(parts, " ")
+	}
+	var legacy struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &legacy) == nil {
+		return legacy.Text
+	}
+	return ""
+}
+
+// isContentTypeValid returns true only when content is a JSON array (BlockNote
+// blocks) or the legacy {"text": "..."} object.  A bare JSON string, number,
+// boolean, or any other value is rejected to prevent comments that the web UI
+// cannot render.
+func isContentTypeValid(content json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(content))
+	var arr []any
+	if json.Unmarshal([]byte(trimmed), &arr) == nil {
+		return true // blocks array
+	}
+	var legacy struct {
+		Text string `json:"text"`
+	}
+	return json.Unmarshal([]byte(trimmed), &legacy) == nil && legacy.Text != ""
+}
+
+// isContentEmpty checks if json.RawMessage content is empty or contains only whitespace.
+// It handles: empty byte slice, "null", "[]", or a whitespace-only JSON string.
+func isContentEmpty(content json.RawMessage) bool {
+	if len(content) == 0 {
+		return true
+	}
+
+	trimmed := strings.TrimSpace(string(content))
+	if trimmed == "" || trimmed == "[]" || trimmed == "null" {
+		return true
+	}
+
+	var str string
+	if json.Unmarshal([]byte(trimmed), &str) == nil {
+		return strings.TrimSpace(str) == ""
+	}
+	return false
 }

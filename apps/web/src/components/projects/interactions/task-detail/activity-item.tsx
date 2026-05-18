@@ -1,3 +1,8 @@
+import {
+	CommentDisplay,
+	isBlocksContent,
+	textToBlocks,
+} from "@/components/shared/comment-blocknote";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "./helpers";
 import type { ActivityEntry } from "./types";
@@ -105,13 +110,14 @@ function activityDescription(
 	names: ActivityNameMaps,
 ): string {
 	const c = entry.content ?? {};
+	const content = c as Record<string, unknown>;
 	switch (entry.activity_type) {
 		case "task.created":
 			return "created this task";
 		case "task.deleted":
 			return "deleted this task";
 		case "task.updated": {
-			const changes = c.changes as FieldChange[] | undefined;
+			const changes = content.changes as FieldChange[] | undefined;
 			if (changes && changes.length === 1) {
 				return describeTaskChange(changes[0], names);
 			}
@@ -121,11 +127,11 @@ function activityDescription(
 			return "updated this task";
 		}
 		case "task.attachment.added":
-			return `added attachment${c.file_name ? `: ${c.file_name}` : ""}`;
+			return `added attachment${content.file_name ? `: ${content.file_name}` : ""}`;
 		case "task.attachment.removed":
-			return `removed attachment${c.file_name ? `: ${c.file_name}` : ""}`;
+			return `removed attachment${content.file_name ? `: ${content.file_name}` : ""}`;
 		default:
-			return (c._description as string | undefined) ?? "made a change";
+			return (content._description as string | undefined) ?? "made a change";
 	}
 }
 
@@ -139,6 +145,12 @@ export function ActivityItem({
 	const isComment = entry.activity_type === "comment";
 	const displayName = entry.actor_name || entry.actor_username || "System";
 	const initial = displayName.slice(0, 1).toUpperCase();
+
+	const commentBlocks = isComment
+		? isBlocksContent(entry.content)
+			? entry.content
+			: textToBlocks((entry.content as { text?: string })?.text ?? "")
+		: null;
 
 	return (
 		<div className="flex gap-3">
@@ -163,9 +175,15 @@ export function ActivityItem({
 								{timeAgo(entry.created_at)}
 							</span>
 						</div>
-						<p className="text-[13px] text-foreground leading-relaxed">
-							{(entry.content as { text?: string }).text ?? ""}
-						</p>
+						{commentBlocks && commentBlocks.length > 0 ? (
+							<div className="[&_.bn-editor]:text-[13px] [&_.bn-editor]:leading-relaxed [&_.bn-editor]:p-0">
+								<CommentDisplay blocks={commentBlocks} />
+							</div>
+						) : (
+							<p className="text-[13px] text-foreground leading-relaxed">
+								{(entry.content as { text?: string })?.text ?? ""}
+							</p>
+						)}
 					</div>
 				) : (
 					<div className="flex flex-wrap items-baseline gap-1.5 py-0.5">

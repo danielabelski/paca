@@ -7,8 +7,10 @@ import (
 	"time"
 
 	docdom "github.com/Paca-AI/api/internal/domain/doc"
+	notificationdom "github.com/Paca-AI/api/internal/domain/notification"
 	projectdom "github.com/Paca-AI/api/internal/domain/project"
 	"github.com/Paca-AI/api/internal/events"
+	mentionpkg "github.com/Paca-AI/api/internal/pkg/mention"
 	"github.com/Paca-AI/api/internal/platform/messaging"
 	"github.com/google/uuid"
 )
@@ -22,9 +24,10 @@ type memberLookup interface {
 // ActivitySvc implements docdom.ActivityService (which includes
 // docdom.ActivityRecorder via embedding).
 type ActivitySvc struct {
-	repo       docdom.ActivityRepository
-	memberRepo memberLookup
-	publisher  *messaging.Publisher
+	repo            docdom.ActivityRepository
+	memberRepo      memberLookup
+	publisher       *messaging.Publisher
+	notificationSvc notificationdom.Service
 }
 
 // NewActivityService creates a new ActivitySvc backed by repo.
@@ -34,6 +37,13 @@ type ActivitySvc struct {
 // publisher may be nil; stream events are then skipped silently.
 func NewActivityService(repo docdom.ActivityRepository, memberRepo memberLookup, publisher *messaging.Publisher) *ActivitySvc {
 	return &ActivitySvc{repo: repo, memberRepo: memberRepo, publisher: publisher}
+}
+
+// WithNotificationService attaches a notification service used to dispatch
+// @mention notifications when comments are created.
+func (s *ActivitySvc) WithNotificationService(svc notificationdom.Service) *ActivitySvc {
+	s.notificationSvc = svc
+	return s
 }
 
 // --- ActivityRecorder -------------------------------------------------------
@@ -70,9 +80,8 @@ func (s *ActivitySvc) ListActivities(ctx context.Context, documentID uuid.UUID) 
 
 // AddComment creates a user comment on the document.
 func (s *ActivitySvc) AddComment(ctx context.Context, in docdom.AddCommentInput) (*docdom.Activity, error) {
-	text := strings.TrimSpace(in.Text)
-	if text == "" {
-		return nil, docdom.ErrCommentTextInvalid
+	if isContentEmpty(in.Content) || !isContentTypeValid(in.Content) {
+		return nil, docdom.ErrCommentContentInvalid
 	}
 	if s.memberRepo == nil {
 		return nil, projectdom.ErrMemberNotFound
@@ -81,14 +90,13 @@ func (s *ActivitySvc) AddComment(ctx context.Context, in docdom.AddCommentInput)
 	if err != nil {
 		return nil, err
 	}
-	content, _ := json.Marshal(map[string]string{"text": text})
 	now := time.Now()
 	a := &docdom.Activity{
 		ID:           uuid.New(),
 		DocumentID:   in.DocumentID,
 		ActorID:      &member.ID,
 		ActivityType: docdom.ActivityTypeComment,
-		Content:      content,
+		Content:      in.Content,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
@@ -96,11 +104,20 @@ func (s *ActivitySvc) AddComment(ctx context.Context, in docdom.AddCommentInput)
 		return nil, err
 	}
 	s.publishRealtimeOnly(ctx, events.TopicDocCommentAdded, activityPayload(a, in.ProjectID))
+
+	// Intentionally skip mention notifications for document comments here.
+	// NotifyMentioned is task-scoped and persists task_id; passing uuid.Nil for
+	// a document comment can violate the notifications FK and fail silently.
+	// This should be re-enabled once the notification contract supports
+	// document-scoped mentions (for example, nullable TaskID or a doc-specific type).
+	_ = mentionpkg.ExtractTeamMentionsFromBlocks
+	_ = notificationdom.NotifyMentionedInput{}
+
 	return a, nil
 }
 
-// UpdateComment edits the text of an existing comment.
-func (s *ActivitySvc) UpdateComment(ctx context.Context, id uuid.UUID, projectID uuid.UUID, actorID uuid.UUID, text string) (*docdom.Activity, error) {
+// UpdateComment edits the content of an existing comment.
+func (s *ActivitySvc) UpdateComment(ctx context.Context, id uuid.UUID, projectID uuid.UUID, actorID uuid.UUID, content json.RawMessage) (*docdom.Activity, error) {
 	a, err := s.repo.FindActivityByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -120,11 +137,9 @@ func (s *ActivitySvc) UpdateComment(ctx context.Context, id uuid.UUID, projectID
 		return nil, docdom.ErrActivityForbidden
 	}
 
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" {
-		return nil, docdom.ErrCommentTextInvalid
+	if isContentEmpty(content) || !isContentTypeValid(content) {
+		return nil, docdom.ErrCommentContentInvalid
 	}
-	content, _ := json.Marshal(map[string]string{"text": trimmed})
 	a.Content = content
 	a.UpdatedAt = time.Now()
 	if err := s.repo.UpdateActivity(ctx, a); err != nil {
@@ -214,4 +229,78 @@ func (s *ActivitySvc) publishRealtimeOnly(ctx context.Context, topic string, pay
 		"type":    topic,
 		"payload": payload,
 	})
+}
+
+// extractTextFromBlocks walks a BlockNote JSON blocks array and concatenates
+// all "text" values found in inline content.  Falls back to the legacy
+// {"text":"..."} object format for backward compatibility.
+func extractTextFromBlocks(raw json.RawMessage) string {
+	var blocks []struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if json.Unmarshal(raw, &blocks) == nil && len(blocks) > 0 {
+		var parts []string
+		for _, b := range blocks {
+			for _, c := range b.Content {
+				if c.Text != "" {
+					parts = append(parts, c.Text)
+				}
+			}
+		}
+		return strings.Join(parts, " ")
+	}
+	var legacy struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &legacy) == nil {
+		return legacy.Text
+	}
+	return ""
+}
+
+// isContentTypeValid returns true only when content is a JSON array (BlockNote
+// blocks) or the legacy {"text": "..."} object.  A bare JSON string, number,
+// boolean, or any other value is rejected to prevent comments that the web UI
+// cannot render.
+func isContentTypeValid(content json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(content))
+	var arr []any
+	if json.Unmarshal([]byte(trimmed), &arr) == nil {
+		return true // blocks array
+	}
+	var legacy struct {
+		Text string `json:"text"`
+	}
+	return json.Unmarshal([]byte(trimmed), &legacy) == nil && legacy.Text != ""
+}
+
+// isContentEmpty checks if json.RawMessage content is empty or contains only whitespace.
+// It handles: empty byte slice, "null", an empty JSON array, or a whitespace-only JSON string.
+func isContentEmpty(content json.RawMessage) bool {
+	if len(content) == 0 {
+		return true
+	}
+
+	trimmed := strings.TrimSpace(string(content))
+	if trimmed == "" {
+		return true
+	}
+
+	var value any
+	if json.Unmarshal([]byte(trimmed), &value) != nil {
+		return false
+	}
+
+	switch v := value.(type) {
+	case nil:
+		return true
+	case string:
+		return strings.TrimSpace(v) == ""
+	case []any:
+		return len(v) == 0
+	default:
+		return false
+	}
 }
