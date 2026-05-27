@@ -10,36 +10,36 @@ import (
 )
 
 type mockAgentRepo struct {
-	findAgentByID       func(ctx context.Context, id uuid.UUID) (*agentdom.Agent, error)
-	findAgentByHandle   func(ctx context.Context, projectID uuid.UUID, handle string) (*agentdom.Agent, error)
-	listAgents          func(ctx context.Context, projectID uuid.UUID) ([]*agentdom.Agent, error)
-	createAgent         func(ctx context.Context, agent *agentdom.Agent) error
-	createAgentWithMembership func(ctx context.Context, agent *agentdom.Agent, memberID, projectID, projectRoleID uuid.UUID) error
-	updateAgent         func(ctx context.Context, agent *agentdom.Agent) error
-	softDeleteAgent     func(ctx context.Context, id uuid.UUID) error
+	findAgentByID                 func(ctx context.Context, id uuid.UUID) (*agentdom.Agent, error)
+	findAgentByHandle             func(ctx context.Context, projectID uuid.UUID, handle string) (*agentdom.Agent, error)
+	listAgents                    func(ctx context.Context, projectID uuid.UUID) ([]*agentdom.Agent, error)
+	createAgent                   func(ctx context.Context, agent *agentdom.Agent) error
+	createAgentWithMembership     func(ctx context.Context, agent *agentdom.Agent, memberID, projectID, projectRoleID uuid.UUID) error
+	updateAgent                   func(ctx context.Context, agent *agentdom.Agent) error
+	softDeleteAgent               func(ctx context.Context, id uuid.UUID) error
 	softDeleteAgentWithMembership func(ctx context.Context, projectID, agentID uuid.UUID) error
-	setAgentMemberID    func(ctx context.Context, agentID, memberID uuid.UUID) error
-	listMCPServers      func(ctx context.Context, agentID uuid.UUID) ([]*agentdom.AgentMCPServer, error)
-	findMCPServerByID   func(ctx context.Context, id uuid.UUID) (*agentdom.AgentMCPServer, error)
-	createMCPServer     func(ctx context.Context, server *agentdom.AgentMCPServer) error
-	updateMCPServer     func(ctx context.Context, server *agentdom.AgentMCPServer) error
-	deleteMCPServer     func(ctx context.Context, id uuid.UUID) error
-	listSkills          func(ctx context.Context, agentID uuid.UUID) ([]*agentdom.AgentSkill, error)
-	findSkillByID       func(ctx context.Context, id uuid.UUID) (*agentdom.AgentSkill, error)
-	createSkill         func(ctx context.Context, skill *agentdom.AgentSkill) error
-	updateSkill         func(ctx context.Context, skill *agentdom.AgentSkill) error
-	deleteSkill         func(ctx context.Context, id uuid.UUID) error
-	listConversations   func(ctx context.Context, filter agentdom.ListConversationsFilter) ([]*agentdom.AgentConversation, int64, error)
-	findConversationByID func(ctx context.Context, id uuid.UUID) (*agentdom.AgentConversation, error)
-	createConversation  func(ctx context.Context, conv *agentdom.AgentConversation) error
-	updateConversationStatus func(ctx context.Context, id uuid.UUID, status string) error
-	updateConversation func(ctx context.Context, conv *agentdom.AgentConversation) error
-	listConversationEvents func(ctx context.Context, conversationID uuid.UUID, offset, limit int) ([]*agentdom.AgentConversationEvent, int64, error)
-	createConversationEvent func(ctx context.Context, event *agentdom.AgentConversationEvent) error
-	listChatSessions    func(ctx context.Context, agentID, memberID uuid.UUID) ([]*agentdom.AgentChatSession, error)
-	findChatSessionByID func(ctx context.Context, id uuid.UUID) (*agentdom.AgentChatSession, error)
-	createChatSession   func(ctx context.Context, session *agentdom.AgentChatSession) error
-	updateChatSession   func(ctx context.Context, session *agentdom.AgentChatSession) error
+	setAgentMemberID              func(ctx context.Context, agentID, memberID uuid.UUID) error
+	listMCPServers                func(ctx context.Context, agentID uuid.UUID) ([]*agentdom.AgentMCPServer, error)
+	findMCPServerByID             func(ctx context.Context, id uuid.UUID) (*agentdom.AgentMCPServer, error)
+	createMCPServer               func(ctx context.Context, server *agentdom.AgentMCPServer) error
+	updateMCPServer               func(ctx context.Context, server *agentdom.AgentMCPServer) error
+	deleteMCPServer               func(ctx context.Context, id uuid.UUID) error
+	listSkills                    func(ctx context.Context, agentID uuid.UUID) ([]*agentdom.AgentSkill, error)
+	findSkillByID                 func(ctx context.Context, id uuid.UUID) (*agentdom.AgentSkill, error)
+	createSkill                   func(ctx context.Context, skill *agentdom.AgentSkill) error
+	updateSkill                   func(ctx context.Context, skill *agentdom.AgentSkill) error
+	deleteSkill                   func(ctx context.Context, id uuid.UUID) error
+	listConversations             func(ctx context.Context, filter agentdom.ListConversationsFilter) ([]*agentdom.AgentConversation, int64, error)
+	findConversationByID          func(ctx context.Context, id uuid.UUID) (*agentdom.AgentConversation, error)
+	createConversation            func(ctx context.Context, conv *agentdom.AgentConversation) error
+	updateConversationStatus      func(ctx context.Context, id uuid.UUID, status string) error
+	updateConversation            func(ctx context.Context, conv *agentdom.AgentConversation) error
+	listConversationEvents        func(ctx context.Context, conversationID uuid.UUID, offset, limit int) ([]*agentdom.AgentConversationEvent, int64, error)
+	createConversationEvent       func(ctx context.Context, event *agentdom.AgentConversationEvent) error
+	listChatSessions              func(ctx context.Context, agentID, memberID uuid.UUID) ([]*agentdom.AgentChatSession, error)
+	findChatSessionByID           func(ctx context.Context, id uuid.UUID) (*agentdom.AgentChatSession, error)
+	createChatSession             func(ctx context.Context, session *agentdom.AgentChatSession) error
+	updateChatSession             func(ctx context.Context, session *agentdom.AgentChatSession) error
 }
 
 func (m *mockAgentRepo) ListAgents(ctx context.Context, projectID uuid.UUID) ([]*agentdom.Agent, error) {
@@ -258,7 +258,7 @@ type mockProjectRepo struct {
 	invalidateMembersCacheCalled bool
 }
 
-func (m *mockProjectRepo) InvalidateMembersCache(ctx context.Context, projectID uuid.UUID) error {
+func (m *mockProjectRepo) InvalidateMembersCache(_ context.Context, _ uuid.UUID) error {
 	m.invalidateMembersCacheCalled = true
 	return nil
 }
@@ -276,7 +276,7 @@ func TestGetAgent_Success(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		findAgentByID: func(ctx context.Context, id uuid.UUID) (*agentdom.Agent, error) {
+		findAgentByID: func(_ context.Context, _ uuid.UUID) (*agentdom.Agent, error) {
 			return agent, nil
 		},
 	}
@@ -302,7 +302,7 @@ func TestGetAgent_WrongProject(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		findAgentByID: func(ctx context.Context, id uuid.UUID) (*agentdom.Agent, error) {
+		findAgentByID: func(_ context.Context, _ uuid.UUID) (*agentdom.Agent, error) {
 			return agent, nil
 		},
 	}
@@ -331,7 +331,7 @@ func TestListAgents_Success(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		listAgents: func(ctx context.Context, pid uuid.UUID) ([]*agentdom.Agent, error) {
+		listAgents: func(_ context.Context, pid uuid.UUID) ([]*agentdom.Agent, error) {
 			if pid != projectID {
 				t.Fatalf("expected projectID %v, got %v", projectID, pid)
 			}
@@ -353,10 +353,10 @@ func TestCreateAgent_Success(t *testing.T) {
 	userID := uuid.New()
 
 	repo := &mockAgentRepo{
-		findAgentByHandle: func(ctx context.Context, pid uuid.UUID, handle string) (*agentdom.Agent, error) {
+		findAgentByHandle: func(_ context.Context, _ uuid.UUID, _ string) (*agentdom.Agent, error) {
 			return nil, agentdom.ErrAgentNotFound
 		},
-		createAgentWithMembership: func(ctx context.Context, agent *agentdom.Agent, memberID, pid, roleID uuid.UUID) error {
+		createAgentWithMembership: func(_ context.Context, _ *agentdom.Agent, _ uuid.UUID, pid, roleID uuid.UUID) error {
 			if pid != projectID || roleID != projectRoleID {
 				t.Fatalf("unexpected projectID or roleID")
 			}
@@ -367,13 +367,13 @@ func TestCreateAgent_Success(t *testing.T) {
 	svc := New(repo, projRepo, nil)
 
 	result, err := svc.CreateAgent(context.Background(), projectID, agentdom.CreateAgentInput{
-		Name:            "New Agent",
-		Handle:          "new-agent",
-		LLMProvider:     "openai",
-		LLMModel:        "gpt-4",
-		LLMAPIKey:       "sk-test",
-		ProjectRoleID:   projectRoleID,
-		CreatedBy:       &userID,
+		Name:          "New Agent",
+		Handle:        "new-agent",
+		LLMProvider:   "openai",
+		LLMModel:      "gpt-4",
+		LLMAPIKey:     "sk-test",
+		ProjectRoleID: projectRoleID,
+		CreatedBy:     &userID,
 	})
 
 	assert.NoError(t, err)
@@ -430,7 +430,7 @@ func TestCreateAgent_HandleTaken(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		findAgentByHandle: func(ctx context.Context, pid uuid.UUID, handle string) (*agentdom.Agent, error) {
+		findAgentByHandle: func(_ context.Context, _ uuid.UUID, _ string) (*agentdom.Agent, error) {
 			return existingAgent, nil
 		},
 	}
@@ -459,13 +459,13 @@ func TestUpdateAgent_Success(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		findAgentByID: func(ctx context.Context, id uuid.UUID) (*agentdom.Agent, error) {
+		findAgentByID: func(_ context.Context, _ uuid.UUID) (*agentdom.Agent, error) {
 			return agent, nil
 		},
-		findAgentByHandle: func(ctx context.Context, pid uuid.UUID, handle string) (*agentdom.Agent, error) {
+		findAgentByHandle: func(_ context.Context, _ uuid.UUID, _ string) (*agentdom.Agent, error) {
 			return nil, agentdom.ErrAgentNotFound
 		},
-		updateAgent: func(ctx context.Context, a *agentdom.Agent) error {
+		updateAgent: func(_ context.Context, a *agentdom.Agent) error {
 			if a.ID != agentID {
 				t.Fatalf("unexpected agent ID")
 			}
@@ -480,9 +480,9 @@ func TestUpdateAgent_Success(t *testing.T) {
 	newModel := "gpt-4"
 
 	result, err := svc.UpdateAgent(context.Background(), projectID, agentID, agentdom.UpdateAgentInput{
-		Name:      &newName,
-		Handle:    &newHandle,
-		LLMModel:  &newModel,
+		Name:     &newName,
+		Handle:   &newHandle,
+		LLMModel: &newModel,
 	})
 
 	assert.NoError(t, err)
@@ -508,10 +508,10 @@ func TestUpdateAgent_HandleTaken(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		findAgentByID: func(ctx context.Context, id uuid.UUID) (*agentdom.Agent, error) {
+		findAgentByID: func(_ context.Context, _ uuid.UUID) (*agentdom.Agent, error) {
 			return agent, nil
 		},
-		findAgentByHandle: func(ctx context.Context, pid uuid.UUID, handle string) (*agentdom.Agent, error) {
+		findAgentByHandle: func(_ context.Context, _ uuid.UUID, _ string) (*agentdom.Agent, error) {
 			return existingAgent, nil
 		},
 	}
@@ -538,10 +538,10 @@ func TestDeleteAgent_Success(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		findAgentByID: func(ctx context.Context, id uuid.UUID) (*agentdom.Agent, error) {
+		findAgentByID: func(_ context.Context, _ uuid.UUID) (*agentdom.Agent, error) {
 			return agent, nil
 		},
-		softDeleteAgentWithMembership: func(ctx context.Context, pid, aid uuid.UUID) error {
+		softDeleteAgentWithMembership: func(_ context.Context, pid, aid uuid.UUID) error {
 			if pid != projectID || aid != agentID {
 				t.Fatalf("unexpected projectID or agentID")
 			}
@@ -565,7 +565,7 @@ func TestListMCPServers_Success(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		listMCPServers: func(ctx context.Context, aid uuid.UUID) ([]*agentdom.AgentMCPServer, error) {
+		listMCPServers: func(_ context.Context, aid uuid.UUID) ([]*agentdom.AgentMCPServer, error) {
 			if aid != agentID {
 				t.Fatalf("expected agentID %v, got %v", agentID, aid)
 			}
@@ -587,7 +587,7 @@ func TestAddMCPServer_Success(t *testing.T) {
 	url := "http://localhost:8080"
 
 	repo := &mockAgentRepo{
-		createMCPServer: func(ctx context.Context, server *agentdom.AgentMCPServer) error {
+		createMCPServer: func(_ context.Context, server *agentdom.AgentMCPServer) error {
 			if server.AgentID != agentID {
 				t.Fatalf("unexpected agentID")
 			}
@@ -618,7 +618,7 @@ func TestListSkills_Success(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		listSkills: func(ctx context.Context, aid uuid.UUID) ([]*agentdom.AgentSkill, error) {
+		listSkills: func(_ context.Context, aid uuid.UUID) ([]*agentdom.AgentSkill, error) {
 			if aid != agentID {
 				t.Fatalf("expected agentID %v, got %v", agentID, aid)
 			}
@@ -638,7 +638,7 @@ func TestAddSkill_Success(t *testing.T) {
 	agentID := uuid.New()
 
 	repo := &mockAgentRepo{
-		createSkill: func(ctx context.Context, skill *agentdom.AgentSkill) error {
+		createSkill: func(_ context.Context, skill *agentdom.AgentSkill) error {
 			if skill.AgentID != agentID {
 				t.Fatalf("unexpected agentID")
 			}
@@ -668,7 +668,7 @@ func TestGetConversation_Success(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		findConversationByID: func(ctx context.Context, id uuid.UUID) (*agentdom.AgentConversation, error) {
+		findConversationByID: func(_ context.Context, _ uuid.UUID) (*agentdom.AgentConversation, error) {
 			return conversation, nil
 		},
 	}
@@ -693,7 +693,7 @@ func TestGetConversation_WrongProject(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		findConversationByID: func(ctx context.Context, id uuid.UUID) (*agentdom.AgentConversation, error) {
+		findConversationByID: func(_ context.Context, _ uuid.UUID) (*agentdom.AgentConversation, error) {
 			return conversation, nil
 		},
 	}
@@ -716,10 +716,10 @@ func TestPauseConversation_Success(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		findConversationByID: func(ctx context.Context, id uuid.UUID) (*agentdom.AgentConversation, error) {
+		findConversationByID: func(_ context.Context, _ uuid.UUID) (*agentdom.AgentConversation, error) {
 			return conversation, nil
 		},
-		updateConversationStatus: func(ctx context.Context, id uuid.UUID, status string) error {
+		updateConversationStatus: func(_ context.Context, id uuid.UUID, status string) error {
 			if id != conversationID || status != "paused" {
 				t.Fatalf("unexpected conversation ID or status")
 			}
@@ -744,7 +744,7 @@ func TestPauseConversation_NotRunning(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		findConversationByID: func(ctx context.Context, id uuid.UUID) (*agentdom.AgentConversation, error) {
+		findConversationByID: func(_ context.Context, _ uuid.UUID) (*agentdom.AgentConversation, error) {
 			return conversation, nil
 		},
 	}
@@ -767,7 +767,7 @@ func TestSendConversationMessage_Success(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		findConversationByID: func(ctx context.Context, id uuid.UUID) (*agentdom.AgentConversation, error) {
+		findConversationByID: func(_ context.Context, _ uuid.UUID) (*agentdom.AgentConversation, error) {
 			return conversation, nil
 		},
 	}
@@ -789,7 +789,7 @@ func TestSendConversationMessage_NotRunning(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		findConversationByID: func(ctx context.Context, id uuid.UUID) (*agentdom.AgentConversation, error) {
+		findConversationByID: func(_ context.Context, _ uuid.UUID) (*agentdom.AgentConversation, error) {
 			return conversation, nil
 		},
 	}
@@ -811,7 +811,7 @@ func TestListChatSessions_Success(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		listChatSessions: func(ctx context.Context, aid, mid uuid.UUID) ([]*agentdom.AgentChatSession, error) {
+		listChatSessions: func(_ context.Context, aid, mid uuid.UUID) ([]*agentdom.AgentChatSession, error) {
 			if aid != agentID || mid != memberID {
 				t.Fatalf("unexpected agentID or memberID")
 			}
@@ -833,13 +833,13 @@ func TestStartChatSession_Success(t *testing.T) {
 	memberID := uuid.New()
 
 	repo := &mockAgentRepo{
-		createChatSession: func(ctx context.Context, session *agentdom.AgentChatSession) error {
+		createChatSession: func(_ context.Context, session *agentdom.AgentChatSession) error {
 			if session.AgentID != agentID || session.ProjectID != projectID || session.MemberID != memberID {
 				t.Fatalf("unexpected session fields")
 			}
 			return nil
 		},
-		createConversation: func(ctx context.Context, conv *agentdom.AgentConversation) error {
+		createConversation: func(_ context.Context, conv *agentdom.AgentConversation) error {
 			if conv.AgentID != agentID || conv.ProjectID != projectID || conv.TriggeredByMemberID != memberID {
 				t.Fatalf("unexpected conversation fields")
 			}
@@ -870,16 +870,16 @@ func TestSendChatMessage_Success(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		findChatSessionByID: func(ctx context.Context, id uuid.UUID) (*agentdom.AgentChatSession, error) {
+		findChatSessionByID: func(_ context.Context, _ uuid.UUID) (*agentdom.AgentChatSession, error) {
 			return session, nil
 		},
-		createConversation: func(ctx context.Context, conv *agentdom.AgentConversation) error {
+		createConversation: func(_ context.Context, conv *agentdom.AgentConversation) error {
 			if conv.AgentID != agentID || conv.ProjectID != projectID || conv.TriggeredByMemberID != memberID {
 				t.Fatalf("unexpected conversation fields")
 			}
 			return nil
 		},
-		updateChatSession: func(ctx context.Context, session *agentdom.AgentChatSession) error {
+		updateChatSession: func(_ context.Context, _ *agentdom.AgentChatSession) error {
 			return nil
 		},
 	}
@@ -906,7 +906,7 @@ func TestSendChatMessage_WrongProject(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		findChatSessionByID: func(ctx context.Context, id uuid.UUID) (*agentdom.AgentChatSession, error) {
+		findChatSessionByID: func(_ context.Context, _ uuid.UUID) (*agentdom.AgentChatSession, error) {
 			return session, nil
 		},
 	}
@@ -928,10 +928,10 @@ func TestDeleteMCPServer_Success(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		findMCPServerByID: func(ctx context.Context, id uuid.UUID) (*agentdom.AgentMCPServer, error) {
+		findMCPServerByID: func(_ context.Context, _ uuid.UUID) (*agentdom.AgentMCPServer, error) {
 			return server, nil
 		},
-		deleteMCPServer: func(ctx context.Context, id uuid.UUID) error {
+		deleteMCPServer: func(_ context.Context, id uuid.UUID) error {
 			if id != serverID {
 				t.Fatalf("unexpected server ID")
 			}
@@ -957,10 +957,10 @@ func TestUpdateSkill_Success(t *testing.T) {
 	}
 
 	repo := &mockAgentRepo{
-		findSkillByID: func(ctx context.Context, id uuid.UUID) (*agentdom.AgentSkill, error) {
+		findSkillByID: func(_ context.Context, _ uuid.UUID) (*agentdom.AgentSkill, error) {
 			return skill, nil
 		},
-		updateSkill: func(ctx context.Context, s *agentdom.AgentSkill) error {
+		updateSkill: func(_ context.Context, s *agentdom.AgentSkill) error {
 			if s.ID != skillID || s.AgentID != agentID {
 				t.Fatalf("unexpected skill ID or agent ID")
 			}
@@ -987,7 +987,7 @@ func TestTriggerTaskAssigned_Success(t *testing.T) {
 	memberID := uuid.New()
 
 	repo := &mockAgentRepo{
-		createConversation: func(ctx context.Context, conv *agentdom.AgentConversation) error {
+		createConversation: func(_ context.Context, conv *agentdom.AgentConversation) error {
 			if conv.AgentID != agentID || conv.ProjectID != projectID || conv.TriggeredByMemberID != memberID {
 				t.Fatalf("unexpected conversation fields")
 			}
@@ -1012,7 +1012,7 @@ func TestTriggerCommentMention_Success(t *testing.T) {
 	memberID := uuid.New()
 
 	repo := &mockAgentRepo{
-		createConversation: func(ctx context.Context, conv *agentdom.AgentConversation) error {
+		createConversation: func(_ context.Context, conv *agentdom.AgentConversation) error {
 			if conv.AgentID != agentID || conv.ProjectID != projectID || conv.TriggeredByMemberID != memberID {
 				t.Fatalf("unexpected conversation fields")
 			}

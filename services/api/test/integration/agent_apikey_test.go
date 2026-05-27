@@ -56,9 +56,9 @@ func buildAgentKeyRouter(taskRepo *fakeTaskRepo, apiKeyRepo *fakeAPIKeyRepo, sto
 		activityRepo = newFakeTaskActivityRepo()
 	}
 	activityService := tasksvc.NewActivityService(activityRepo, &fakeActivityMemberRepo{}, nil)
-	
+
 	apiKeyService := apikeysvc.New(apiKeyRepo).WithAgentKey(testAgentAPIKey, uuid.MustParse(testAgentBotUserID))
-	
+
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	return router.New(router.Deps{
@@ -107,19 +107,19 @@ func TestAgentAPIKey_CreateTask_Success(t *testing.T) {
 	apiKeyRepo := newFakeAPIKeyRepo()
 	projectID := uuid.New()
 	agentID := uuid.New()
-	
+
 	store := &projectPermStore{
 		projectPerms: map[uuid.UUID][]authz.Permission{
 			projectID: {authz.PermissionTasksWrite},
 		},
 	}
-	
+
 	r := buildAgentKeyRouter(taskRepo, apiKeyRepo, store)
 	base := fmt.Sprintf("/api/v1/projects/%s/tasks", projectID)
 
 	// Create task using agent API key
 	w := serve(r, agentKeyAuthReq(t.Context(), http.MethodPost, base, agentID, map[string]any{
-		"title":       "Agent created task",
+		"title": "Agent created task",
 		"description": []map[string]any{
 			{
 				"type":    "paragraph",
@@ -150,13 +150,13 @@ func TestAgentAPIKey_CreateTask_MissingAgentID_Returns401(t *testing.T) {
 	taskRepo := newFakeTaskRepoIT()
 	apiKeyRepo := newFakeAPIKeyRepo()
 	projectID := uuid.New()
-	
+
 	store := &projectPermStore{
 		projectPerms: map[uuid.UUID][]authz.Permission{
 			projectID: {authz.PermissionTasksWrite},
 		},
 	}
-	
+
 	r := buildAgentKeyRouter(taskRepo, apiKeyRepo, store)
 	base := fmt.Sprintf("/api/v1/projects/%s/tasks", projectID)
 
@@ -175,13 +175,13 @@ func TestAgentAPIKey_CreateTask_InvalidAPIKey_Returns401(t *testing.T) {
 	apiKeyRepo := newFakeAPIKeyRepo()
 	projectID := uuid.New()
 	agentID := uuid.New()
-	
+
 	store := &projectPermStore{
 		projectPerms: map[uuid.UUID][]authz.Permission{
 			projectID: {authz.PermissionTasksWrite},
 		},
 	}
-	
+
 	r := buildAgentKeyRouter(taskRepo, apiKeyRepo, store)
 	base := fmt.Sprintf("/api/v1/projects/%s/tasks", projectID)
 
@@ -202,14 +202,14 @@ func TestAgentAPIKey_CreateTask_NoPermission_Returns403(t *testing.T) {
 	apiKeyRepo := newFakeAPIKeyRepo()
 	projectID := uuid.New()
 	agentID := uuid.New()
-	
+
 	// No tasks.write permission
 	store := &projectPermStore{
 		projectPerms: map[uuid.UUID][]authz.Permission{
 			projectID: {authz.PermissionTasksRead},
 		},
 	}
-	
+
 	r := buildAgentKeyRouter(taskRepo, apiKeyRepo, store)
 	base := fmt.Sprintf("/api/v1/projects/%s/tasks", projectID)
 
@@ -232,13 +232,13 @@ func TestAgentAPIKey_AddComment_Success(t *testing.T) {
 	projectID := uuid.New()
 	taskID := uuid.New()
 	agentID := uuid.New()
-	
+
 	store := &projectPermStore{
 		projectPerms: map[uuid.UUID][]authz.Permission{
 			projectID: {authz.PermissionTasksWrite},
 		},
 	}
-	
+
 	// Seed a task directly
 	taskRepo.tasks[taskID] = &taskdom.Task{
 		ID:        taskID,
@@ -247,7 +247,7 @@ func TestAgentAPIKey_AddComment_Success(t *testing.T) {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	
+
 	r := buildAgentKeyRouter(taskRepo, apiKeyRepo, store)
 	commentURL := fmt.Sprintf("/api/v1/projects/%s/tasks/%s/activities/comments", projectID, taskID)
 
@@ -287,13 +287,13 @@ func TestAgentAPIKey_UpdateComment_Success(t *testing.T) {
 	taskID := uuid.New()
 	commentID := uuid.New()
 	agentID := uuid.New()
-	
+
 	store := &projectPermStore{
 		projectPerms: map[uuid.UUID][]authz.Permission{
 			projectID: {authz.PermissionTasksWrite},
 		},
 	}
-	
+
 	// Seed task and comment
 	taskRepo.tasks[taskID] = &taskdom.Task{
 		ID:        taskID,
@@ -302,7 +302,7 @@ func TestAgentAPIKey_UpdateComment_Success(t *testing.T) {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	
+
 	agentUserID := uuid.MustParse(testAgentBotUserID)
 	commentContent := json.RawMessage(`[{"type":"paragraph","content":[{"type":"text","text":"Original comment"}]}]`)
 	activityRepo.activities[commentID] = &taskdom.Activity{
@@ -314,7 +314,7 @@ func TestAgentAPIKey_UpdateComment_Success(t *testing.T) {
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}
-	
+
 	r := buildAgentKeyRouter(taskRepo, apiKeyRepo, store, activityRepo)
 	commentURL := fmt.Sprintf("/api/v1/projects/%s/tasks/%s/activities/comments/%s", projectID, taskID, commentID)
 
@@ -343,13 +343,13 @@ func TestAgentAPIKey_UpdateTask_Success(t *testing.T) {
 	taskID := uuid.New()
 	agentID := uuid.New()
 	statusID := uuid.New()
-	
+
 	store := &projectPermStore{
 		projectPerms: map[uuid.UUID][]authz.Permission{
 			projectID: {authz.PermissionTasksWrite},
 		},
 	}
-	
+
 	// Seed a task directly
 	taskRepo.tasks[taskID] = &taskdom.Task{
 		ID:        taskID,
@@ -358,7 +358,7 @@ func TestAgentAPIKey_UpdateTask_Success(t *testing.T) {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	
+
 	r := buildAgentKeyRouter(taskRepo, apiKeyRepo, store)
 	taskURL := fmt.Sprintf("/api/v1/projects/%s/tasks/%s", projectID, taskID)
 
@@ -394,13 +394,13 @@ func TestAgentAPIKey_ListTasks_Success(t *testing.T) {
 	apiKeyRepo := newFakeAPIKeyRepo()
 	projectID := uuid.New()
 	agentID := uuid.New()
-	
+
 	store := &projectPermStore{
 		projectPerms: map[uuid.UUID][]authz.Permission{
 			projectID: {authz.PermissionTasksRead},
 		},
 	}
-	
+
 	// Seed some tasks
 	for i := 0; i < 3; i++ {
 		taskRepo.tasks[uuid.New()] = &taskdom.Task{
@@ -411,7 +411,7 @@ func TestAgentAPIKey_ListTasks_Success(t *testing.T) {
 			UpdatedAt: time.Now(),
 		}
 	}
-	
+
 	r := buildAgentKeyRouter(taskRepo, apiKeyRepo, store)
 	taskURL := fmt.Sprintf("/api/v1/projects/%s/tasks", projectID)
 
@@ -447,13 +447,13 @@ func TestAgentAPIKey_GetTask_Success(t *testing.T) {
 	projectID := uuid.New()
 	taskID := uuid.New()
 	agentID := uuid.New()
-	
+
 	store := &projectPermStore{
 		projectPerms: map[uuid.UUID][]authz.Permission{
 			projectID: {authz.PermissionTasksRead},
 		},
 	}
-	
+
 	// Seed a task directly
 	taskRepo.tasks[taskID] = &taskdom.Task{
 		ID:        taskID,
@@ -462,7 +462,7 @@ func TestAgentAPIKey_GetTask_Success(t *testing.T) {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	
+
 	r := buildAgentKeyRouter(taskRepo, apiKeyRepo, store)
 	taskURL := fmt.Sprintf("/api/v1/projects/%s/tasks/%s", projectID, taskID)
 
@@ -497,13 +497,13 @@ func TestAgentAPIKey_GetTask_NotFound(t *testing.T) {
 	projectID := uuid.New()
 	taskID := uuid.New()
 	agentID := uuid.New()
-	
+
 	store := &projectPermStore{
 		projectPerms: map[uuid.UUID][]authz.Permission{
 			projectID: {authz.PermissionTasksRead},
 		},
 	}
-	
+
 	r := buildAgentKeyRouter(taskRepo, apiKeyRepo, store)
 	taskURL := fmt.Sprintf("/api/v1/projects/%s/tasks/%s", projectID, taskID)
 
@@ -528,13 +528,13 @@ func TestAgentAPIKey_DeleteTask_Success(t *testing.T) {
 	projectID := uuid.New()
 	taskID := uuid.New()
 	agentID := uuid.New()
-	
+
 	store := &projectPermStore{
 		projectPerms: map[uuid.UUID][]authz.Permission{
 			projectID: {authz.PermissionTasksWrite},
 		},
 	}
-	
+
 	// Seed a task directly
 	taskRepo.tasks[taskID] = &taskdom.Task{
 		ID:        taskID,
@@ -543,7 +543,7 @@ func TestAgentAPIKey_DeleteTask_Success(t *testing.T) {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	
+
 	r := buildAgentKeyRouter(taskRepo, apiKeyRepo, store)
 	taskURL := fmt.Sprintf("/api/v1/projects/%s/tasks/%s", projectID, taskID)
 
@@ -569,13 +569,13 @@ func TestAgentAPIKey_CommentWorkflow(t *testing.T) {
 	apiKeyRepo := newFakeAPIKeyRepo()
 	projectID := uuid.New()
 	agentID := uuid.New()
-	
+
 	store := &projectPermStore{
 		projectPerms: map[uuid.UUID][]authz.Permission{
 			projectID: {authz.PermissionTasksRead, authz.PermissionTasksWrite},
 		},
 	}
-	
+
 	r := buildAgentKeyRouter(taskRepo, apiKeyRepo, store)
 	base := fmt.Sprintf("/api/v1/projects/%s/tasks", projectID)
 
@@ -675,13 +675,13 @@ func TestAgentAPIKey_InvalidAgentIDHeaderIgnored(t *testing.T) {
 	taskRepo := newFakeTaskRepoIT()
 	apiKeyRepo := newFakeAPIKeyRepo()
 	projectID := uuid.New()
-	
+
 	store := &projectPermStore{
 		projectPerms: map[uuid.UUID][]authz.Permission{
 			projectID: {authz.PermissionTasksWrite},
 		},
 	}
-	
+
 	r := buildAgentKeyRouter(taskRepo, apiKeyRepo, store)
 	base := fmt.Sprintf("/api/v1/projects/%s/tasks", projectID)
 
@@ -709,13 +709,13 @@ func TestAgentAPIKey_UserAPIKeyCannotUseAgentID(t *testing.T) {
 	projectID := uuid.New()
 	agentID := uuid.New()
 	userID := uuid.New()
-	
+
 	store := &projectPermStore{
 		projectPerms: map[uuid.UUID][]authz.Permission{
 			projectID: {authz.PermissionTasksWrite},
 		},
 	}
-	
+
 	// Create a regular user API key
 	userAPIKey := &apikeydom.APIKey{
 		ID:        uuid.New(),
@@ -725,8 +725,10 @@ func TestAgentAPIKey_UserAPIKeyCannotUseAgentID(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 	keyHash := "user_key_hash_12345"
-	apiKeyRepo.Create(context.Background(), userAPIKey, keyHash)
-	
+	if err := apiKeyRepo.Create(context.Background(), userAPIKey, keyHash); err != nil {
+		t.Fatalf("failed to create user API key: %v", err)
+	}
+
 	r := buildAgentKeyRouter(taskRepo, apiKeyRepo, store)
 	base := fmt.Sprintf("/api/v1/projects/%s/tasks", projectID)
 
@@ -754,13 +756,13 @@ func TestAgentAPIKey_BulkTaskOperations(t *testing.T) {
 	apiKeyRepo := newFakeAPIKeyRepo()
 	projectID := uuid.New()
 	agentID := uuid.New()
-	
+
 	store := &projectPermStore{
 		projectPerms: map[uuid.UUID][]authz.Permission{
 			projectID: {authz.PermissionTasksRead, authz.PermissionTasksWrite},
 		},
 	}
-	
+
 	r := buildAgentKeyRouter(taskRepo, apiKeyRepo, store)
 	base := fmt.Sprintf("/api/v1/projects/%s/tasks", projectID)
 
@@ -849,7 +851,7 @@ func TestAgentAPIKey_PermissionScenarios(t *testing.T) {
 	projectID := uuid.New()
 	taskID := uuid.New()
 	agentID := uuid.New()
-	
+
 	// Seed a task
 	taskRepo.tasks[taskID] = &taskdom.Task{
 		ID:        taskID,
@@ -858,7 +860,7 @@ func TestAgentAPIKey_PermissionScenarios(t *testing.T) {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	
+
 	taskURL := fmt.Sprintf("/api/v1/projects/%s/tasks/%s", projectID, taskID)
 
 	t.Run("read_permission_allows_get", func(t *testing.T) {
@@ -868,7 +870,7 @@ func TestAgentAPIKey_PermissionScenarios(t *testing.T) {
 			},
 		}
 		r := buildAgentKeyRouter(taskRepo, apiKeyRepo, store)
-		
+
 		w := serve(r, agentKeyAuthReq(t.Context(), http.MethodGet, taskURL, agentID, nil))
 		if w.Code != http.StatusOK {
 			t.Errorf("read permission: expected 200, got %d: %s", w.Code, w.Body.String())
@@ -882,7 +884,7 @@ func TestAgentAPIKey_PermissionScenarios(t *testing.T) {
 			},
 		}
 		r := buildAgentKeyRouter(taskRepo, apiKeyRepo, store)
-		
+
 		w := serve(r, agentKeyAuthReq(t.Context(), http.MethodPatch, taskURL, agentID, map[string]any{
 			"title": "Updated",
 		}))
@@ -898,7 +900,7 @@ func TestAgentAPIKey_PermissionScenarios(t *testing.T) {
 			},
 		}
 		r := buildAgentKeyRouter(taskRepo, apiKeyRepo, store)
-		
+
 		w := serve(r, agentKeyAuthReq(t.Context(), http.MethodGet, taskURL, agentID, nil))
 		if w.Code != http.StatusForbidden {
 			t.Errorf("no permission: expected 403, got %d: %s", w.Code, w.Body.String())
