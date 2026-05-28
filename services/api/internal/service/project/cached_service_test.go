@@ -184,6 +184,12 @@ func (s *stubProjectSvc) DeleteRole(ctx context.Context, projectID, roleID uuid.
 
 func (s *stubProjectSvc) AddAgentMember(_ context.Context, _, _, _, _ uuid.UUID) error { return nil }
 func (s *stubProjectSvc) RemoveAgentMember(_ context.Context, _, _ uuid.UUID) error    { return nil }
+func (s *stubProjectSvc) UpdateMemberRoleByMemberID(_ context.Context, _, _ uuid.UUID, in projectdom.UpdateMemberRoleInput) (*projectdom.ProjectMember, error) {
+	return nil, errors.New("not implemented in stub")
+}
+func (s *stubProjectSvc) RemoveMemberByMemberID(_ context.Context, _, _ uuid.UUID) error {
+	return errors.New("not implemented in stub")
+}
 
 // ---------------------------------------------------------------------------
 // GetByID

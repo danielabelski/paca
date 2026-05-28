@@ -198,6 +198,29 @@ func (c *CachedService) RemoveMember(ctx context.Context, projectID, userID uuid
 	return nil
 }
 
+// UpdateMemberRoleByMemberID delegates to the underlying service and invalidates the members cache.
+func (c *CachedService) UpdateMemberRoleByMemberID(ctx context.Context, projectID, memberID uuid.UUID, in projectdom.UpdateMemberRoleInput) (*projectdom.ProjectMember, error) {
+	m, err := c.svc.UpdateMemberRoleByMemberID(ctx, projectID, memberID, in)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.st.Delete(ctx, membersKey(projectID)); err != nil {
+		c.log.WarnContext(ctx, "cache: UpdateMemberRoleByMemberID delete", "err", err)
+	}
+	return m, nil
+}
+
+// RemoveMemberByMemberID delegates to the underlying service and invalidates the members cache.
+func (c *CachedService) RemoveMemberByMemberID(ctx context.Context, projectID, memberID uuid.UUID) error {
+	if err := c.svc.RemoveMemberByMemberID(ctx, projectID, memberID); err != nil {
+		return err
+	}
+	if err := c.st.Delete(ctx, membersKey(projectID)); err != nil {
+		c.log.WarnContext(ctx, "cache: RemoveMemberByMemberID delete", "err", err)
+	}
+	return nil
+}
+
 // AddAgentMember delegates to the underlying service and invalidates the members cache.
 func (c *CachedService) AddAgentMember(ctx context.Context, memberID, projectID, agentID, roleID uuid.UUID) error {
 	if err := c.svc.AddAgentMember(ctx, memberID, projectID, agentID, roleID); err != nil {

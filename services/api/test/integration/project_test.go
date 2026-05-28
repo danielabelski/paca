@@ -372,6 +372,28 @@ func (r *fakeProjectRepo) UpdateMemberRole(_ context.Context, projectID, userID,
 
 func (r *fakeProjectRepo) AddAgentMember(_ context.Context, _, _, _, _ uuid.UUID) error { return nil }
 func (r *fakeProjectRepo) RemoveAgentMember(_ context.Context, _, _ uuid.UUID) error    { return nil }
+func (r *fakeProjectRepo) UpdateMemberRoleByMemberID(_ context.Context, memberID, roleID uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, m := range r.members {
+		if m.ID == memberID {
+			m.ProjectRoleID = roleID
+			return nil
+		}
+	}
+	return projectdom.ErrMemberNotFound
+}
+func (r *fakeProjectRepo) RemoveMemberByMemberID(_ context.Context, memberID uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for key, m := range r.members {
+		if m.ID == memberID {
+			delete(r.members, key)
+			return nil
+		}
+	}
+	return projectdom.ErrMemberNotFound
+}
 
 type projectPermStore struct {
 	globalPerms  []authz.Permission
@@ -505,6 +527,21 @@ func roleIDFromCreate(t *testing.T, w *httptest.ResponseRecorder) string {
 	return id
 }
 
+func memberIDFromCreate(t *testing.T, w *httptest.ResponseRecorder) string {
+	t.Helper()
+	var env struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&env); err != nil {
+		t.Fatalf("decode create member response: %v", err)
+	}
+	id, _ := env.Data["id"].(string)
+	if id == "" {
+		t.Fatal("missing member id")
+	}
+	return id
+}
+
 func TestIntegrationProjectManagement_AdminCRUD(t *testing.T) {
 	repo := newFakeProjectRepo()
 	store := &projectPermStore{
@@ -627,6 +664,7 @@ func TestIntegrationProjectRolesAndMembers_Flow(t *testing.T) {
 	if addMemberW.Code != http.StatusCreated {
 		t.Fatalf("add member: expected 201, got %d (%s)", addMemberW.Code, addMemberW.Body.String())
 	}
+	memberID := memberIDFromCreate(t, addMemberW)
 
 	dupMemberW := serve(r, authedJSONReq(t.Context(), http.MethodPost, membersURL, tok, map[string]any{
 		"user_id":         memberUserID,
@@ -647,7 +685,7 @@ func TestIntegrationProjectRolesAndMembers_Flow(t *testing.T) {
 	}
 	updatedRoleID := roleIDFromCreate(t, updatedRoleW)
 
-	updateMemberURL := fmt.Sprintf("/api/v1/projects/%s/members/%s", projectID, memberUserID)
+	updateMemberURL := fmt.Sprintf("/api/v1/projects/%s/members/%s", projectID, memberID)
 	updateMemberW := serve(r, authedJSONReq(t.Context(), http.MethodPatch, updateMemberURL, tok, map[string]any{
 		"project_role_id": updatedRoleID,
 	}))
@@ -685,7 +723,7 @@ func TestIntegrationProjectRolesAndMembers_Flow(t *testing.T) {
 		t.Fatalf("expected PROJECT_ROLE_HAS_MEMBERS, got %q", code)
 	}
 
-	removeMemberURL := fmt.Sprintf("/api/v1/projects/%s/members/%s", projectID, memberUserID)
+	removeMemberURL := fmt.Sprintf("/api/v1/projects/%s/members/%s", projectID, memberID)
 	removeW := serve(r, authedJSONReq(t.Context(), http.MethodDelete, removeMemberURL, tok, nil))
 	if removeW.Code != http.StatusOK {
 		t.Fatalf("remove member: expected 200, got %d (%s)", removeW.Code, removeW.Body.String())

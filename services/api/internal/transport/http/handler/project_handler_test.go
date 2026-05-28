@@ -39,6 +39,8 @@ type mockProjectSvc struct {
 	addMember               func(ctx context.Context, projectID uuid.UUID, in projectdom.AddMemberInput) (*projectdom.ProjectMember, error)
 	updateMember            func(ctx context.Context, projectID, userID uuid.UUID, in projectdom.UpdateMemberRoleInput) (*projectdom.ProjectMember, error)
 	removeMember            func(ctx context.Context, projectID, userID uuid.UUID) error
+	updateMemberByMemberID  func(ctx context.Context, projectID, memberID uuid.UUID, in projectdom.UpdateMemberRoleInput) (*projectdom.ProjectMember, error)
+	removeMemberByMemberID  func(ctx context.Context, projectID, memberID uuid.UUID) error
 	listRoles               func(ctx context.Context, projectID uuid.UUID) ([]*projectdom.ProjectRole, error)
 	createRole              func(ctx context.Context, projectID uuid.UUID, in projectdom.CreateRoleInput) (*projectdom.ProjectRole, error)
 	updateRole              func(ctx context.Context, projectID, roleID uuid.UUID, in projectdom.UpdateRoleInput) (*projectdom.ProjectRole, error)
@@ -160,6 +162,18 @@ func (m *mockProjectSvc) GetMyProjectPermissions(ctx context.Context, projectID,
 
 func (m *mockProjectSvc) AddAgentMember(_ context.Context, _, _, _, _ uuid.UUID) error { return nil }
 func (m *mockProjectSvc) RemoveAgentMember(_ context.Context, _, _ uuid.UUID) error    { return nil }
+func (m *mockProjectSvc) UpdateMemberRoleByMemberID(_ context.Context, _, _ uuid.UUID, in projectdom.UpdateMemberRoleInput) (*projectdom.ProjectMember, error) {
+	if m.updateMemberByMemberID != nil {
+		return m.updateMemberByMemberID(context.Background(), uuid.New(), uuid.New(), in)
+	}
+	return nil, projectdom.ErrNotFound
+}
+func (m *mockProjectSvc) RemoveMemberByMemberID(_ context.Context, _, _ uuid.UUID) error {
+	if m.removeMemberByMemberID != nil {
+		return m.removeMemberByMemberID(context.Background(), uuid.New(), uuid.New())
+	}
+	return projectdom.ErrNotFound
+}
 
 // compile-time interface check
 var _ projectdom.Service = (*mockProjectSvc)(nil)
@@ -200,8 +214,8 @@ func newProjectRouter(svc projectdom.Service) *gin.Engine {
 	// Project member routes
 	r.GET("/projects/:projectId/members", h.ListMembers)
 	r.POST("/projects/:projectId/members", h.AddMember)
-	r.PATCH("/projects/:projectId/members/:userId", h.UpdateMemberRole)
-	r.DELETE("/projects/:projectId/members/:userId", h.RemoveMember)
+	r.PATCH("/projects/:projectId/members/:memberId", h.UpdateMemberRole)
+	r.DELETE("/projects/:projectId/members/:memberId", h.RemoveMember)
 	// Project role routes
 	r.GET("/projects/:projectId/roles", h.ListRoles)
 	r.POST("/projects/:projectId/roles", h.CreateRole)
@@ -862,30 +876,29 @@ func TestAddMember_MemberAlreadyAdded(t *testing.T) {
 
 func TestUpdateMemberRole_Success(t *testing.T) {
 	projID := uuid.New()
-	userID := uuid.New()
-	roleID := uuid.New()
 	memberID := uuid.New()
+	roleID := uuid.New()
 	r := newProjectRouter(&mockProjectSvc{
-		updateMember: func(_ context.Context, pid, uid uuid.UUID, in projectdom.UpdateMemberRoleInput) (*projectdom.ProjectMember, error) {
+		updateMemberByMemberID: func(_ context.Context, pid, mid uuid.UUID, in projectdom.UpdateMemberRoleInput) (*projectdom.ProjectMember, error) {
 			if pid != projID {
 				t.Fatalf("expected project id %s, got %s", projID, pid)
 			}
-			if uid != userID {
-				t.Fatalf("expected user id %s, got %s", userID, uid)
+			if mid != memberID {
+				t.Fatalf("expected member id %s, got %s", memberID, mid)
 			}
 			if in.ProjectRoleID != roleID {
 				t.Fatalf("expected role id %s, got %s", roleID, in.ProjectRoleID)
 			}
 			return &projectdom.ProjectMember{
-				ID:            memberID,
+				ID:            mid,
 				ProjectID:     pid,
-				UserID:        uid,
 				ProjectRoleID: in.ProjectRoleID,
 			}, nil
 		},
 	})
 
-	w := do(t, r, http.MethodPatch, fmt.Sprintf("/projects/%s/members/%s", projID, userID),
+
+	w := do(t, r, http.MethodPatch, fmt.Sprintf("/projects/%s/members/%s", projID, memberID),
 		jsonBody(t, map[string]any{"project_role_id": roleID}))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -893,10 +906,10 @@ func TestUpdateMemberRole_Success(t *testing.T) {
 }
 
 func TestUpdateMemberRole_BadProjectID(t *testing.T) {
-	userID := uuid.New()
+	memberID := uuid.New()
 	r := newProjectRouter(&mockProjectSvc{})
 
-	w := do(t, r, http.MethodPatch, fmt.Sprintf("/projects/not-a-uuid/members/%s", userID),
+	w := do(t, r, http.MethodPatch, fmt.Sprintf("/projects/not-a-uuid/members/%s", memberID),
 		jsonBody(t, map[string]any{"project_role_id": uuid.New()}))
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
@@ -916,14 +929,14 @@ func TestUpdateMemberRole_BadUserID(t *testing.T) {
 
 func TestUpdateMemberRole_MemberNotFound(t *testing.T) {
 	projID := uuid.New()
-	userID := uuid.New()
+	memberID := uuid.New()
 	r := newProjectRouter(&mockProjectSvc{
-		updateMember: func(_ context.Context, _, _ uuid.UUID, _ projectdom.UpdateMemberRoleInput) (*projectdom.ProjectMember, error) {
+		updateMemberByMemberID: func(_ context.Context, _, _ uuid.UUID, _ projectdom.UpdateMemberRoleInput) (*projectdom.ProjectMember, error) {
 			return nil, projectdom.ErrMemberNotFound
 		},
 	})
 
-	w := do(t, r, http.MethodPatch, fmt.Sprintf("/projects/%s/members/%s", projID, userID),
+	w := do(t, r, http.MethodPatch, fmt.Sprintf("/projects/%s/members/%s", projID, memberID),
 		jsonBody(t, map[string]any{"project_role_id": uuid.New()}))
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", w.Code)
@@ -935,14 +948,14 @@ func TestUpdateMemberRole_MemberNotFound(t *testing.T) {
 
 func TestUpdateMemberRole_RoleNotFound(t *testing.T) {
 	projID := uuid.New()
-	userID := uuid.New()
+	memberID := uuid.New()
 	r := newProjectRouter(&mockProjectSvc{
-		updateMember: func(_ context.Context, _, _ uuid.UUID, _ projectdom.UpdateMemberRoleInput) (*projectdom.ProjectMember, error) {
+		updateMemberByMemberID: func(_ context.Context, _, _ uuid.UUID, _ projectdom.UpdateMemberRoleInput) (*projectdom.ProjectMember, error) {
 			return nil, projectdom.ErrRoleNotFound
 		},
 	})
 
-	w := do(t, r, http.MethodPatch, fmt.Sprintf("/projects/%s/members/%s", projID, userID),
+	w := do(t, r, http.MethodPatch, fmt.Sprintf("/projects/%s/members/%s", projID, memberID),
 		jsonBody(t, map[string]any{"project_role_id": uuid.New()}))
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", w.Code)
@@ -954,22 +967,22 @@ func TestUpdateMemberRole_RoleNotFound(t *testing.T) {
 
 func TestRemoveMember_Success(t *testing.T) {
 	projID := uuid.New()
-	userID := uuid.New()
+	memberID := uuid.New()
 	r := newProjectRouter(&mockProjectSvc{
-		removeMember: func(_ context.Context, _, _ uuid.UUID) error { return nil },
+		removeMemberByMemberID: func(_ context.Context, _, _ uuid.UUID) error { return nil },
 	})
 
-	w := do(t, r, http.MethodDelete, fmt.Sprintf("/projects/%s/members/%s", projID, userID), nil)
+	w := do(t, r, http.MethodDelete, fmt.Sprintf("/projects/%s/members/%s", projID, memberID), nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 }
 
 func TestRemoveMember_BadProjectID(t *testing.T) {
-	userID := uuid.New()
+	memberID := uuid.New()
 	r := newProjectRouter(&mockProjectSvc{})
 
-	w := do(t, r, http.MethodDelete, fmt.Sprintf("/projects/not-a-uuid/members/%s", userID), nil)
+	w := do(t, r, http.MethodDelete, fmt.Sprintf("/projects/not-a-uuid/members/%s", memberID), nil)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
@@ -987,14 +1000,14 @@ func TestRemoveMember_BadUserID(t *testing.T) {
 
 func TestRemoveMember_MemberNotFound(t *testing.T) {
 	projID := uuid.New()
-	userID := uuid.New()
+	memberID := uuid.New()
 	r := newProjectRouter(&mockProjectSvc{
-		removeMember: func(_ context.Context, _, _ uuid.UUID) error {
+		removeMemberByMemberID: func(_ context.Context, _, _ uuid.UUID) error {
 			return projectdom.ErrMemberNotFound
 		},
 	})
 
-	w := do(t, r, http.MethodDelete, fmt.Sprintf("/projects/%s/members/%s", projID, userID), nil)
+	w := do(t, r, http.MethodDelete, fmt.Sprintf("/projects/%s/members/%s", projID, memberID), nil)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", w.Code)
 	}

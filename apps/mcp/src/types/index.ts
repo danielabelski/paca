@@ -3,6 +3,13 @@ export interface PacaConfig {
 	baseURL: string;
 	/** Agent UUID forwarded as X-Agent-ID on every API request. */
 	agentId?: string;
+	/** Project UUID - required when agentId is provided for single-project agent mode. */
+	projectId?: string;
+}
+
+export interface PermissionMap {
+	global: Record<string, boolean>;
+	projects: Record<string, Record<string, boolean>>;
 }
 
 export interface SuccessEnvelope<T> {

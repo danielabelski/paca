@@ -118,6 +118,8 @@ func (r *fakeProjectRepo) FindMemberByID(_ context.Context, _ uuid.UUID) (*proje
 }
 func (r *fakeProjectRepo) AddAgentMember(_ context.Context, _, _, _, _ uuid.UUID) error { return nil }
 func (r *fakeProjectRepo) RemoveAgentMember(_ context.Context, _, _ uuid.UUID) error    { return nil }
+func (r *fakeProjectRepo) UpdateMemberRoleByMemberID(_ context.Context, _, _ uuid.UUID) error { return nil }
+func (r *fakeProjectRepo) RemoveMemberByMemberID(_ context.Context, _ uuid.UUID) error    { return nil }
 
 var _ projectdom.Repository = (*fakeProjectRepo)(nil)
 

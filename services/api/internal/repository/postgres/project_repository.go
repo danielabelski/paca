@@ -549,6 +549,35 @@ func (r *ProjectRepository) RemoveMember(ctx context.Context, projectID, userID 
 	return nil
 }
 
+// UpdateMemberRoleByMemberID changes the role of an existing active project member by member ID.
+func (r *ProjectRepository) UpdateMemberRoleByMemberID(ctx context.Context, memberID, roleID uuid.UUID) error {
+	result := r.db.WithContext(ctx).
+		Table("project_members").
+		Where("id = ? AND deleted_at IS NULL", memberID.String()).
+		Update("project_role_id", roleID.String())
+	if result.Error != nil {
+		return fmt.Errorf("project repo: update member role: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return projectdom.ErrMemberNotFound
+	}
+	return nil
+}
+
+// RemoveMemberByMemberID soft-deletes the membership row for the given member ID.
+func (r *ProjectRepository) RemoveMemberByMemberID(ctx context.Context, memberID uuid.UUID) error {
+	result := r.db.WithContext(ctx).
+		Where("id = ?", memberID.String()).
+		Delete(&projectMemberRecord{})
+	if result.Error != nil {
+		return fmt.Errorf("project repo: remove member: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return projectdom.ErrMemberNotFound
+	}
+	return nil
+}
+
 // --- Mapping helpers --------------------------------------------------------
 
 func toProjectEntity(rec *projectRecord) (*projectdom.Project, error) {

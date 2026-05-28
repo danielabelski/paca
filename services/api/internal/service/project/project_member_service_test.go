@@ -137,6 +137,14 @@ func (m *memberServiceRepoMock) RemoveAgentMember(_ context.Context, _, _ uuid.U
 	return nil
 }
 
+func (m *memberServiceRepoMock) UpdateMemberRoleByMemberID(_ context.Context, _, _ uuid.UUID) error {
+	return nil
+}
+
+func (m *memberServiceRepoMock) RemoveMemberByMemberID(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
+
 var _ projectdom.Repository = (*memberServiceRepoMock)(nil)
 
 func TestGetMyProjectPermissions_Success(t *testing.T) {

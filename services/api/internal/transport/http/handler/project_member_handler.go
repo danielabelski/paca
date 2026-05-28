@@ -53,16 +53,16 @@ func (h *ProjectHandler) AddMember(c *gin.Context) {
 	presenter.Created(c, dto.ProjectMemberFromEntity(m))
 }
 
-// UpdateMemberRole handles PATCH /projects/:projectId/members/:userId.
+// UpdateMemberRole handles PATCH /projects/:projectId/members/:memberId.
 func (h *ProjectHandler) UpdateMemberRole(c *gin.Context) {
 	projectID, err := parseProjectID(c)
 	if err != nil {
 		presenter.Error(c, err)
 		return
 	}
-	userID, err := uuid.Parse(c.Param("userId"))
+	memberID, err := uuid.Parse(c.Param("memberId"))
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid user id"))
+		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid member id"))
 		return
 	}
 
@@ -71,7 +71,7 @@ func (h *ProjectHandler) UpdateMemberRole(c *gin.Context) {
 		return
 	}
 
-	m, err := h.svc.UpdateMemberRole(c.Request.Context(), projectID, userID, projectdom.UpdateMemberRoleInput{
+	m, err := h.svc.UpdateMemberRoleByMemberID(c.Request.Context(), projectID, memberID, projectdom.UpdateMemberRoleInput{
 		ProjectRoleID: req.ProjectRoleID,
 	})
 	if err != nil {
@@ -81,19 +81,19 @@ func (h *ProjectHandler) UpdateMemberRole(c *gin.Context) {
 	presenter.OK(c, dto.ProjectMemberFromEntity(m))
 }
 
-// RemoveMember handles DELETE /projects/:projectId/members/:userId.
+// RemoveMember handles DELETE /projects/:projectId/members/:memberId.
 func (h *ProjectHandler) RemoveMember(c *gin.Context) {
 	projectID, err := parseProjectID(c)
 	if err != nil {
 		presenter.Error(c, err)
 		return
 	}
-	userID, err := uuid.Parse(c.Param("userId"))
+	memberID, err := uuid.Parse(c.Param("memberId"))
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid user id"))
+		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid member id"))
 		return
 	}
-	if err := h.svc.RemoveMember(c.Request.Context(), projectID, userID); err != nil {
+	if err := h.svc.RemoveMemberByMemberID(c.Request.Context(), projectID, memberID); err != nil {
 		presenter.Error(c, err)
 		return
 	}

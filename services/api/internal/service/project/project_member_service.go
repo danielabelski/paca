@@ -129,3 +129,52 @@ func (s *Service) AddAgentMember(ctx context.Context, memberID, projectID, agent
 func (s *Service) RemoveAgentMember(ctx context.Context, projectID, agentID uuid.UUID) error {
 	return s.repo.RemoveAgentMember(ctx, projectID, agentID)
 }
+
+// UpdateMemberRoleByMemberID changes the role of an existing project member by member ID.
+func (s *Service) UpdateMemberRoleByMemberID(ctx context.Context, projectID, memberID uuid.UUID, in projectdom.UpdateMemberRoleInput) (*projectdom.ProjectMember, error) {
+	if _, err := s.repo.FindByID(ctx, projectID); err != nil {
+		return nil, err
+	}
+	
+	member, err := s.repo.FindMemberByID(ctx, memberID)
+	if err != nil {
+		return nil, err
+	}
+	
+	if member.ProjectID != projectID {
+		return nil, projectdom.ErrMemberNotFound
+	}
+
+	role, err := s.repo.FindRoleByID(ctx, in.ProjectRoleID)
+	if err != nil {
+		return nil, err
+	}
+	// Ensure the role belongs to this project (or is a template).
+	if role.ProjectID != nil && *role.ProjectID != projectID {
+		return nil, projectdom.ErrRoleNotFound
+	}
+
+	if err := s.repo.UpdateMemberRoleByMemberID(ctx, memberID, in.ProjectRoleID); err != nil {
+		return nil, err
+	}
+
+	return s.repo.FindMemberByID(ctx, memberID)
+}
+
+// RemoveMemberByMemberID removes a project member by member ID.
+func (s *Service) RemoveMemberByMemberID(ctx context.Context, projectID, memberID uuid.UUID) error {
+	if _, err := s.repo.FindByID(ctx, projectID); err != nil {
+		return err
+	}
+	
+	member, err := s.repo.FindMemberByID(ctx, memberID)
+	if err != nil {
+		return err
+	}
+	
+	if member.ProjectID != projectID {
+		return projectdom.ErrMemberNotFound
+	}
+	
+	return s.repo.RemoveMemberByMemberID(ctx, memberID)
+}

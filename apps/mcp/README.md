@@ -20,8 +20,10 @@ No installation or build step required. Configure your AI agent client to use th
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `PACA_API_KEY` | ✅ | — | Your Paca API key |
+| `PACA_API_KEY` | ✅ | — | API key for authentication (see below) |
 | `PACA_API_URL` | ❌ | `http://localhost:8080` | URL of your Paca API instance |
+| `PACA_AGENT_ID` | ❌ | — | Agent UUID (required when using global agent API key) |
+| `PACA_PROJECT_ID` | ❌* | — | Project UUID for single-project mode (required when PACA_AGENT_ID is set) |
 
 ### Claude Desktop
 
@@ -89,6 +91,7 @@ For a full setup walkthrough, see the [MCP Server Setup Guide](../../docs/guides
 ## Features
 
 - **API Key Authentication**: Secure access using Paca API keys
+- **Agent-Specific Permissions**: MCP tools are filtered based on agent's project permissions at startup
 - **Comprehensive Project Management**: Full project lifecycle with member and role management
 - **Advanced Task Management**: Tasks with types, statuses, custom fields, and attachments
 - **Sprint Management**: Complete sprint lifecycle management
@@ -98,6 +101,179 @@ For a full setup walkthrough, see the [MCP Server Setup Guide](../../docs/guides
 - **Collaboration Tools**: Comments and activities for team collaboration
 - **BlockNote Integration**: Automatic conversion between BlockNote JSON and Markdown
 - **Plugin MCP Tools**: Plugins can contribute additional MCP tools, loaded automatically at startup
+
+## Agent & User Permissions
+
+The MCP server automatically filters available tools based on permissions, whether you're using it as an agent or as a regular user.
+
+### Agent Mode vs. User Mode
+
+| Mode | Trigger | API Key Source | Permission Source | Scope |
+|---|---|---|---|---|
+| **Agent Single-Project** | `PACA_AGENT_ID` + `PACA_PROJECT_ID` | Global `AGENT_API_KEY` from server config | Agent's permissions in the specified project | Single project only |
+| **User Single-Project** | `PACA_PROJECT_ID` only (no `PACA_AGENT_ID`) | User's personal API key | User's global + project permissions | Single project |
+| **User Global** | No `PACA_PROJECT_ID` | User's personal API key | User's global permissions only | All projects (no project-scoped tools) |
+
+**Note**: AI agents operate in single-project mode. The global `AGENT_API_KEY` is configured on the Paca server via the `AGENT_API_KEY` environment variable.
+
+### Agent Mode (Single-Project)
+
+When both `PACA_AGENT_ID` and `PACA_PROJECT_ID` are set:
+
+1. **Authentication**: Uses the global `AGENT_API_KEY` configured on the Paca server
+2. **Impersonation**: `X-Agent-ID` header specifies which agent to act as
+3. **Permission Fetch**: Only fetches permissions for the specified project
+4. **Tool Filtering**: Shows only tools the agent has permission to use in that project
+5. **Project Validation**: Enforces that all tool calls use the configured project ID
+6. **Performance**: Optimized for single-project operations (single API call)
+
+**How to Get the Agent API Key:**
+
+The `AGENT_API_KEY` is configured on the Paca server, not per-agent. Check your server's environment:
+```bash
+# On the Paca server
+echo $AGENT_API_KEY  # This is the global agent key to use
+```
+
+**Configuration:**
+```json
+{
+  "mcpServers": {
+    "paca": {
+      "command": "npx",
+      "args": ["-y", "@paca-ai/paca-mcp"],
+      "env": {
+        "PACA_API_KEY": "server-agent-key-from-env",
+        "PACA_API_URL": "http://localhost:8080",
+        "PACA_AGENT_ID": "your-agent-uuid-here",
+        "PACA_PROJECT_ID": "your-project-uuid-here"
+      }
+    }
+  }
+}
+```
+
+**User configuration** (optional single-project mode):
+```json
+{
+  "mcpServers": {
+    "paca": {
+      "command": "npx",
+      "args": ["-y", "@paca-ai/paca-mcp"],
+      "env": {
+        "PACA_API_KEY": "your-api-key-here",
+        "PACA_API_URL": "http://localhost:8080",
+        "PACA_PROJECT_ID": "your-project-uuid-here"
+      }
+    }
+  }
+}
+```
+
+### User Mode (No Agent ID)
+
+When `PACA_AGENT_ID` is not set:
+
+1. **Authentication**: Uses user's personal API key (from Settings → API Keys)
+2. **No Impersonation**: Acts as the authenticated user directly
+3. **Global Permissions**: Fetches global permissions via `GET /api/v1/users/me/global-permissions`
+4. **Tool Filtering**: Shows only globally permitted tools (no project-scoped tools)
+5. **Best Practice**: Set `PACA_PROJECT_ID` to filter tools at the MCP level and reduce API errors
+
+**Configuration:**
+```json
+{
+  "mcpServers": {
+    "paca": {
+      "command": "npx",
+      "args": ["-y", "@paca-ai/paca-mcp"],
+      "env": {
+        "PACA_API_KEY": "your-personal-api-key-here",
+        "PACA_API_URL": "http://localhost:8080"
+      }
+    }
+  }
+}
+```
+
+**To add project scope:**
+```json
+{
+  "mcpServers": {
+    "paca": {
+      "command": "npx",
+      "args": ["-y", "@paca-ai/paca-mcp"],
+      "env": {
+        "PACA_API_KEY": "your-personal-api-key-here",
+        "PACA_API_URL": "http://localhost:8080",
+        "PACA_PROJECT_ID": "your-project-uuid-here"
+      }
+    }
+  }
+}
+```
+
+**Note**: Without `PACA_PROJECT_ID`, project-scoped tools (like `list_tasks`, `create_task`) will not be available.
+
+### Supported Permissions
+
+| Permission | Tools Requiring It |
+|---|---|
+| `projects.read` | `list_projects`, `get_project` |
+| `projects.write` | `update_project`, `delete_project` |
+| `projects.create` | `create_project` |
+| `tasks.read` | `list_tasks`, `get_task`, `get_task_by_number`, `list_task_types`, `list_task_statuses` |
+| `tasks.write` | `create_task`, `update_task`, `delete_task`, `create_task_type`, `update_task_type`, `delete_task_type`, `set_default_task_type`, `create_task_status`, `update_task_status`, `delete_task_status`, `set_default_task_status` |
+| `sprints.read` | `list_sprints`, `get_sprint` |
+| `sprints.write` | `create_sprint`, `update_sprint`, `delete_sprint`, `complete_sprint` |
+| `docs.read` | `list_documents`, `get_document`, `list_doc_folders`, `list_doc_snapshots`, `get_doc_snapshot` |
+| `docs.write` | `create_document`, `update_document`, `delete_document`, `create_doc_folder`, `update_doc_folder`, `delete_doc_folder` |
+| `project.members.read` | `list_project_members`, `get_my_project_permissions` |
+| `project.members.write` | `add_project_member`, `update_project_member_role`, `remove_project_member` |
+| `project.roles.read` | `list_project_roles` |
+| `project.roles.write` | `create_project_role`, `update_project_role`, `delete_project_role` |
+
+### Configuring Permissions
+
+**For Agents:**
+1. **Add Agent as Project Member**: Add the agent to the desired projects with appropriate roles
+2. **Configure Role Permissions**: Ensure the assigned roles have the necessary permissions
+3. **Restart MCP Server**: Restart the MCP server to refresh the permission cache
+
+**Important**: When using agent mode:
+- `PACA_API_KEY` must be a **user's API key** (not the agent's API key)
+- `PACA_AGENT_ID` is the agent to impersonate
+- The user who owns the API key must have permission to use/impersonate the agent
+
+**For Users:**
+1. **Assign Global Roles**: Grant users global permissions through their global roles
+2. **Add to Projects**: Add users to projects with appropriate project roles
+3. **Configure Project Roles**: Ensure project roles have the necessary permissions
+4. **Restart MCP Server**: Restart the MCP server to refresh the permission cache
+
+### Example Configuration
+
+```json
+{
+  "mcpServers": {
+    "paca": {
+      "command": "npx",
+      "args": ["-y", "@paca-ai/paca-mcp"],
+      "env": {
+        "PACA_API_KEY": "your-api-key-here",
+        "PACA_API_URL": "http://localhost:8080",
+        "PACA_AGENT_ID": "your-agent-uuid-here"
+      }
+    }
+  }
+}
+```
+
+**Note**: The MCP server automatically filters tools based on your permissions:
+- **With `PACA_AGENT_ID`**: Filters tools based on the agent's project permissions
+- **Without `PACA_AGENT_ID`**: Filters tools based on your personal user permissions (including global permissions)
+
+If permission fetching fails, all tools will be shown to maintain backward compatibility.
 
 ## Available Tools
 

@@ -360,7 +360,7 @@ function RoleChip({
 
 	const mutation = useMutation({
 		mutationFn: (roleId: string) =>
-			updateProjectMemberRole(projectId, member.user_id, {
+			updateProjectMemberRole(projectId, member.id, {
 				project_role_id: roleId,
 			}),
 		onMutate: async (roleId) => {
@@ -574,7 +574,7 @@ function TeamPage() {
 	const removeMutation = useMutation({
 		mutationFn: () => {
 			if (!removingMember) return Promise.resolve();
-			return removeProjectMember(projectId, removingMember.user_id);
+			return removeProjectMember(projectId, removingMember.id);
 		},
 		onSuccess: async () => {
 			await queryClient.invalidateQueries({
