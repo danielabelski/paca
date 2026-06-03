@@ -77,8 +77,12 @@ function eventToChatMessages(ev: AgentConversationEvent): ChatMessage[] {
 	const p = ev.payload;
 	const t = ev.event_type;
 
-	// Skip infrastructure/state events — they carry no conversation content.
-	if (t === "ConversationStateUpdateEvent" || t === "SystemPromptEvent") {
+	// Skip events that carry no user-visible content.
+	if (
+		t === "ConversationStateUpdateEvent" ||
+		t === "SystemPromptEvent" ||
+		t === "StreamingDeltaEvent"
+	) {
 		return [];
 	}
 

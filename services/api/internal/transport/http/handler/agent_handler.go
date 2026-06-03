@@ -467,7 +467,7 @@ func parseOffsetLimit(c *gin.Context) (offset, limit int) {
 	if offset < 0 {
 		offset = 0
 	}
-	if limit < 1 || limit > 200 {
+	if limit < 1 || limit > 500 {
 		limit = 50
 	}
 	return offset, limit

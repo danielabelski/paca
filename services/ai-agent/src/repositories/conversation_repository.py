@@ -4,13 +4,25 @@ from __future__ import annotations
 from ..core.db import get_pool
 
 
-async def update_conversation_status(conversation_id: str, status: str) -> None:
+async def update_conversation_status(
+    conversation_id: str,
+    status: str,
+    error_message: str | None = None,
+) -> None:
     pool = await get_pool()
-    await pool.execute(
-        "UPDATE agent_conversations SET status = $1, updated_at = now() WHERE id = $2",
-        status,
-        conversation_id,
-    )
+    if error_message is not None:
+        await pool.execute(
+            "UPDATE agent_conversations SET status = $1, error_message = $2, updated_at = now() WHERE id = $3",
+            status,
+            error_message,
+            conversation_id,
+        )
+    else:
+        await pool.execute(
+            "UPDATE agent_conversations SET status = $1, updated_at = now() WHERE id = $2",
+            status,
+            conversation_id,
+        )
 
 
 async def insert_conversation_event(

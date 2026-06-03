@@ -42,7 +42,7 @@ def build_llm(agent_config: AgentConfig) -> LLM:
         key_preview,
     )
 
-    llm_kwargs: dict = {"model": model_str, "api_key": SecretStr(key_val)}
+    llm_kwargs: dict = {"model": model_str, "api_key": SecretStr(key_val), "stream": True}
     if llm_base_url:
         llm_kwargs["base_url"] = llm_base_url
 

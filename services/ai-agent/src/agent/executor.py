@@ -104,6 +104,15 @@ def _make_event_callback(
         event_type = type(event).__name__
         event_source = str(getattr(event, "source", "agent"))
 
+        # Events the frontend never renders — skip to avoid wasting event_index
+        # slots and polluting the paginated events list.
+        if event_type in {
+            "StreamingDeltaEvent",          # streaming chunks (handled by token_callbacks)
+            "ConversationStateUpdateEvent", # internal iteration bookkeeping
+            "SystemPromptEvent",            # system prompt echo — not shown to user
+            "ConversationErrorEvent",       # SDK error signal — surfaced via conversation status
+        }:
+            return
         # Agent text responses are captured by token_callbacks with richer
         # streaming data; skip them here to avoid duplicate DB rows.
         if event_type == "MessageEvent" and event_source == "agent":
@@ -334,7 +343,19 @@ async def run_conversation(trigger: TriggerMessage, agent_config: AgentConfig) -
 
         await asyncio.get_event_loop().run_in_executor(None, _run_sync)
         await conversation_repository.update_conversation_status(trigger.conversation_id, "finished")
+        await stream_store.publish_realtime(
+            project_id=trigger.project_id,
+            conversation_id=trigger.conversation_id,
+            event_type="agent.conversation.finished",
+        )
 
     except Exception as exc:
         logger.exception("Conversation %s failed: %s", trigger.conversation_id, exc)
-        await conversation_repository.update_conversation_status(trigger.conversation_id, "failed")
+        await conversation_repository.update_conversation_status(
+            trigger.conversation_id, "failed", error_message=str(exc)
+        )
+        await stream_store.publish_realtime(
+            project_id=trigger.project_id,
+            conversation_id=trigger.conversation_id,
+            event_type="agent.conversation.failed",
+        )

@@ -366,7 +366,9 @@ export async function listConversationEvents(
 ): Promise<AgentConversationEvent[]> {
 	const { data } = await apiClient.instance.get<
 		SuccessEnvelope<{ items: AgentConversationEvent[] }>
-	>(`/projects/${projectId}/conversations/${conversationId}/events`);
+	>(`/projects/${projectId}/conversations/${conversationId}/events`, {
+		params: { limit: 200 },
+	});
 	return data.data.items;
 }
 
@@ -484,7 +486,6 @@ export const conversationQueryOptions = (
 	queryOptions({
 		queryKey: ["projects", projectId, "conversations", conversationId],
 		queryFn: () => getConversation(projectId, conversationId),
-		refetchInterval: 5_000,
 	});
 
 export const conversationEventsQueryOptions = (
@@ -500,7 +501,6 @@ export const conversationEventsQueryOptions = (
 			"events",
 		],
 		queryFn: () => listConversationEvents(projectId, conversationId),
-		refetchInterval: 5_000,
 	});
 
 export const chatSessionsQueryOptions = (projectId: string, agentId: string) =>
