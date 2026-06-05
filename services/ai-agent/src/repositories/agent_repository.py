@@ -17,10 +17,19 @@ def _decrypt_secret(ciphertext: str) -> str:
     """Decrypt an AES-256-GCM ciphertext produced by the Go API's secret.Encryptor.
 
     If ENCRYPTION_KEY is not configured the value is returned as-is (plaintext
-    backward-compat mode).  Any decryption error falls back to returning the raw
-    value so the worker log captures the failure without crashing the service.
+    backward-compat mode).  Any decryption error returns an empty string so
+    that a clear "missing API key" error surfaces at the LLM call rather than
+    the misleading "token expired / incorrect" that results from forwarding the
+    raw ciphertext to the provider.
     """
-    if not settings.encryption_key or not ciphertext:
+    if not ciphertext:
+        return ciphertext
+    if not settings.encryption_key:
+        logger.warning(
+            "ENCRYPTION_KEY is not set — LLM API key will be used as-is from the "
+            "database. If the api service encrypts secrets, set ENCRYPTION_KEY in "
+            "the ai-agent environment to the same value."
+        )
         return ciphertext
     try:
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -33,8 +42,13 @@ def _decrypt_secret(ciphertext: str) -> str:
         plaintext = AESGCM(key).decrypt(nonce, ct_with_tag, None)
         return plaintext.decode()
     except Exception as exc:
-        logger.error("Failed to decrypt LLM API key secret: %s", exc)
-        return ciphertext
+        logger.error(
+            "Failed to decrypt LLM API key secret — the LLM will receive an empty "
+            "key. Verify that ENCRYPTION_KEY in the ai-agent service matches the "
+            "api service. Error: %s",
+            exc,
+        )
+        return ""
 
 
 async def load_agent_config(agent_id: str) -> AgentConfig | None:
