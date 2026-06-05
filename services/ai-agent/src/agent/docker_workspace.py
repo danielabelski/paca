@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import io
 import logging
 import os
 import platform as platform_module
 import secrets
 import socket
+import tarfile
 import threading
 import time
 from collections.abc import Iterator
@@ -95,10 +97,10 @@ def _get_app_host_path(client: docker.DockerClient) -> str | None:
 def _find_host_path_for(client: docker.DockerClient, container_path: str) -> str | None:
     """Return the host-side source of a bind mount in the current container.
 
-    Used to re-share a directory (e.g. /mcp) that is already bind-mounted into
-    this container into the sibling sandbox containers we spawn.  The Docker
-    socket gives access to the *host* daemon, so volumes must be expressed as
-    host paths — not paths that only exist inside this container.
+    Used to re-share a directory that is already bind-mounted into this
+    container into the sibling sandbox containers we spawn.  The Docker socket
+    gives access to the *host* daemon, so volumes must be expressed as host
+    paths — not paths that only exist inside this container.
     """
     try:
         hostname = socket.gethostname()
@@ -124,6 +126,46 @@ def _wait_for_ready(host: str, timeout: float = 120.0) -> None:
     raise TimeoutError(f"Agent server at {host} not ready after {timeout}s")
 
 
+# ─── Repo tools injection ─────────────────────────────────────────────────────
+
+_REPO_TOOLS_DEST = "/tmp/paca_tools"
+_REPO_TOOLS_FILES = [
+    ("src/__init__.py", "paca_tools/src/__init__.py"),
+    ("src/agent/__init__.py", "paca_tools/src/agent/__init__.py"),
+    ("src/agent/repo_tools.py", "paca_tools/src/agent/repo_tools.py"),
+]
+
+
+def _copy_repo_tools_to_container(container: Container) -> bool:
+    """Copy src.agent.repo_tools into /tmp/paca_tools in the sandbox.
+
+    Used in production where /app is baked into the image instead of
+    bind-mounted from the host.  After this call, the agent server can
+    run importlib.import_module("src.agent.repo_tools") when
+    OH_EXTRA_PYTHON_PATH=/tmp/paca_tools is set.
+
+    Returns True on success, False if any required source file is missing.
+    """
+    src_root = Path("/app")
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        for dir_name in ["paca_tools", "paca_tools/src", "paca_tools/src/agent"]:
+            info = tarfile.TarInfo(name=dir_name)
+            info.type = tarfile.DIRTYPE
+            info.mode = 0o755
+            tar.addfile(info)
+        for src_rel, dest_rel in _REPO_TOOLS_FILES:
+            path = src_root / src_rel
+            if not path.exists():
+                logger.warning("Cannot copy repo_tools into sandbox: missing %s", path)
+                return False
+            tar.add(str(path), arcname=dest_rel)
+    buf.seek(0)
+    container.put_archive("/tmp", buf.getvalue())
+    logger.debug("Copied repo_tools into sandbox container at %s", _REPO_TOOLS_DEST)
+    return True
+
+
 # ─── Context manager ──────────────────────────────────────────────────────────
 
 
@@ -142,14 +184,10 @@ def docker_sandbox(
     sandbox — MCP servers (including the built-in Paca MCP) call those services
     directly, so they must be reachable from within the container.
 
-    The MCP build directory (/mcp) is re-shared into the sandbox using the
-    host-side bind-mount path, so `node /mcp/build/index.js` works inside the
-    container without baking the file into the agent-server image.
-
     Outside Docker (local dev)
     ──────────────────────────
     The container port is mapped to a host port from the pool and accessed via
-    localhost.  MCP volume sharing is attempted on a best-effort basis.
+    localhost.
     """
     client = docker.DockerClient(base_url=f"unix://{settings.docker_socket}")
     container: Container | None = None
@@ -159,17 +197,6 @@ def docker_sandbox(
         # ── Volumes ───────────────────────────────────────────────────────────
         volumes: dict = {}
 
-        # Share the MCP build directory so `node /mcp/build/index.js` works.
-        mcp_host_path = _find_host_path_for(client, "/mcp")
-        if mcp_host_path:
-            volumes[mcp_host_path] = {"bind": "/mcp", "mode": "ro"}
-            logger.debug("Sharing MCP build into sandbox from host path: %s", mcp_host_path)
-        else:
-            logger.warning(
-                "Could not detect host path for /mcp — the built-in Paca MCP "
-                "server may not be available inside the agent sandbox."
-            )
-
         # Share the ai-agent source tree so the remote server can import
         # src.agent.repo_tools to register the custom repository tools.
         app_host_path = _get_app_host_path(client)
@@ -177,9 +204,11 @@ def docker_sandbox(
             volumes[app_host_path] = {"bind": "/app", "mode": "ro"}
             logger.debug("Sharing app source into sandbox from host path: %s", app_host_path)
         else:
-            logger.warning(
-                "Could not detect host path for /app — custom repository tools "
-                "(list_repositories, clone_repository, …) will not be available."
+            # Production: /app is baked into the image (not bind-mounted).
+            # We will copy the necessary files into the container after it starts.
+            logger.debug(
+                "No host bind-mount for /app detected — "
+                "will inject repo_tools into the sandbox container directly."
             )
 
         # ── Environment ───────────────────────────────────────────────────────
@@ -194,12 +223,11 @@ def docker_sandbox(
             "GIT_AUTHOR_EMAIL": git_committer_email,
             "GIT_COMMITTER_NAME": git_committer_name,
             "GIT_COMMITTER_EMAIL": git_committer_email,
+            # Add the app source to Python's module search path so the agent
+            # server can run importlib.import_module("src.agent.repo_tools").
+            # Value depends on whether we share via bind-mount or file injection.
+            "OH_EXTRA_PYTHON_PATH": "/app" if app_host_path else _REPO_TOOLS_DEST,
         }
-        if app_host_path:
-            # Add the mounted app directory to Python's module search path so
-            # `importlib.import_module("src.agent.repo_tools")` succeeds inside
-            # the container.
-            environment["OH_EXTRA_PYTHON_PATH"] = "/app"
 
         run_kwargs: dict = {
             "image": settings.agent_server_image,
@@ -246,6 +274,19 @@ def docker_sandbox(
             )
             container = client.containers.run(**run_kwargs)
             host = f"http://localhost:{host_port}"
+
+        if not app_host_path:
+            # Production path: inject repo_tools directly into the container
+            # filesystem before the server finishes starting up.
+            try:
+                _copy_repo_tools_to_container(container)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to inject repo_tools into sandbox — "
+                    "repository tools (list_repositories, clone_repository, …) "
+                    "will not be available: %s",
+                    exc,
+                )
 
         _wait_for_ready(host)
         logger.info("Agent sandbox ready: conversation=%s host=%s", conversation_id, host)

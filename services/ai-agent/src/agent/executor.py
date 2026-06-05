@@ -36,17 +36,43 @@ _DONE_STATUSES = frozenset(
     }
 )
 
+_ERROR_STATUSES = frozenset(
+    {
+        ConversationExecutionStatus.ERROR,
+        ConversationExecutionStatus.STUCK,
+    }
+)
+
+
+def _get_conversation_error_detail(conversation) -> str | None:
+    """Extract the error detail from a conversation's ConversationErrorEvent, if any."""
+    try:
+        from openhands.sdk.event.conversation_error import ConversationErrorEvent
+
+        events = conversation.state.events
+        for event in reversed(list(events)):
+            if isinstance(event, ConversationErrorEvent):
+                code = (event.code or "").strip()
+                detail = (event.detail or "").strip()
+                if code and detail:
+                    return f"{code}: {detail}"
+                return detail or code or None
+    except Exception:
+        pass
+    return None
+
 
 def _wait_for_done_or_stop(
     conversation,
     stop_event: threading.Event,
     poll_interval: float = 2.0,
     timeout: float = 3600.0,
-) -> bool:
+) -> tuple[bool, bool]:
     """Poll the remote conversation until it finishes or a stop is signaled.
 
-    Returns True if the loop exited because stop was requested (so the caller
-    knows not to update status to "finished").
+    Returns (stopped, errored):
+      stopped  — True if the loop exited because a stop was requested.
+      errored  — True if the conversation ended with ERROR or STUCK status.
     """
     start = time.monotonic()
     while True:
@@ -57,16 +83,24 @@ def _wait_for_done_or_stop(
                 conversation.pause()
             except Exception as exc:
                 logger.warning("Failed to pause conversation on stop request: %s", exc)
-            return True
+            return True, False
 
         if time.monotonic() - start > timeout:
             logger.warning("Conversation polling timed out after %.0f seconds", timeout)
-            return False
+            return False, False
 
         try:
             status = conversation.state.execution_status
             if status in _DONE_STATUSES:
-                return False
+                errored = status in _ERROR_STATUSES
+                if errored:
+                    detail = _get_conversation_error_detail(conversation)
+                    logger.error(
+                        "Conversation ended with status %s — %s",
+                        status.value,
+                        detail or "no detail available",
+                    )
+                return False, errored
         except Exception as exc:
             logger.debug("Failed to read conversation execution status: %s", exc)
 
@@ -408,7 +442,7 @@ async def run_conversation(trigger: TriggerMessage, agent_config: AgentConfig) -
                     callbacks=[_make_event_callback(trigger, loop, counter)],
                     token_callbacks=[_make_token_callback(trigger, loop, counter)],
                     max_iteration_per_run=agent_config.max_iterations,
-                    visualizer=_QuietVisualizer,
+                    visualizer=_QuietVisualizer(),
                 )
 
                 # Register so the worker's stop handler can find this conversation.
@@ -444,16 +478,26 @@ async def run_conversation(trigger: TriggerMessage, agent_config: AgentConfig) -
                 finally:
                     active_conversations.pop(trigger.conversation_id, None)
 
-        interrupted = await asyncio.get_event_loop().run_in_executor(None, _run_sync)
-        if not interrupted:
-            await conversation_repository.update_conversation_status(
-                trigger.conversation_id, "finished"
-            )
-            await stream_store.publish_realtime(
-                project_id=trigger.project_id,
-                conversation_id=trigger.conversation_id,
-                event_type="agent.conversation.finished",
-            )
+        stopped, errored = await asyncio.get_event_loop().run_in_executor(None, _run_sync)
+        if not stopped:
+            if errored:
+                await conversation_repository.update_conversation_status(
+                    trigger.conversation_id, "failed"
+                )
+                await stream_store.publish_realtime(
+                    project_id=trigger.project_id,
+                    conversation_id=trigger.conversation_id,
+                    event_type="agent.conversation.failed",
+                )
+            else:
+                await conversation_repository.update_conversation_status(
+                    trigger.conversation_id, "finished"
+                )
+                await stream_store.publish_realtime(
+                    project_id=trigger.project_id,
+                    conversation_id=trigger.conversation_id,
+                    event_type="agent.conversation.finished",
+                )
 
     except Exception as exc:
         if not stop_event.is_set():

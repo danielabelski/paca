@@ -223,7 +223,7 @@ ENCRYPTION_KEY_GENERATED=0
 ask_secret ENCRYPTION_KEY "Encryption key — 64-char hex (leave blank to generate)"
 
 if [[ -z "$ENCRYPTION_KEY" ]]; then
-    ENCRYPTION_KEY="$(rand_hex 32)"
+    ENCRYPTION_KEY="$(rand_hex 64)"
     ENCRYPTION_KEY_GENERATED=1
     info "Encryption key generated."
 else

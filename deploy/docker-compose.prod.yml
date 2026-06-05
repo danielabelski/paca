@@ -221,6 +221,9 @@ services:
       PORT_POOL_SIZE: ${PORT_POOL_SIZE:-100}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-10}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Must match ENCRYPTION_KEY in the api service so that LLM API keys
+      # stored encrypted in the database can be decrypted before use.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
