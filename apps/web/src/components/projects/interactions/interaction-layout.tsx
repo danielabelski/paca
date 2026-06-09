@@ -615,8 +615,6 @@ export function InteractionLayout({
 							queryFn: () =>
 								Promise.resolve({
 									items: [] as Task[],
-									total: 0,
-									page: 1,
 									page_size: 0,
 									next_cursor: null,
 								}),

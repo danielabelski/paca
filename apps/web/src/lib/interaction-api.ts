@@ -49,8 +49,6 @@ export interface Task {
 
 export interface TaskListResult {
 	items: Task[];
-	total: number;
-	page: number;
 	page_size: number;
 	next_cursor?: string | null;
 }
@@ -409,16 +407,12 @@ export interface ListTasksOptions {
 	taskTypeIds?: string[];
 	taskTypeNull?: boolean;
 	parentTaskId?: string;
-	page?: number;
 	pageSize?: number;
 	cursor?: string;
 }
 
 function buildTaskQueryParams(opts: ListTasksOptions = {}) {
 	const params: Record<string, string | number | boolean> = {};
-	if (!opts.cursor) {
-		params.page = opts.page ?? 1;
-	}
 	params.page_size = opts.pageSize ?? 20;
 	if (opts.cursor) params.cursor = opts.cursor;
 	if (opts.sprintId === null) params.sprint_id = "null";
