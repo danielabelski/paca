@@ -77,7 +77,7 @@ import { NewViewPopover } from "./new-view-popover";
 import { RenameViewDialog } from "./rename-view-dialog";
 import { RoadmapView } from "./roadmap-view";
 import { TaskDetailModal } from "./task-detail-modal";
-import { ViewSettingsPanel } from "./view-settings-panel";
+import { UNASSIGNED_FILTER_ID, ViewSettingsPanel } from "./view-settings-panel";
 import {
 	getColumnGroupDefs,
 	sortTasksByConfig,
@@ -526,8 +526,31 @@ export function InteractionLayout({
 	const isRealView = !!activeViewId && !activeViewId.startsWith("__default-");
 	const effectiveViewId = isManualSort && isRealView ? activeViewId : undefined;
 	const hasExplicitFilterConfig = activeViewConfig?.filters !== undefined;
-	const apiFilters = useMemo(
-		() => ({
+	const apiFilters = useMemo(() => {
+		let assignee_ids: string[] | undefined;
+		let assignee_null: true | undefined;
+		if (activeViewConfig?.filters?.assignees) {
+			const resolved = resolveFilterConfig(
+				activeViewConfig.filters.assignees,
+				members.map((m) => m.id),
+			);
+			const hasUnassigned = resolved.includes(UNASSIGNED_FILTER_ID);
+			const memberIds = resolved.filter((id) => id !== UNASSIGNED_FILTER_ID);
+			assignee_ids = memberIds.length > 0 ? memberIds : undefined;
+			assignee_null = hasUnassigned || undefined;
+		}
+
+		let task_type_ids: string[] | undefined;
+		if (!activeViewConfig?.filters) {
+			task_type_ids = defaultPageTaskTypeIds;
+		} else if (activeViewConfig.filters.task_types) {
+			task_type_ids = resolveTaskTypeFilter(
+				activeViewConfig.filters.task_types,
+				taskTypes,
+			);
+		}
+
+		return {
 			sprint_ids:
 				activeViewConfig?.filters !== undefined
 					? activeViewConfig.filters.sprints
@@ -545,31 +568,19 @@ export function InteractionLayout({
 						statuses.map((s) => s.id),
 					)
 				: undefined,
-			assignee_ids: activeViewConfig?.filters?.assignees
-				? resolveFilterConfig(
-						activeViewConfig.filters.assignees,
-						members.map((m) => m.id),
-					)
-				: undefined,
-			task_type_ids: (() => {
-				if (!activeViewConfig?.filters) return defaultPageTaskTypeIds;
-				if (!activeViewConfig.filters.task_types) return undefined;
-				return resolveTaskTypeFilter(
-					activeViewConfig.filters.task_types,
-					taskTypes,
-				);
-			})(),
-		}),
-		[
-			activeViewConfig?.filters,
-			defaultPageTaskTypeIds,
-			members,
-			sprints,
-			sprintId,
-			statuses,
-			taskTypes,
-		],
-	);
+			assignee_ids,
+			assignee_null,
+			task_type_ids,
+		};
+	}, [
+		activeViewConfig?.filters,
+		defaultPageTaskTypeIds,
+		members,
+		sprints,
+		sprintId,
+		statuses,
+		taskTypes,
+	]);
 	const viewCtx: ViewContext = useMemo(
 		() => ({ statuses, taskTypes, members, customFields, sprints }),
 		[statuses, taskTypes, members, customFields, sprints],
@@ -606,6 +617,8 @@ export function InteractionLayout({
 			statusIds: columnBy !== "status" ? apiFilters.status_ids : undefined,
 			assigneeIds:
 				columnBy !== "assignee" ? apiFilters.assignee_ids : undefined,
+			assigneeNull:
+				columnBy !== "assignee" ? apiFilters.assignee_null : undefined,
 			taskTypeIds: columnBy !== "type" ? apiFilters.task_type_ids : undefined,
 			pageSize: initialColPageSize,
 		}),
@@ -678,6 +691,7 @@ export function InteractionLayout({
 			sprintIds: apiFilters.sprint_ids,
 			statusIds: apiFilters.status_ids,
 			assigneeIds: apiFilters.assignee_ids,
+			assigneeNull: apiFilters.assignee_null,
 			taskTypeIds: apiFilters.task_type_ids,
 		}),
 		[context, hasExplicitFilterConfig, sprintId, apiFilters],

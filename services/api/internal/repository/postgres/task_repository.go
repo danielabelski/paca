@@ -343,6 +343,8 @@ func (r *TaskRepository) ListTasks(ctx context.Context, projectID uuid.UUID, fil
 	}
 
 	switch {
+	case filter.AssigneeNull && len(filter.AssigneeIDs) > 0:
+		q = q.Where("assignee_id IS NULL OR assignee_id IN ?", uuidSliceToStrSlice(filter.AssigneeIDs))
 	case filter.AssigneeNull:
 		q = q.Where("assignee_id IS NULL")
 	case len(filter.AssigneeIDs) > 0:

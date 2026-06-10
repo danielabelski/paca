@@ -510,6 +510,25 @@ func TestTaskHandler_ListTasks_SprintNullMeansBacklog(t *testing.T) {
 	}
 }
 
+func TestTaskHandler_ListTasks_AssigneeNullAndIDsTogether(t *testing.T) {
+	svc := newFakeTaskSvc()
+	r := buildTaskHandlerRouter(svc)
+	projectID := uuid.New()
+	assigneeID := uuid.New()
+
+	path := fmt.Sprintf("/projects/%s/tasks?assignee_id=null&assignee_ids=%s", projectID, assigneeID)
+	w := doTaskRequest(r, http.MethodGet, path, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !svc.lastFilter.AssigneeNull {
+		t.Fatal("expected AssigneeNull=true when assignee_id=null")
+	}
+	if len(svc.lastFilter.AssigneeIDs) != 1 || svc.lastFilter.AssigneeIDs[0] != assigneeID {
+		t.Fatalf("expected AssigneeIDs=[%s], got %+v", assigneeID, svc.lastFilter.AssigneeIDs)
+	}
+}
+
 func TestTaskHandler_ListTasks_TaskTypeIDsDriveFiltering(t *testing.T) {
 	svc := newFakeTaskSvc()
 	r := buildTaskHandlerRouter(svc)
