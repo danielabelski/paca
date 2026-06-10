@@ -77,7 +77,10 @@ import { NewViewPopover } from "./new-view-popover";
 import { RenameViewDialog } from "./rename-view-dialog";
 import { RoadmapView } from "./roadmap-view";
 import { TaskDetailModal } from "./task-detail-modal";
-import { ViewSettingsPanel } from "./view-settings-panel";
+import {
+	UNASSIGNED_FILTER_ID,
+	ViewSettingsPanel,
+} from "./view-settings-panel";
 import {
 	getColumnGroupDefs,
 	sortTasksByConfig,
@@ -527,46 +530,53 @@ export function InteractionLayout({
 	const effectiveViewId = isManualSort && isRealView ? activeViewId : undefined;
 	const hasExplicitFilterConfig = activeViewConfig?.filters !== undefined;
 	const apiFilters = useMemo(
-		() => ({
-			sprint_ids:
-				activeViewConfig?.filters !== undefined
-					? activeViewConfig.filters.sprints
-						? resolveFilterConfig(
-								activeViewConfig.filters.sprints,
-								sprints.map((s) => s.id),
-							)
-						: undefined
-					: sprintId
-						? [sprintId]
-						: undefined,
-			status_ids: activeViewConfig?.filters?.statuses
-				? resolveFilterConfig(
-						activeViewConfig.filters.statuses,
-						statuses.map((s) => s.id),
-					)
-				: undefined,
-			...(() => {
-				if (!activeViewConfig?.filters?.assignees) return {};
+		() => {
+			let assignee_ids: string[] | undefined;
+			let assignee_null: true | undefined;
+			if (activeViewConfig?.filters?.assignees) {
 				const resolved = resolveFilterConfig(
 					activeViewConfig.filters.assignees,
 					members.map((m) => m.id),
 				);
-				const hasUnassigned = resolved.includes("__unassigned");
-				const memberIds = resolved.filter((id) => id !== "__unassigned");
-				return {
-					assignee_ids: memberIds.length > 0 ? memberIds : undefined,
-					assignee_null: hasUnassigned || undefined,
-				};
-			})(),
-			task_type_ids: (() => {
-				if (!activeViewConfig?.filters) return defaultPageTaskTypeIds;
-				if (!activeViewConfig.filters.task_types) return undefined;
-				return resolveTaskTypeFilter(
+				const hasUnassigned = resolved.includes(UNASSIGNED_FILTER_ID);
+				const memberIds = resolved.filter((id) => id !== UNASSIGNED_FILTER_ID);
+				assignee_ids = memberIds.length > 0 ? memberIds : undefined;
+				assignee_null = hasUnassigned || undefined;
+			}
+
+			let task_type_ids: string[] | undefined;
+			if (!activeViewConfig?.filters) {
+				task_type_ids = defaultPageTaskTypeIds;
+			} else if (activeViewConfig.filters.task_types) {
+				task_type_ids = resolveTaskTypeFilter(
 					activeViewConfig.filters.task_types,
 					taskTypes,
 				);
-			})(),
-		}),
+			}
+
+			return {
+				sprint_ids:
+					activeViewConfig?.filters !== undefined
+						? activeViewConfig.filters.sprints
+							? resolveFilterConfig(
+									activeViewConfig.filters.sprints,
+									sprints.map((s) => s.id),
+								)
+							: undefined
+						: sprintId
+							? [sprintId]
+							: undefined,
+				status_ids: activeViewConfig?.filters?.statuses
+					? resolveFilterConfig(
+							activeViewConfig.filters.statuses,
+							statuses.map((s) => s.id),
+						)
+					: undefined,
+				assignee_ids,
+				assignee_null,
+				task_type_ids,
+			};
+		},
 		[
 			activeViewConfig?.filters,
 			defaultPageTaskTypeIds,

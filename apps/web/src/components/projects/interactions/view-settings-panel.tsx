@@ -457,7 +457,7 @@ function StatusFilterSection({
 
 // ── Assignee filter ───────────────────────────────────────────────────────────
 
-const UNASSIGNED_FILTER_ID = "__unassigned";
+export const UNASSIGNED_FILTER_ID = "__unassigned";
 
 function AssigneeFilterSection({
 	members,
