@@ -280,6 +280,12 @@ export function DescriptionSection({
 						)}
 					</div>
 
+					{writeWithAIMutation.error && (
+						<p className="text-xs text-destructive">
+							{writeWithAIMutation.error.message}
+						</p>
+					)}
+
 					<DialogFooter>
 						<Button
 							variant="outline"
