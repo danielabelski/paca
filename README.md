@@ -119,9 +119,27 @@ Plan  →  Act  →  Check  →  Adapt
 
 ---
 
+## What's New in v0.4.0
+
+- **In-app AI chat** — chat with AI agents at the project level to plan work, create or update epics, stories, tasks, and documentation — all in plain English without leaving Paca
+
+<p align="center">
+  <img src="docs/assets/demo-ai-chat.gif" width="720" alt="Paca v0.4.0 — In-app AI Chat for Project Planning and Task Management" />
+</p>
+
+- **Activity diff & revert** — every field change in the activity pane now shows a before/after diff; one click reverts a change to its previous value
+
+<p align="center">
+  <img src="docs/assets/demo-activity-diff-revert.gif" width="720" alt="Paca v0.4.0 — Activity Diff and Revert" />
+</p>
+
+---
+
 ## Key Features
 
 - **Unified Scrumban Board** — humans and AI agents share a single real-time board; no separate "AI workspace"
+- **In-app AI chat** — chat with AI agents at the project level to plan work, create or update epics, stories, tasks, and documentation in plain English
+- **Activity diff & revert** — see a visual diff for every field change in the activity pane and revert any change with one click
 - **BDD Collaboration** — Gherkin scenario editor co-authored by POs, BAs, and AI agents
 - **System Design Documents (SDD)** — living architecture docs that keep AI agents contextually grounded
 - **MCP Server** — connect Claude, custom agents, or any MCP-compatible tool directly into Paca's data layer
