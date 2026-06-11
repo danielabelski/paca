@@ -109,7 +109,7 @@ export function getActivityChanges(
 			!!change &&
 			typeof change === "object" &&
 			"field" in change &&
-			typeof (change as Record<string, unknown>).field === "string",
+			typeof change.field === "string",
 	);
 }
 
