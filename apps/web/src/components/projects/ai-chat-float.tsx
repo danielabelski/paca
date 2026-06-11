@@ -10,10 +10,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import {
-	agentsQueryOptions,
-	startChatSession,
-} from "@/lib/agent-api";
+import { agentsQueryOptions, startChatSession } from "@/lib/agent-api";
 import { cn } from "@/lib/utils";
 import { ConversationView } from "./agents/conversation-view";
 
@@ -45,7 +42,10 @@ export function AIChatFloat({ projectId }: AIChatFloatProps) {
 		mutationFn: () =>
 			startChatSession(projectId, agentId, { message: message.trim() }),
 		onSuccess: (result) => {
-			setPhase({ kind: "conversation", conversationId: result.conversation.id });
+			setPhase({
+				kind: "conversation",
+				conversationId: result.conversation.id,
+			});
 			setMessage("");
 			void qc.invalidateQueries({
 				queryKey: ["projects", projectId, "conversations"],
@@ -66,8 +66,7 @@ export function AIChatFloat({ projectId }: AIChatFloatProps) {
 		setTimeout(() => textareaRef.current?.focus(), 50);
 	}
 
-	const canSend =
-		!!agentId && message.trim().length > 0 && !sendMut.isPending;
+	const canSend = !!agentId && message.trim().length > 0 && !sendMut.isPending;
 
 	return (
 		<>
@@ -83,11 +82,7 @@ export function AIChatFloat({ projectId }: AIChatFloatProps) {
 						: "bg-primary text-primary-foreground hover:bg-primary/90",
 				)}
 			>
-				{open ? (
-					<X className="size-5" />
-				) : (
-					<Bot className="size-5" />
-				)}
+				{open ? <X className="size-5" /> : <Bot className="size-5" />}
 			</button>
 
 			{/* Chat panel */}
@@ -176,9 +171,7 @@ function ComposeForm({
 		<div className="flex flex-col gap-3 p-4">
 			{/* Agent selector */}
 			<div className="space-y-1.5">
-				<label className="text-xs font-medium text-muted-foreground">
-					Agent
-				</label>
+				<p className="text-xs font-medium text-muted-foreground">Agent</p>
 				{agentsLoading ? (
 					<div className="h-9 animate-pulse rounded-md bg-muted" />
 				) : agents.length === 0 ? (
@@ -207,13 +200,17 @@ function ComposeForm({
 
 			{/* Message input */}
 			<div className="space-y-1.5">
-				<label className="text-xs font-medium text-muted-foreground">
+				<label
+					htmlFor="chat-message"
+					className="text-xs font-medium text-muted-foreground"
+				>
 					Message
 					<span className="ml-1.5 font-normal opacity-50">
 						(Enter to send, Shift+Enter for newline)
 					</span>
 				</label>
 				<Textarea
+					id="chat-message"
 					ref={textareaRef}
 					placeholder="What would you like the agent to help with?"
 					value={message}
@@ -225,16 +222,10 @@ function ComposeForm({
 			</div>
 
 			{/* Error */}
-			{error && (
-				<p className="text-xs text-destructive">{error.message}</p>
-			)}
+			{error && <p className="text-xs text-destructive">{error.message}</p>}
 
 			{/* Send button */}
-			<Button
-				className="w-full"
-				onClick={onSend}
-				disabled={!canSend}
-			>
+			<Button className="w-full" onClick={onSend} disabled={!canSend}>
 				{isPending ? (
 					<Loader2 className="size-4 animate-spin" />
 				) : (

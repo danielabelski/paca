@@ -20,13 +20,13 @@ import {
 } from "@/components/ui/dialog";
 import { useThemeMode } from "@/hooks/use-theme-mode";
 import {
-	getAttachmentDownloadURL,
-	uploadAttachment,
-} from "@/lib/attachment-api";
-import {
 	agentsQueryOptions,
 	writeTaskDescriptionWithAI,
 } from "@/lib/agent-api";
+import {
+	getAttachmentDownloadURL,
+	uploadAttachment,
+} from "@/lib/attachment-api";
 import { useMentionData } from "@/lib/mention-api";
 import { cleanBlocks, cn } from "@/lib/utils";
 

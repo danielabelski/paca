@@ -922,8 +922,7 @@ function ConversationRow({
 							: conv.trigger_type === "description_write"
 								? "Write description"
 								: "Task"}{" "}
-						·{" "}
-						{conv.id.slice(0, 8)}
+						· {conv.id.slice(0, 8)}
 					</span>
 					<Badge
 						variant="outline"

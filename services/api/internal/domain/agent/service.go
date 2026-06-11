@@ -62,12 +62,12 @@ type ChatSessionService interface {
 
 // CreateAgentInput carries fields required to create an agent.
 type CreateAgentInput struct {
-	Name              string
-	Handle            string
-	LLMProvider       string
-	LLMModel          string
-	LLMAPIKey         string // plain text key; stored encrypted by service
-	LLMBaseURL        *string
+	Name                          string
+	Handle                        string
+	LLMProvider                   string
+	LLMModel                      string
+	LLMAPIKey                     string // plain text key; stored encrypted by service
+	LLMBaseURL                    *string
 	SystemPrompt                  string
 	TaskTriggerPrompt             string
 	DocCommentTriggerPrompt       string
@@ -85,12 +85,12 @@ type CreateAgentInput struct {
 
 // UpdateAgentInput carries mutable agent fields.
 type UpdateAgentInput struct {
-	Name              *string
-	Handle            *string
-	LLMProvider       *string
-	LLMModel          *string
-	LLMAPIKey         *string
-	LLMBaseURL        *string
+	Name                          *string
+	Handle                        *string
+	LLMProvider                   *string
+	LLMModel                      *string
+	LLMAPIKey                     *string
+	LLMBaseURL                    *string
 	SystemPrompt                  *string
 	TaskTriggerPrompt             *string
 	DocCommentTriggerPrompt       *string
