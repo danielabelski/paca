@@ -74,6 +74,8 @@ const (
 	CodeEpicCannotHaveParent Code = "TASK_EPIC_CANNOT_HAVE_PARENT"
 	// CodeTaskCannotBeOwnParent indicates an attempt to set a task as its own parent.
 	CodeTaskCannotBeOwnParent Code = "TASK_CANNOT_BE_OWN_PARENT"
+	// CodeTaskParentCycleDetected indicates the requested parent assignment would create a cycle.
+	CodeTaskParentCycleDetected Code = "TASK_PARENT_CYCLE_DETECTED"
 
 	// CodeTaskTypeNotFound indicates the requested task type does not exist.
 	CodeTaskTypeNotFound Code = "TASK_TYPE_NOT_FOUND"

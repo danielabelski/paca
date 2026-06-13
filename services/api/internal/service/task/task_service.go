@@ -207,16 +207,34 @@ func (s *Service) SetDefaultTaskStatus(ctx context.Context, projectID, statusID 
 	return s.repo.FindTaskStatusByID(ctx, statusID)
 }
 
-// isEpicTaskType returns true when typeID belongs to the system Epic type.
-func (s *Service) isEpicTaskType(ctx context.Context, typeID *uuid.UUID) bool {
+// isEpicTaskType returns whether typeID belongs to the system Epic type.
+func (s *Service) isEpicTaskType(ctx context.Context, typeID *uuid.UUID) (bool, error) {
 	if typeID == nil {
-		return false
+		return false, nil
 	}
 	t, err := s.repo.FindTaskTypeByID(ctx, *typeID)
 	if err != nil {
-		return false
+		return false, err
 	}
-	return t.IsSystem && t.Name == "Epic"
+	return t.IsSystem && t.Name == "Epic", nil
+}
+
+// wouldCreateCycle reports whether making proposedParentID the parent of taskID
+// would introduce a directed cycle in the task hierarchy.
+func (s *Service) wouldCreateCycle(ctx context.Context, taskID, proposedParentID uuid.UUID) bool {
+	current := proposedParentID
+	const maxDepth = 50
+	for range maxDepth {
+		if current == taskID {
+			return true
+		}
+		t, err := s.repo.FindTaskByID(ctx, current)
+		if err != nil || t.ParentTaskID == nil {
+			return false
+		}
+		current = *t.ParentTaskID
+	}
+	return false
 }
 
 // --- Tasks ------------------------------------------------------------------
@@ -257,7 +275,11 @@ func (s *Service) CreateTask(ctx context.Context, in taskdom.CreateTaskInput) (*
 	}
 
 	if in.ParentTaskID != nil {
-		if s.isEpicTaskType(ctx, in.TaskTypeID) {
+		isEpic, err := s.isEpicTaskType(ctx, in.TaskTypeID)
+		if err != nil {
+			return nil, err
+		}
+		if isEpic {
 			return nil, taskdom.ErrEpicCannotHaveParent
 		}
 	}
@@ -340,11 +362,19 @@ func (s *Service) UpdateTask(ctx context.Context, projectID, id uuid.UUID, in ta
 	if in.TaskTypeID != nil {
 		effectiveTypeID = *in.TaskTypeID
 	}
+	// Validate parent constraints using the post-update effective values.
 	if effectiveParentID != nil {
 		if *effectiveParentID == t.ID {
 			return nil, taskdom.ErrTaskCannotBeOwnParent
 		}
-		if s.isEpicTaskType(ctx, effectiveTypeID) {
+		if s.wouldCreateCycle(ctx, t.ID, *effectiveParentID) {
+			return nil, taskdom.ErrTaskParentCycleDetected
+		}
+		isEpic, err := s.isEpicTaskType(ctx, effectiveTypeID)
+		if err != nil {
+			return nil, err
+		}
+		if isEpic {
 			return nil, taskdom.ErrEpicCannotHaveParent
 		}
 	}
