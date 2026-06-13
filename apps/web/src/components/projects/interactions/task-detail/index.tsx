@@ -14,10 +14,8 @@ import { ExtensionPoint } from "@/lib/plugins/extension-point";
 import {
 	customFieldsQueryOptions,
 	findEpicType,
-	findSubtaskType,
 	getNormalTaskTypes,
 	isEpicType,
-	isSubtaskType,
 	projectQueryOptions,
 } from "@/lib/project-api";
 import { cleanBlocks, cn } from "@/lib/utils";
@@ -106,11 +104,9 @@ export function TaskDetailModal({
 
 	// ── Task role detection ────────────────────────────────────────────────────
 	const isEpic = isEpicType(taskType);
-	const isSubtask = isSubtaskType(taskType);
-	const taskRole = isEpic ? "epic" : isSubtask ? "subtask" : "normal";
+	const taskRole = isEpic ? "epic" : "normal";
 
 	const epicType = findEpicType(taskTypes);
-	const subtaskType = findSubtaskType(taskTypes);
 	const normalTaskTypes = getNormalTaskTypes(taskTypes);
 
 	// For normal tasks: fetch all epics to populate the Epic picker
@@ -123,7 +119,7 @@ export function TaskDetailModal({
 			(open || mode === "page"),
 	});
 
-	// For subtasks: fetch parent task to display its title
+	// Fetch parent task to display its title/icon (for non-epic parents)
 	const { data: parentTask } = useQuery({
 		...taskQueryOptions(projectId ?? "", task?.parent_task_id ?? ""),
 		enabled: !!projectId && !!task?.parent_task_id && (open || mode === "page"),
@@ -365,48 +361,42 @@ export function TaskDetailModal({
 							taskId={task.id}
 							onUpdate={handleUpdate}
 						/>
-						{/* Subtasks / Tasks section – hidden for subtasks */}
-						{taskRole !== "subtask" && (
-							<SubtasksSection
-								projectId={projectId}
-								parentTaskId={task.id}
-								subtasks={subtasks}
-								statuses={statuses}
-								taskTypes={taskTypes}
-								members={members}
-								canEdit={canEdit}
-								task={task}
-								taskIdPrefix={taskIdPrefix}
-								mode={isEpic ? "tasks" : "subtasks"}
-								subtaskType={subtaskType}
-								normalTaskTypes={normalTaskTypes}
-								onSubtaskClick={(sub) => navigateToTask(sub.id)}
-								onSubtaskUpdate={(subtaskId, payload) => {
-									if (!projectId) return;
-									updateTask(projectId, subtaskId, payload).then(() => {
-										qc.invalidateQueries({
-											queryKey: subtasksQueryOptions(projectId, task.id)
-												.queryKey,
-										});
+						{/* Child tasks section */}
+						<SubtasksSection
+							projectId={projectId}
+							parentTaskId={task.id}
+							subtasks={subtasks}
+							statuses={statuses}
+							taskTypes={taskTypes}
+							members={members}
+							canEdit={canEdit}
+							task={task}
+							taskIdPrefix={taskIdPrefix}
+							normalTaskTypes={normalTaskTypes}
+							onSubtaskClick={(sub) => navigateToTask(sub.id)}
+							onSubtaskUpdate={(subtaskId, payload) => {
+								if (!projectId) return;
+								updateTask(projectId, subtaskId, payload).then(() => {
+									qc.invalidateQueries({
+										queryKey: subtasksQueryOptions(projectId, task.id).queryKey,
 									});
-								}}
-								onSubtaskCreate={(payload) => {
-									if (!projectId) return;
-									const todoStatus =
-										statuses.find((s) => s.category === "todo") ?? statuses[0];
-									createTask(projectId, {
-										...payload,
-										status_id: todoStatus?.id ?? payload.status_id ?? null,
-										parent_task_id: task.id,
-									}).then(() => {
-										qc.invalidateQueries({
-											queryKey: subtasksQueryOptions(projectId, task.id)
-												.queryKey,
-										});
+								});
+							}}
+							onSubtaskCreate={(payload) => {
+								if (!projectId) return;
+								const todoStatus =
+									statuses.find((s) => s.category === "todo") ?? statuses[0];
+								createTask(projectId, {
+									...payload,
+									status_id: todoStatus?.id ?? payload.status_id ?? null,
+									parent_task_id: task.id,
+								}).then(() => {
+									qc.invalidateQueries({
+										queryKey: subtasksQueryOptions(projectId, task.id).queryKey,
 									});
-								}}
-							/>
-						)}
+								});
+							}}
+						/>
 
 						{/* Plugin extension points */}
 						{projectId && (

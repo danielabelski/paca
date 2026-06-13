@@ -177,7 +177,7 @@ export function getTaskTools(): Tool[] {
 					parentTaskId: {
 						type: "string",
 						description:
-							"The technical UUID of the parent task (e.g., '550e8400-e29b-41d4-a716-446655440000'). Use this to set the epic for a task or to create a subtask under a parent task.",
+							"The technical UUID of the parent task (e.g., '550e8400-e29b-41d4-a716-446655440000'). Story, Task, and Bug tasks can be nested under another Story, Task, or Bug. Epics cannot have a parent task.",
 					},
 					importance: {
 						type: "number",

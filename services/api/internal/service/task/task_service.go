@@ -11,8 +11,7 @@ import (
 )
 
 var reservedSystemTypeNames = map[string]bool{
-	"Epic":    true,
-	"Subtask": true,
+	"Epic": true,
 }
 
 // Service is the concrete implementation of taskdom.Service.
@@ -208,6 +207,36 @@ func (s *Service) SetDefaultTaskStatus(ctx context.Context, projectID, statusID 
 	return s.repo.FindTaskStatusByID(ctx, statusID)
 }
 
+// isEpicTaskType returns whether typeID belongs to the system Epic type.
+func (s *Service) isEpicTaskType(ctx context.Context, typeID *uuid.UUID) (bool, error) {
+	if typeID == nil {
+		return false, nil
+	}
+	t, err := s.repo.FindTaskTypeByID(ctx, *typeID)
+	if err != nil {
+		return false, err
+	}
+	return t.IsSystem && t.Name == "Epic", nil
+}
+
+// wouldCreateCycle reports whether making proposedParentID the parent of taskID
+// would introduce a directed cycle in the task hierarchy.
+func (s *Service) wouldCreateCycle(ctx context.Context, taskID, proposedParentID uuid.UUID) bool {
+	current := proposedParentID
+	const maxDepth = 50
+	for range maxDepth {
+		if current == taskID {
+			return true
+		}
+		t, err := s.repo.FindTaskByID(ctx, current)
+		if err != nil || t.ParentTaskID == nil {
+			return false
+		}
+		current = *t.ParentTaskID
+	}
+	return false
+}
+
 // --- Tasks ------------------------------------------------------------------
 
 // ListTasks returns a page of tasks. When filter.CursorAfter is nil, returns from
@@ -243,6 +272,16 @@ func (s *Service) CreateTask(ctx context.Context, in taskdom.CreateTaskInput) (*
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
 		return nil, taskdom.ErrTaskTitleInvalid
+	}
+
+	if in.ParentTaskID != nil {
+		isEpic, err := s.isEpicTaskType(ctx, in.TaskTypeID)
+		if err != nil {
+			return nil, err
+		}
+		if isEpic {
+			return nil, taskdom.ErrEpicCannotHaveParent
+		}
 	}
 
 	taskTypeID := in.TaskTypeID
@@ -313,6 +352,33 @@ func (s *Service) UpdateTask(ctx context.Context, projectID, id uuid.UUID, in ta
 	if title := strings.TrimSpace(in.Title); title != "" {
 		t.Title = title
 	}
+
+	// Compute the effective parent and type IDs after the update to validate constraints.
+	effectiveParentID := t.ParentTaskID
+	if in.ParentTaskID != nil {
+		effectiveParentID = *in.ParentTaskID
+	}
+	effectiveTypeID := t.TaskTypeID
+	if in.TaskTypeID != nil {
+		effectiveTypeID = *in.TaskTypeID
+	}
+	// Validate parent constraints using the post-update effective values.
+	if effectiveParentID != nil {
+		if *effectiveParentID == t.ID {
+			return nil, taskdom.ErrTaskCannotBeOwnParent
+		}
+		if s.wouldCreateCycle(ctx, t.ID, *effectiveParentID) {
+			return nil, taskdom.ErrTaskParentCycleDetected
+		}
+		isEpic, err := s.isEpicTaskType(ctx, effectiveTypeID)
+		if err != nil {
+			return nil, err
+		}
+		if isEpic {
+			return nil, taskdom.ErrEpicCannotHaveParent
+		}
+	}
+
 	if in.TaskTypeID != nil {
 		t.TaskTypeID = *in.TaskTypeID
 	}

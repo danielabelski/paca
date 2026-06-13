@@ -18,7 +18,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Skeleton } from "@/components/ui/skeleton";
 import type { Sprint, Task } from "@/lib/interaction-api";
 import type { ProjectMember, TaskStatus, TaskType } from "@/lib/project-api";
 import { getTaskTypeIconComponent } from "../../task-types/task-type-icons";
@@ -66,11 +65,11 @@ interface PropertiesPanelProps {
 	projectId?: string;
 	initialCustomFields?: CustomFieldDef[];
 	canEdit?: boolean;
-	/** Role of the current task: "epic", "normal", or "subtask" */
-	taskRole?: "epic" | "normal" | "subtask";
+	/** Role of the current task: "epic" or "normal" */
+	taskRole?: "epic" | "normal";
 	/** All epic tasks in the project, for the epic picker on normal tasks */
 	epicTasks?: Task[];
-	/** Parent task, shown for subtasks */
+	/** The resolved parent task object (when parent_task_id is set) */
 	parentTask?: Task;
 	onUpdate?: (payload: UpdatePayload) => void;
 	/** Navigate to a task's detail page */
@@ -403,11 +402,13 @@ export function PropertiesPanel({
 							</FieldRow>
 						);
 					})()}
-				{/* Parent task – subtasks only */}
-				{taskRole === "subtask" && (
-					<FieldRow label="Parent">
-						{parentTask ? (
-							(() => {
+				{/* Parent field – shown when the parent task is not an epic (story/task/bug nesting) */}
+				{taskRole === "normal" &&
+					task.parent_task_id &&
+					parentTask &&
+					!epicTasks.find((e) => e.id === task.parent_task_id) && (
+						<FieldRow label="Parent">
+							{(() => {
 								const parentType = taskTypes.find(
 									(tt) => tt.id === parentTask.task_type_id,
 								);
@@ -447,16 +448,9 @@ export function PropertiesPanel({
 										</DropdownMenuContent>
 									</DropdownMenu>
 								);
-							})()
-						) : task.parent_task_id ? (
-							<Skeleton className="h-3.5 w-28" />
-						) : (
-							<span className="text-[12px] text-muted-foreground/50 italic">
-								No parent
-							</span>
-						)}
-					</FieldRow>
-				)}
+							})()}
+						</FieldRow>
+					)}
 
 				{localCustomFields.map((cf) => (
 					<PropertyField

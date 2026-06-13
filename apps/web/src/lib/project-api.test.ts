@@ -29,11 +29,9 @@ import {
 	deleteProject,
 	deleteProjectRole,
 	findEpicType,
-	findSubtaskType,
 	getNormalTaskTypes,
 	getProject,
 	isEpicType,
-	isSubtaskType,
 	listProjectMembers,
 	listProjectRoles,
 	listProjects,
@@ -390,51 +388,11 @@ describe("project-api", () => {
 		});
 	});
 
-	describe("isSubtaskType", () => {
-		it("returns true for a system type named Subtask", () => {
-			const subtask: TaskType = {
-				...mockTaskType,
-				name: "Subtask",
-				is_system: true,
-			};
-			expect(isSubtaskType(subtask)).toBe(true);
-		});
-
-		it("returns false when is_system is false even if name is Subtask", () => {
-			const nonSystem: TaskType = {
-				...mockTaskType,
-				name: "Subtask",
-				is_system: false,
-			};
-			expect(isSubtaskType(nonSystem)).toBe(false);
-		});
-
-		it("returns false for a system type with a different name", () => {
-			const epic: TaskType = {
-				...mockTaskType,
-				name: "Epic",
-				is_system: true,
-			};
-			expect(isSubtaskType(epic)).toBe(false);
-		});
-
-		it("returns false for null or undefined", () => {
-			expect(isSubtaskType(null)).toBe(false);
-			expect(isSubtaskType(undefined)).toBe(false);
-		});
-	});
-
-	describe("findEpicType / findSubtaskType / getNormalTaskTypes", () => {
+	describe("findEpicType / getNormalTaskTypes", () => {
 		const epicType: TaskType = {
 			...mockTaskType,
 			id: "tt-epic",
 			name: "Epic",
-			is_system: true,
-		};
-		const subtaskType: TaskType = {
-			...mockTaskType,
-			id: "tt-subtask",
-			name: "Subtask",
 			is_system: true,
 		};
 		const normalType: TaskType = {
@@ -443,30 +401,22 @@ describe("project-api", () => {
 			name: "Task",
 			is_system: false,
 		};
-		const types = [epicType, subtaskType, normalType];
+		const types = [epicType, normalType];
 
 		it("findEpicType returns the Epic system type", () => {
 			expect(findEpicType(types)).toEqual(epicType);
 		});
 
 		it("findEpicType returns undefined when no Epic system type exists", () => {
-			expect(findEpicType([subtaskType, normalType])).toBeUndefined();
+			expect(findEpicType([normalType])).toBeUndefined();
 		});
 
-		it("findSubtaskType returns the Subtask system type", () => {
-			expect(findSubtaskType(types)).toEqual(subtaskType);
-		});
-
-		it("findSubtaskType returns undefined when no Subtask system type exists", () => {
-			expect(findSubtaskType([epicType, normalType])).toBeUndefined();
-		});
-
-		it("getNormalTaskTypes returns only non-system types", () => {
+		it("getNormalTaskTypes returns only non-epic types", () => {
 			expect(getNormalTaskTypes(types)).toEqual([normalType]);
 		});
 
-		it("getNormalTaskTypes returns empty array when all types are system types", () => {
-			expect(getNormalTaskTypes([epicType, subtaskType])).toEqual([]);
+		it("getNormalTaskTypes returns empty array when all types are Epic", () => {
+			expect(getNormalTaskTypes([epicType])).toEqual([]);
 		});
 	});
 });

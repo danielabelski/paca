@@ -888,7 +888,7 @@ func TestIntegrationTaskTypes_ReservedNameRejected(t *testing.T) {
 	tok := issueTaskToken(t, uuid.NewString())
 	base := fmt.Sprintf("/api/v1/projects/%s/task-types", projectID)
 
-	for _, reserved := range []string{"Epic", "Subtask"} {
+	for _, reserved := range []string{"Epic"} {
 		w := serve(r, authedJSONReq(t.Context(), http.MethodPost, base, tok, map[string]any{"name": reserved}))
 		if w.Code != http.StatusConflict {
 			t.Fatalf("expected 409 for reserved name %q, got %d (%s)", reserved, w.Code, w.Body.String())
@@ -2880,5 +2880,164 @@ func TestActivities_DeleteComment(t *testing.T) {
 	))
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("delete comment: expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task hierarchy constraint tests
+// ---------------------------------------------------------------------------
+
+func TestIntegrationTasks_EpicCannotHaveParent(t *testing.T) {
+	taskRepo := newFakeTaskRepoIT()
+	projectID := uuid.New()
+	store := &projectPermStore{
+		projectPerms: map[uuid.UUID][]authz.Permission{
+			projectID: {authz.PermissionTasksRead, authz.PermissionTasksWrite},
+		},
+	}
+	r := buildTaskTestRouter(taskRepo, store)
+	tok := issueTaskToken(t, uuid.NewString())
+	base := fmt.Sprintf("/api/v1/projects/%s/tasks", projectID)
+
+	// Seed Epic system type directly.
+	epicType := &taskdom.TaskType{ID: uuid.New(), ProjectID: projectID, Name: "Epic", IsSystem: true}
+	if err := taskRepo.CreateTaskType(t.Context(), epicType); err != nil {
+		t.Fatalf("seed epic type: %v", err)
+	}
+
+	// Create a plain parent task.
+	parentW := serve(r, authedJSONReq(t.Context(), http.MethodPost, base, tok, map[string]any{"title": "Parent"}))
+	if parentW.Code != http.StatusCreated {
+		t.Fatalf("create parent: %d: %s", parentW.Code, parentW.Body.String())
+	}
+	parentID := taskIDFrom(t, "parent", parentW.Body.Bytes())
+
+	// Creating an Epic with a parent must be rejected.
+	w := serve(r, authedJSONReq(t.Context(), http.MethodPost, base, tok, map[string]any{
+		"title":          "Epic with parent",
+		"task_type_id":   epicType.ID.String(),
+		"parent_task_id": parentID,
+	}))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d (%s)", w.Code, w.Body.String())
+	}
+	if code := decodeErrorCode(t, w); code != "TASK_EPIC_CANNOT_HAVE_PARENT" {
+		t.Errorf("expected TASK_EPIC_CANNOT_HAVE_PARENT, got %q", code)
+	}
+}
+
+func TestIntegrationTasks_UpdateToEpicWithParentRejected(t *testing.T) {
+	taskRepo := newFakeTaskRepoIT()
+	projectID := uuid.New()
+	store := &projectPermStore{
+		projectPerms: map[uuid.UUID][]authz.Permission{
+			projectID: {authz.PermissionTasksRead, authz.PermissionTasksWrite},
+		},
+	}
+	r := buildTaskTestRouter(taskRepo, store)
+	tok := issueTaskToken(t, uuid.NewString())
+	base := fmt.Sprintf("/api/v1/projects/%s/tasks", projectID)
+
+	epicType := &taskdom.TaskType{ID: uuid.New(), ProjectID: projectID, Name: "Epic", IsSystem: true}
+	if err := taskRepo.CreateTaskType(t.Context(), epicType); err != nil {
+		t.Fatalf("seed epic type: %v", err)
+	}
+
+	// Create parent and child tasks.
+	parentW := serve(r, authedJSONReq(t.Context(), http.MethodPost, base, tok, map[string]any{"title": "Parent"}))
+	if parentW.Code != http.StatusCreated {
+		t.Fatalf("create parent: %d: %s", parentW.Code, parentW.Body.String())
+	}
+	parentID := taskIDFrom(t, "parent", parentW.Body.Bytes())
+
+	childW := serve(r, authedJSONReq(t.Context(), http.MethodPost, base, tok, map[string]any{
+		"title":          "Child",
+		"parent_task_id": parentID,
+	}))
+	if childW.Code != http.StatusCreated {
+		t.Fatalf("create child: %d: %s", childW.Code, childW.Body.String())
+	}
+	childID := taskIDFrom(t, "child", childW.Body.Bytes())
+
+	// Changing child's type to Epic while it still has a parent must be rejected.
+	w := serve(r, authedJSONReq(t.Context(), http.MethodPatch, base+"/"+childID, tok, map[string]any{
+		"task_type_id": epicType.ID.String(),
+	}))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d (%s)", w.Code, w.Body.String())
+	}
+	if code := decodeErrorCode(t, w); code != "TASK_EPIC_CANNOT_HAVE_PARENT" {
+		t.Errorf("expected TASK_EPIC_CANNOT_HAVE_PARENT, got %q", code)
+	}
+}
+
+func TestIntegrationTasks_SelfParentRejected(t *testing.T) {
+	taskRepo := newFakeTaskRepoIT()
+	projectID := uuid.New()
+	store := &projectPermStore{
+		projectPerms: map[uuid.UUID][]authz.Permission{
+			projectID: {authz.PermissionTasksRead, authz.PermissionTasksWrite},
+		},
+	}
+	r := buildTaskTestRouter(taskRepo, store)
+	tok := issueTaskToken(t, uuid.NewString())
+	base := fmt.Sprintf("/api/v1/projects/%s/tasks", projectID)
+
+	w := serve(r, authedJSONReq(t.Context(), http.MethodPost, base, tok, map[string]any{"title": "Task A"}))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create task: %d: %s", w.Code, w.Body.String())
+	}
+	taskID := taskIDFrom(t, "task", w.Body.Bytes())
+
+	// Setting a task's parent to itself must be rejected.
+	patchW := serve(r, authedJSONReq(t.Context(), http.MethodPatch, base+"/"+taskID, tok, map[string]any{
+		"parent_task_id": taskID,
+	}))
+	if patchW.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d (%s)", patchW.Code, patchW.Body.String())
+	}
+	if code := decodeErrorCode(t, patchW); code != "TASK_CANNOT_BE_OWN_PARENT" {
+		t.Errorf("expected TASK_CANNOT_BE_OWN_PARENT, got %q", code)
+	}
+}
+
+func TestIntegrationTasks_ParentCycleDetected(t *testing.T) {
+	taskRepo := newFakeTaskRepoIT()
+	projectID := uuid.New()
+	store := &projectPermStore{
+		projectPerms: map[uuid.UUID][]authz.Permission{
+			projectID: {authz.PermissionTasksRead, authz.PermissionTasksWrite},
+		},
+	}
+	r := buildTaskTestRouter(taskRepo, store)
+	tok := issueTaskToken(t, uuid.NewString())
+	base := fmt.Sprintf("/api/v1/projects/%s/tasks", projectID)
+
+	// Create task A.
+	wA := serve(r, authedJSONReq(t.Context(), http.MethodPost, base, tok, map[string]any{"title": "Task A"}))
+	if wA.Code != http.StatusCreated {
+		t.Fatalf("create A: %d: %s", wA.Code, wA.Body.String())
+	}
+	taskAID := taskIDFrom(t, "A", wA.Body.Bytes())
+
+	// Create task B with parent = A.
+	wB := serve(r, authedJSONReq(t.Context(), http.MethodPost, base, tok, map[string]any{
+		"title":          "Task B",
+		"parent_task_id": taskAID,
+	}))
+	if wB.Code != http.StatusCreated {
+		t.Fatalf("create B: %d: %s", wB.Code, wB.Body.String())
+	}
+	taskBID := taskIDFrom(t, "B", wB.Body.Bytes())
+
+	// Attempting to set A's parent to B would form A → B → A; must be rejected.
+	patchW := serve(r, authedJSONReq(t.Context(), http.MethodPatch, base+"/"+taskAID, tok, map[string]any{
+		"parent_task_id": taskBID,
+	}))
+	if patchW.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d (%s)", patchW.Code, patchW.Body.String())
+	}
+	if code := decodeErrorCode(t, patchW); code != "TASK_PARENT_CYCLE_DETECTED" {
+		t.Errorf("expected TASK_PARENT_CYCLE_DETECTED, got %q", code)
 	}
 }

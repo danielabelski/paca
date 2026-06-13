@@ -132,6 +132,12 @@ func statusAndCodeFor(err error) (int, apierr.Code) {
 		return http.StatusNotFound, apierr.CodeTaskNotFound
 	case errors.Is(err, taskdom.ErrTaskTitleInvalid):
 		return http.StatusBadRequest, apierr.CodeTaskTitleInvalid
+	case errors.Is(err, taskdom.ErrEpicCannotHaveParent):
+		return http.StatusBadRequest, apierr.CodeEpicCannotHaveParent
+	case errors.Is(err, taskdom.ErrTaskCannotBeOwnParent):
+		return http.StatusBadRequest, apierr.CodeTaskCannotBeOwnParent
+	case errors.Is(err, taskdom.ErrTaskParentCycleDetected):
+		return http.StatusBadRequest, apierr.CodeTaskParentCycleDetected
 	case errors.Is(err, taskdom.ErrTypeNotFound):
 		return http.StatusNotFound, apierr.CodeTaskTypeNotFound
 	case errors.Is(err, taskdom.ErrTypeNameInvalid):
@@ -327,6 +333,9 @@ func httpStatusForCode(code apierr.Code) int {
 		apierr.CodeUploadIDMismatch,
 		apierr.CodeMultipartPartsEmpty,
 		apierr.CodeTaskTitleInvalid,
+		apierr.CodeEpicCannotHaveParent,
+		apierr.CodeTaskCannotBeOwnParent,
+		apierr.CodeTaskParentCycleDetected,
 		apierr.CodeTaskTypeNameInvalid,
 		apierr.CodeTaskStatusNameInvalid,
 		apierr.CodeTaskStatusCategoryInvalid,

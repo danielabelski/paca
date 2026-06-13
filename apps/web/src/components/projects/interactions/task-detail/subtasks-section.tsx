@@ -14,11 +14,7 @@ interface SubtasksSectionProps {
 	canEdit?: boolean;
 	task: Task;
 	taskIdPrefix?: string;
-	/** "subtasks" – normal task creating subtasks; "tasks" – epic creating child tasks */
-	mode?: "subtasks" | "tasks";
-	/** Type to auto-assign when mode="subtasks" */
-	subtaskType?: TaskType;
-	/** Available types for the type picker when mode="tasks" (epic) */
+	/** Available types for the type picker when creating subtasks */
 	normalTaskTypes?: TaskType[];
 	onSubtaskUpdate?: (
 		subtaskId: string,
@@ -44,8 +40,6 @@ export function SubtasksSection({
 	members = [],
 	canEdit = true,
 	taskIdPrefix = "",
-	mode = "subtasks",
-	subtaskType,
 	normalTaskTypes = [],
 	onSubtaskUpdate,
 	onSubtaskCreate,
@@ -57,24 +51,13 @@ export function SubtasksSection({
 		() => normalTaskTypes[0]?.id ?? "",
 	);
 
-	const sectionLabel = mode === "tasks" ? "Tasks" : "Subtasks";
-	const emptyLabel = mode === "tasks" ? "No tasks yet" : "No subtasks yet";
-	const placeholder = mode === "tasks" ? "Task title..." : "Subtask title...";
-
 	function handleCreate() {
 		const trimmed = newTitle.trim();
 		if (!trimmed) return;
-		if (mode === "subtasks") {
-			onSubtaskCreate?.({
-				title: trimmed,
-				task_type_id: subtaskType?.id ?? null,
-			});
-		} else {
-			onSubtaskCreate?.({
-				title: trimmed,
-				task_type_id: selectedTypeId || null,
-			});
-		}
+		onSubtaskCreate?.({
+			title: trimmed,
+			task_type_id: selectedTypeId || null,
+		});
 		setNewTitle("");
 		setAdding(false);
 	}
@@ -83,7 +66,7 @@ export function SubtasksSection({
 		<div className="space-y-3">
 			<div className="flex items-center justify-between">
 				<h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 flex items-center gap-2">
-					<span>{sectionLabel}</span>
+					<span>Subtasks</span>
 					<div className="flex-1 h-px bg-linear-to-r from-border/40 to-transparent" />
 				</h3>
 				{canEdit && (
@@ -93,7 +76,7 @@ export function SubtasksSection({
 						className="flex items-center gap-1.5 rounded-lg bg-primary/8 text-primary/80 hover:bg-primary/15 hover:text-primary px-2.5 py-1.5 text-[11px] font-semibold transition-all duration-150"
 					>
 						<Plus className="size-3" />
-						Add Task
+						Add Subtask
 					</button>
 				)}
 			</div>
@@ -108,7 +91,7 @@ export function SubtasksSection({
 							statuses={statuses}
 							taskTypes={taskTypes}
 							members={members}
-							showTypeField={mode === "tasks"}
+							showTypeField
 							canEdit={canEdit}
 							onUpdate={onSubtaskUpdate}
 							onClick={onSubtaskClick ? () => onSubtaskClick(sub) : undefined}
@@ -125,7 +108,7 @@ export function SubtasksSection({
 						handleCreate();
 					}}
 				>
-					{mode === "tasks" && normalTaskTypes.length > 0 && (
+					{normalTaskTypes.length > 0 && (
 						<select
 							value={selectedTypeId}
 							onChange={(e) => setSelectedTypeId(e.target.value)}
@@ -145,7 +128,7 @@ export function SubtasksSection({
 							type="text"
 							value={newTitle}
 							onChange={(e) => setNewTitle(e.target.value)}
-							placeholder={placeholder}
+							placeholder="Subtask title..."
 							className="flex-1 rounded-lg border border-border/30 bg-muted/20 px-3 py-2.5 text-[13px] placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all duration-150"
 							onKeyDown={(e) => {
 								if (e.key === "Escape") {
@@ -177,7 +160,7 @@ export function SubtasksSection({
 			{!adding && subtasks.length === 0 && (
 				<div className="flex items-center gap-3 px-1 py-3 text-muted-foreground/45">
 					<ListChecks className="size-4 opacity-70" />
-					<p className="text-[13px] italic">{emptyLabel}</p>
+					<p className="text-[13px] italic">No subtasks yet</p>
 				</div>
 			)}
 		</div>
