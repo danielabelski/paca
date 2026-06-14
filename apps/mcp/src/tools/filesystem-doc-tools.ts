@@ -69,7 +69,7 @@ async function buildDocTree(
 	for (const f of folders) {
 		const pid = f.parent_id || null;
 		if (!foldersByParent.has(pid)) foldersByParent.set(pid, []);
-		foldersByParent.get(pid)!.push(f);
+		foldersByParent.get(pid)?.push(f);
 		foldersById.set(f.id, f);
 	}
 
@@ -77,7 +77,7 @@ async function buildDocTree(
 	for (const d of documents) {
 		const fid = d.folder_id || null;
 		if (!docsByFolder.has(fid)) docsByFolder.set(fid, []);
-		docsByFolder.get(fid)!.push(d);
+		docsByFolder.get(fid)?.push(d);
 	}
 
 	return { folders, documents, foldersByParent, docsByFolder, foldersById };
@@ -170,7 +170,7 @@ async function ensureFolderPath(
 			if (!tree.foldersByParent.has(currentFolderId)) {
 				tree.foldersByParent.set(currentFolderId, []);
 			}
-			tree.foldersByParent.get(currentFolderId)!.push(folder);
+			tree.foldersByParent.get(currentFolderId)?.push(folder);
 			tree.foldersById.set(folder.id, folder);
 		}
 

@@ -63,12 +63,12 @@ export async function createServer(config: PacaConfig): Promise<Server> {
 	);
 
 	// Handler for listing available tools (core + plugins)
-	server.setRequestHandler(ListToolsRequestSchema, async (request) => {
+	server.setRequestHandler(ListToolsRequestSchema, async (_request) => {
 		const allCoreTools = getAllTools();
 		const allPluginTools = pluginRegistry.getAllTools();
 
 		// Filter core tools based on permissions
-		let filteredCoreTools = allCoreTools.filter((tool) => {
+		const filteredCoreTools = allCoreTools.filter((tool) => {
 			const toolPerm = getToolPermission(tool.name);
 			if (!toolPerm) {
 				console.error(`[server] Tool ${tool.name} has no permission mapping, allowing by default`);

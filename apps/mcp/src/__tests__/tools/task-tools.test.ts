@@ -63,9 +63,9 @@ describe("getTaskTools", () => {
 
 	it("includes all expected tool names", () => {
 		const names = getTaskTools().map((t) => t.name);
-		["list_tasks", "get_task", "get_task_by_number", "create_task", "update_task", "delete_task"].forEach(
-			(n) => expect(names).toContain(n),
-		);
+		for (const n of ["list_tasks", "get_task", "get_task_by_number", "create_task", "update_task", "delete_task"]) {
+			expect(names).toContain(n);
+		}
 	});
 });
 

@@ -245,7 +245,7 @@ describe("fetchAgentPermissions", () => {
 			(url as string).includes("members/me/permissions"),
 		);
 		expect(projectPermCall).toBeDefined();
-		expect(projectPermCall![1]).toMatchObject({
+		expect(projectPermCall?.[1]).toMatchObject({
 			headers: expect.objectContaining({ "X-API-Key": "key-123" }),
 		});
 		expect(result.projects["proj-abc"]).toEqual({ "tasks.read": true, "tasks.write": false });

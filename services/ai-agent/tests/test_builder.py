@@ -58,6 +58,7 @@ def with_paca_key():
         m.paca_api_key = "test-api-key"
         m.api_base_url = "http://api:8080"
         m.gateway_base_url = "http://gateway"
+        m.dev_mcp_path = None
         yield m
 
 

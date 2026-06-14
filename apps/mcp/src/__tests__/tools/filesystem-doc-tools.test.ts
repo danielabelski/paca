@@ -24,7 +24,7 @@ function makeApiClient(opts: {
 	documents?: any[];
 	getDocumentContent?: any;
 } = {}) {
-	const folders = opts.folders ?? [FOLDER_ROOT, FOLDER_NESTED];
+	const _folders = opts.folders ?? [FOLDER_ROOT, FOLDER_NESTED];
 	const documents = opts.documents ?? [DOC_ROOT, DOC_IN_FOLDER, DOC_IN_NESTED];
 
 	return {
@@ -63,9 +63,9 @@ describe("getFilesystemDocTools", () => {
 
 	it("includes all expected tool names", () => {
 		const names = getFilesystemDocTools().map((t) => t.name);
-		["list_docs", "read_doc", "write_doc", "delete_doc", "move_doc"].forEach((n) =>
-			expect(names).toContain(n),
-		);
+		for (const n of ["list_docs", "read_doc", "write_doc", "delete_doc", "move_doc"]) {
+			expect(names).toContain(n);
+		}
 	});
 });
 
@@ -154,7 +154,7 @@ describe("handleFilesystemDocTool – read_doc", () => {
 
 	it("returns document content at nested path", async () => {
 		const apiClient = makeApiClient();
-		const result = await handleFilesystemDocTool(
+		const _result = await handleFilesystemDocTool(
 			"read_doc",
 			{ projectId: "p1", path: "Architecture/Overview" },
 			apiClient,
