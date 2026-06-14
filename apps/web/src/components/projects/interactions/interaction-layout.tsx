@@ -1385,7 +1385,7 @@ export function InteractionLayout({
 										</DropdownMenuTrigger>
 										<DropdownMenuContent align="start" sideOffset={4}>
 											<DropdownMenuItem
-												onSelect={() => {
+												onClick={() => {
 													setRenameTarget(view);
 													setRenameOpen(true);
 												}}
@@ -1395,7 +1395,7 @@ export function InteractionLayout({
 											<DropdownMenuSeparator />
 											<DropdownMenuItem
 												disabled={views.length <= 1}
-												onSelect={() => deleteViewMutation.mutate(view.id)}
+												onClick={() => deleteViewMutation.mutate(view.id)}
 												className="text-destructive focus:text-destructive"
 											>
 												Delete view
