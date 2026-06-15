@@ -67,6 +67,7 @@ async def _base_url(provider: str, model: str) -> str | None:
         if url:
             return url
     except Exception:
+        # Non-fatal: provider resolution can fail/time out; fall back to static map.
         pass
     return _KNOWN_BASE_URLS.get(provider)
 
