@@ -1,6 +1,6 @@
 import {
-	resolveFilterConfig,
 	type FilterConfig,
+	resolveFilterConfig,
 	type Sprint,
 	type Task,
 } from "@/lib/interaction-api";
@@ -267,7 +267,6 @@ export const BUILTIN_SWIMLANES: { key: string; label: string }[] = [
 	{ key: "type", label: "Type" },
 ];
 
-
 export const FIELD_SUM_COUNT: { key: string; label: string } = {
 	key: "count",
 	label: "Count",
@@ -341,7 +340,6 @@ export function buildFieldSumOptions(
 		...custom,
 	];
 }
-
 
 export function buildAllFieldOptions(
 	customFields: CustomFieldDefinition[],

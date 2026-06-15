@@ -1,10 +1,6 @@
 import { useMemo } from "react";
 
-import {
-	type Sprint,
-	type Task,
-	type ViewConfig,
-} from "@/lib/interaction-api";
+import type { Sprint, Task, ViewConfig } from "@/lib/interaction-api";
 import type {
 	CustomFieldDefinition,
 	ProjectMember,

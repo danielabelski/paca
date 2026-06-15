@@ -706,7 +706,14 @@ export function InteractionLayout({
 			sortBy: activeViewConfig?.sort_by,
 			viewId: effectiveViewId,
 		}),
-		[context, hasExplicitFilterConfig, sprintId, apiFilters, activeViewConfig?.sort_by, effectiveViewId],
+		[
+			context,
+			hasExplicitFilterConfig,
+			sprintId,
+			apiFilters,
+			activeViewConfig?.sort_by,
+			effectiveViewId,
+		],
 	);
 
 	const initialGlobalPageSize =
@@ -1129,12 +1136,18 @@ export function InteractionLayout({
 				group_key: groupKey,
 			}));
 			bulkMoveViewTaskPositions(projectId, effectiveViewId, bulkItems)
-				.then(() =>
-					qc.invalidateQueries({ queryKey: tasksListQueryKey }),
-				)
+				.then(() => qc.invalidateQueries({ queryKey: tasksListQueryKey }))
 				.catch(console.error);
 		},
-		[effectiveViewId, tasks, projectId, qc, columnBy, viewCtx],
+		[
+			effectiveViewId,
+			tasks,
+			projectId,
+			qc,
+			columnBy,
+			viewCtx,
+			tasksListQueryKey,
+		],
 	);
 
 	const handleMoveToColumn = useCallback(

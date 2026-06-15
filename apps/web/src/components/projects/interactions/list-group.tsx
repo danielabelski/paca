@@ -380,11 +380,7 @@ export function ListGroup({
 							const [moved] = updated.splice(sourceOrderedIndex, 1);
 							updated.splice(adjustedTarget, 0, moved);
 							setOrderedTasks(updated);
-							onReorderTask?.(
-								groupDef.key,
-								currentDraggingId,
-								adjustedTarget,
-							);
+							onReorderTask?.(groupDef.key, currentDraggingId, adjustedTarget);
 							setDraggingId(null);
 							setDragOverId(null);
 						}

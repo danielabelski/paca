@@ -373,7 +373,8 @@ export function RoadmapView({
 								const groupTasks = filtered.filter(
 									(t) => t.status_id === status.id,
 								);
-								if (groupTasks.length === 0 && !pagination?.hasMore) return null;
+								if (groupTasks.length === 0 && !pagination?.hasMore)
+									return null;
 
 								return (
 									<div

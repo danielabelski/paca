@@ -447,7 +447,8 @@ function buildTaskQueryParams(opts: ListTasksOptions = {}) {
 	else if (opts.taskTypeIds && opts.taskTypeIds.length > 0)
 		params.task_type_ids = opts.taskTypeIds.join(",");
 	if (opts.parentTaskId) params.parent_task_id = opts.parentTaskId;
-	if (opts.sumField && opts.sumField !== "count") params.sum_field = opts.sumField;
+	if (opts.sumField && opts.sumField !== "count")
+		params.sum_field = opts.sumField;
 	// For non-manual sorts, pass sort_by to the backend so the database applies the
 	// correct ORDER BY. For manual sort (explicit "manual" or empty string), do not
 	// pass sort_by - the backend will use view_position ordering when view_id is provided.
