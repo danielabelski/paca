@@ -90,6 +90,8 @@ export const Route = createFileRoute(
 
 type Tab = "overview" | "mcp-servers" | "skills" | "conversations";
 
+const CUSTOM = "__custom__";
+
 // ── Overview Tab ──────────────────────────────────────────────────────────────
 
 function OverviewTab({
@@ -104,7 +106,6 @@ function OverviewTab({
 	const qc = useQueryClient();
 	const { data: llmModels = {} } = useQuery(llmModelsQueryOptions);
 
-	const CUSTOM = "__custom__";
 	const providers = Object.keys(llmModels);
 
 	// Provider select: if agent's provider is known, use it directly; otherwise custom mode
@@ -166,6 +167,9 @@ function OverviewTab({
 			const firstModel = info?.models?.[0] ?? "";
 			setModelSelect(firstModel || CUSTOM);
 			if (!firstModel) setCustomModel("");
+		} else {
+			setModelSelect(CUSTOM);
+			setCustomModel("");
 		}
 	};
 
@@ -194,7 +198,7 @@ function OverviewTab({
 				llm_provider: llmProvider,
 				llm_model: llmModel,
 				...(llmApiKey ? { llm_api_key: llmApiKey } : {}),
-				llm_base_url: llmBaseUrl || null,
+				llm_base_url: llmBaseUrl,
 				system_prompt: systemPrompt,
 				task_trigger_prompt: taskTriggerPrompt,
 				doc_comment_trigger_prompt: docCommentTriggerPrompt,

@@ -16,20 +16,29 @@ logger = logging.getLogger(__name__)
 
 def build_llm(agent_config: AgentConfig) -> LLM:
     """Construct an OpenHands SDK LLM instance from agent configuration."""
+    import litellm  # noqa: PLC0415
+
     provider = agent_config.llm_provider
-    model_str = f"{provider}/{agent_config.llm_model}"
+    llm_base_url = agent_config.llm_base_url or None
+
+    # For providers not natively known to LiteLLM, route through the OpenAI-compatible
+    # client by prefixing with "openai/" — LiteLLM uses base_url to reach the endpoint.
+    if llm_base_url and provider not in litellm.provider_list:
+        model_str = f"openai/{agent_config.llm_model}"
+    else:
+        model_str = f"{provider}/{agent_config.llm_model}"
 
     key_val = agent_config.llm_api_key_secret_ref or ""
     logger.info(
         "LLM config — model=%s base_url=%s api_key_set=%s",
         model_str,
-        agent_config.llm_base_url,
+        llm_base_url or "(none)",
         bool(key_val),
     )
     return LLM(
         model=model_str,
         api_key=SecretStr(key_val),
-        base_url=agent_config.llm_base_url,
+        base_url=llm_base_url,
         stream=True,
     )
 

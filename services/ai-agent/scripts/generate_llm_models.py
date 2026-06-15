@@ -114,7 +114,9 @@ if __name__ == "__main__":
     loop.close()
 
     _OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    _OUTPUT.write_text(json.dumps(data, indent=2) + "\n")
+    tmp = _OUTPUT.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    tmp.replace(_OUTPUT)
 
     with_url = sum(1 for v in data.values() if v["base_url"])
     print(f"Written {len(data)} providers ({with_url} with base URL) → {_OUTPUT}")

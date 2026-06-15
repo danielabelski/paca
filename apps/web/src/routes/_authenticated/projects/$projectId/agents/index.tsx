@@ -68,6 +68,8 @@ import {
 import { projectRolesQueryOptions } from "@/lib/project-api";
 import { cn } from "@/lib/utils";
 
+const CUSTOM = "__custom__";
+
 export const Route = createFileRoute(
 	"/_authenticated/projects/$projectId/agents/",
 )({
@@ -75,6 +77,7 @@ export const Route = createFileRoute(
 		await Promise.all([
 			queryClient.ensureQueryData(agentsQueryOptions(projectId)),
 			queryClient.ensureQueryData(projectRolesQueryOptions(projectId)),
+			queryClient.ensureQueryData(llmModelsQueryOptions),
 		]);
 	},
 	component: AgentsPage,
@@ -104,8 +107,6 @@ function CreateAgentDialog({
 	const { data: roles = [] } = useQuery(projectRolesQueryOptions(projectId));
 	const { data: llmModels = {} } = useQuery(llmModelsQueryOptions);
 
-	const CUSTOM = "__custom__";
-
 	const [step, setStep] = useState<1 | 2>(1);
 	const [name, setName] = useState("");
 	const [handle, setHandle] = useState("");
@@ -116,7 +117,9 @@ function CreateAgentDialog({
 	const [modelSelect, setModelSelect] = useState("claude-sonnet-4-5-20250929");
 	const [customModel, setCustomModel] = useState("");
 	const [llmApiKey, setLlmApiKey] = useState("");
-	const [llmBaseUrl, setLlmBaseUrl] = useState("");
+	const [llmBaseUrl, setLlmBaseUrl] = useState(
+		llmModels["anthropic"]?.base_url ?? "",
+	);
 	const [systemPrompt, setSystemPrompt] = useState("");
 	const [showApiKey, setShowApiKey] = useState(false);
 
@@ -136,7 +139,7 @@ function CreateAgentDialog({
 		setModelSelect("claude-sonnet-4-5-20250929");
 		setCustomModel("");
 		setLlmApiKey("");
-		setLlmBaseUrl("");
+		setLlmBaseUrl(llmModels["anthropic"]?.base_url ?? "");
 		setSystemPrompt("");
 		setShowApiKey(false);
 	};
@@ -155,6 +158,9 @@ function CreateAgentDialog({
 			const firstModel = info?.models?.[0] ?? "";
 			setModelSelect(firstModel || CUSTOM);
 			if (!firstModel) setCustomModel("");
+		} else {
+			setModelSelect(CUSTOM);
+			setCustomModel("");
 		}
 	};
 
@@ -184,7 +190,7 @@ function CreateAgentDialog({
 				llm_provider: llmProvider,
 				llm_model: llmModel,
 				llm_api_key: llmApiKey,
-				llm_base_url: llmBaseUrl || null,
+				llm_base_url: llmBaseUrl,
 				system_prompt: systemPrompt,
 				task_trigger_prompt: TRIGGER_PROMPTS.task,
 				doc_comment_trigger_prompt: TRIGGER_PROMPTS.docComment,
