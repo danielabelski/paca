@@ -1,13 +1,13 @@
 # API Service
 
-Go + Gin backend service for product APIs and core business operations.
+Go + Chi backend service for product APIs and core business operations.
 
 ## Responsibilities
 
 - Expose HTTP APIs for web and future clients.
 - Handle JWT authentication and authorization.
 - Coordinate application workflows through domain services.
-- Persist system-of-record state in PostgreSQL via GORM.
+- Persist system-of-record state in PostgreSQL via sqlx and raw SQL.
 - Use Redis where appropriate (cache, rate limit, short-lived state).
 - Publish real-time domain events via Valkey Pub/Sub; append durable events to Valkey Streams for `services/realtime`.
 
@@ -15,103 +15,126 @@ Go + Gin backend service for product APIs and core business operations.
 
 - Follow service-repository pattern.
 - Service layer owns business logic and orchestration.
-- Repository layer owns persistence concerns and GORM interaction.
+- Repository layer owns persistence concerns and raw SQL queries via sqlx.
 - Keep handlers thin: transport mapping, validation, and response shaping only.
 - Use clear dependency direction: `handler -> service -> repository`.
-- Keep domain entities and business rules independent from Gin and GORM.
+- Keep domain entities and business rules independent from Chi and sqlx.
 - Prefer interfaces at service and repository boundaries for testability.
 
-## Proposed Source Layout
+## Source Layout
 
 ```text
 services/api/
-	README.md
-	go.mod
-	go.sum
-	cmd/
-		api/
-			main.go
-	internal/
-		bootstrap/
-			app.go                 # wiring: config, logger, db, router, server
-			providers.go           # dependency providers and constructors
-		config/
-			config.go              # typed config model
-			load.go                # env/file loading and validation
-		platform/
-			logger/
-				logger.go            # structured logger setup
-			database/
-				postgres.go          # gorm.Open + connection pool setup
-				migrations.go        # migration runner adapter
-			cache/
-				redis.go             # redis client setup
-			messaging/
-				publisher.go         # Valkey Streams publisher for domain events
-			token/
-				jwt_manager.go       # sign/verify JWT, key rotation strategy
-			authz/
-				policy.go            # authorization policy abstraction
-		domain/
-			user/
-				entity.go            # aggregate/entity definitions
-				repository.go        # repository interfaces only
-				service.go           # service interfaces only
-				errors.go            # domain-level errors
-			auth/
-				claims.go            # JWT claims model
-				service.go           # auth service interface/contracts
-		repository/
-			postgres/
-				user_repository.go   # GORM implementation of user repository
-				tx.go                # transaction helpers / unit-of-work helper
-			redis/
-		service/
-			auth/
-				auth_service.go      # login, refresh, logout, password flows
-			user/
-				user_service.go      # user use-cases
-		transport/
-			http/
-				router/
-					router.go
-					middleware.go      # request id, recovery, CORS, logging
-				middleware/
-					authn.go           # JWT authentication middleware
-					authz.go           # role/permission authorization middleware
-					validate.go        # request validation helper
-					must_change_password.go # force-change-password gate
-				handler/
-					health_handler.go
-					auth_handler.go
-					user_handler.go
-				dto/
-					auth_dto.go
-					user_dto.go
-				presenter/
-					response.go        # API response envelopes and error mapping
-		events/
-			publisher.go           # app-level event publishing abstractions
-			topics.go
-	migrations/
-		000001_init.sql
-	test/
-		integration/
-			auth_test.go
-			user_test.go
-		e2e/
-			api_flow_test.go
+    README.md
+    go.mod
+    go.sum
+    cmd/
+        api/
+            main.go
+    internal/
+        apierr/
+            errors.go              # typed API error codes and HTTP status mapping
+        bootstrap/
+            app.go                 # wiring: config, logger, db, router, server
+            providers.go           # dependency providers and constructors
+        config/
+            config.go              # typed config model
+            load.go                # env/file loading and validation
+        platform/
+            logger/
+                logger.go          # structured logger setup
+            database/
+                postgres.go        # sqlx.Open + connection pool setup
+                migrations.go      # migration runner (embed.FS)
+            cache/
+                redis.go           # redis client setup
+            messaging/
+                publisher.go       # Valkey Streams publisher for domain events
+            token/
+                jwt_manager.go     # sign/verify JWT, key rotation strategy
+            authz/
+                policy.go          # authorization policy abstraction
+            storage/               # S3-compatible file storage (MinIO / AWS S3)
+            secret/                # encryption helpers (AES-GCM)
+            plugin/                # WASM plugin runtime (wazero)
+        domain/
+            user/
+            auth/
+            globalrole/
+            project/
+            task/
+            sprint/
+            doc/
+            agent/
+            attachment/
+            notification/
+            plugin/
+            apikey/
+                # each domain package: entity.go, repository.go, service.go, errors.go
+        repository/
+            postgres/              # sqlx implementations of domain repository interfaces
+            redis/                 # redis-backed repository implementations
+        service/
+            auth/
+            user/
+            globalrole/
+            project/
+            task/
+            sprint/
+            doc/
+            agent/
+            attachment/
+            notification/
+            plugin/
+            apikey/
+        transport/
+            http/
+                httpx/
+                    httpx.go       # shared WriteJSON / DecodeJSON helpers
+                router/
+                    router.go      # Chi router wiring and route registration
+                middleware/
+                    authn.go       # JWT authentication middleware
+                    authz.go       # role/permission authorization middleware
+                    validate.go    # request body binding helper
+                    must_change_password.go
+                handler/
+                    health_handler.go
+                    auth_handler.go
+                    user_handler.go
+                    global_role_handler.go
+                    project_handler.go
+                    task_handler.go
+                    sprint_handler.go
+                    document_handler.go
+                    agent_handler.go
+                    attachment_handler.go
+                    plugin_handler.go
+                    notification_handler.go
+                dto/               # request/response structs (no binding tags)
+                presenter/
+                    response.go    # API response envelopes and error mapping
+        events/
+            publisher.go           # app-level event publishing abstractions
+            topics.go
+        worker/                    # background workers (e.g. event consumers)
+    migrations/
+        000001_init.sql
+    test/
+        e2e/
+            api_flow_test.go
 ```
 
 ## Request Flow (HTTP)
 
-1. Gin route receives request in `transport/http/handler`.
+1. Chi router matches the request path and invokes the handler.
 2. Middleware validates JWT (authentication) and permissions (authorization).
-3. Handler maps DTO -> service input.
-4. Service executes business rules and transaction boundaries.
-5. Repository persists/reads data using GORM.
-6. Service may publish real-time domain events via Valkey Pub/Sub or append durable events to Valkey Streams.
-7. Handler returns standardized response DTO.
+3. Handler decodes the JSON body with `encoding/json` and validates required fields explicitly.
+4. Handler maps the validated DTO to a service input struct.
+5. Service executes business rules and transaction boundaries.
+6. Repository persists or reads data using sqlx and raw SQL.
+7. Service may publish real-time domain events via Valkey Pub/Sub or append durable events to Valkey Streams.
+8. Handler returns a standardized response DTO via the presenter layer.
 
 ## JWT Authentication and Authorization
 
@@ -131,14 +154,35 @@ Recommended claims include:
 - `fid` (family ID) linking all tokens from the same login session
 - `mcp` (`must_change_password`) flag — when true, all endpoints except `PATCH /users/me/password` are blocked with `403 AUTH_PASSWORD_CHANGE_REQUIRED`
 
-## GORM + PostgreSQL Guidelines
+## PostgreSQL + sqlx Guidelines
 
-- Keep GORM usage in repository implementations only.
-- Do not pass GORM models outside repository boundaries.
-- Use explicit transaction handling for multi-step write operations.
+- Keep sqlx usage in repository implementations only.
+- Do not pass raw `*sqlx.DB` outside the repository layer.
+- Write explicit SQL queries; avoid implicit schema inference.
+- Use `sqlx.GetContext` / `sqlx.SelectContext` for single-row and multi-row reads.
+- Use `sqlx.NamedExecContext` for inserts and updates with named parameters.
+- Map `sql.ErrNoRows` to domain `ErrNotFound` at the repository boundary.
+- Use explicit transaction handling (`db.BeginTxx`) for multi-step write operations.
 - Configure connection pool settings in `platform/database/postgres.go`.
-- Keep schema changes in `migrations/` and avoid automatic destructive schema drift.
+- Keep schema changes in `migrations/` and avoid runtime schema modifications.
 - Add indexes and constraints at migration level, not ad hoc in runtime code.
+
+## Request Validation
+
+Because `encoding/json` does not honor `binding:` struct tags, handlers perform explicit field checks after decoding:
+
+```go
+if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+    presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, err.Error()))
+    return
+}
+if req.Name == "" {
+    presenter.Error(w, r, apierr.New(apierr.CodeNameInvalid, "name is required"))
+    return
+}
+```
+
+Keep validation in the handler, not in DTO struct tags.
 
 ## Service-Repository Conventions
 
@@ -157,10 +201,10 @@ Recommended claims include:
 
 ## Testing Strategy
 
+- Unit tests for handlers with lightweight in-process fakes (no network, no DB).
 - Unit tests for services with mocked repositories.
 - Repository integration tests against PostgreSQL test database.
-- HTTP integration tests for auth and critical user flows.
-- E2E smoke tests for login -> authorized action -> event publish flow.
+- E2E smoke tests for login → authorized action → event publish flow.
 
 ## Open-Source Readiness Checklist
 
@@ -170,12 +214,3 @@ Recommended claims include:
 - Include `Makefile` targets for `run`, `test`, `lint`, and `migrate`.
 - Keep examples of env vars in `.env.example`.
 - Add API docs (OpenAPI) when public endpoints stabilize.
-
-## Next Scaffolding Milestones
-
-1. Initialize Gin app skeleton under `cmd/api` and `internal/transport/http`.
-2. Add config loader and structured logging.
-3. Add PostgreSQL connection with GORM + first migration.
-4. Implement auth module (JWT issue/verify + authn/authz middleware).
-5. Implement first vertical slice (`user`: handler -> service -> repository).
-6. Add integration tests and CI checks.

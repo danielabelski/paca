@@ -7,7 +7,7 @@ Paca is a single open-source monorepo with a small set of clearly separated runt
 - `apps/web` — the user-facing application built with React, TanStack Start, and shadcn/ui.
 - `apps/mcp` — the `@paca-ai/paca-mcp` MCP server; connects AI agents to the Paca data layer.
 - `apps/e2e` — the end-to-end test suite built with Playwright; not a deployed runtime, but an external verifier of the full stack.
-- `services/api` — the main application backend built with Go and Gin.
+- `services/api` — the main application backend built with Go, Chi, and sqlx.
 - `services/realtime` — the real-time delivery service built with Node.js and Socket.IO.
 - `services/ai-agent` — the AI agent orchestration runtime built with Python, FastAPI, and the OpenHands SDK.
 
