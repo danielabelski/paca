@@ -97,16 +97,16 @@ func newUserRouter(svc domainuser.Service) chi.Router {
 	r := chi.NewRouter()
 	h := handler.NewUserHandler(svc)
 	// self-service routes
-	r.Get("/users/me",  h.GetMe)
-	r.Patch("/users/me",  h.UpdateMe)
-	r.Get("/users/me/global-permissions",  h.GetMyGlobalPermissions)
+	r.Get("/users/me", h.GetMe)
+	r.Patch("/users/me", h.UpdateMe)
+	r.Get("/users/me/global-permissions", h.GetMyGlobalPermissions)
 	// admin routes
-	r.Get("/admin/users",  h.ListUsers)
-	r.Post("/admin/users",  h.CreateUser)
-	r.Get("/admin/users/{userId}",  h.GetUserByID)
-	r.Patch("/admin/users/{userId}",  h.AdminUpdateUser)
-	r.Patch("/admin/users/{userId}/password",  h.ResetPassword)
-	r.Delete("/admin/users/{userId}",  h.DeleteUser)
+	r.Get("/admin/users", h.ListUsers)
+	r.Post("/admin/users", h.CreateUser)
+	r.Get("/admin/users/{userId}", h.GetUserByID)
+	r.Patch("/admin/users/{userId}", h.AdminUpdateUser)
+	r.Patch("/admin/users/{userId}/password", h.ResetPassword)
+	r.Delete("/admin/users/{userId}", h.DeleteUser)
 	return r
 }
 
@@ -290,7 +290,7 @@ func TestGetMe_Success(t *testing.T) {
 
 func TestGetMe_Unauthenticated(t *testing.T) {
 	r := chi.NewRouter()
-	r.Get("/users/me",  handler.NewUserHandler(&mockUserSvc{}).GetMe)
+	r.Get("/users/me", handler.NewUserHandler(&mockUserSvc{}).GetMe)
 
 	w := do(t, r, http.MethodGet, "/users/me", nil)
 	if w.Code != http.StatusUnauthorized {
@@ -348,7 +348,7 @@ func TestUpdateMe_Success(t *testing.T) {
 
 func TestUpdateMe_Unauthenticated(t *testing.T) {
 	r := chi.NewRouter()
-	r.Patch("/users/me",  handler.NewUserHandler(&mockUserSvc{}).UpdateMe)
+	r.Patch("/users/me", handler.NewUserHandler(&mockUserSvc{}).UpdateMe)
 
 	w := do(t, r, http.MethodPatch, "/users/me",
 		jsonBody(t, map[string]string{"full_name": "Name"}))
@@ -383,7 +383,7 @@ func TestGetMyGlobalPermissions_Success(t *testing.T) {
 
 func TestGetMyGlobalPermissions_Unauthenticated(t *testing.T) {
 	r := chi.NewRouter()
-	r.Get("/users/me/global-permissions",  handler.NewUserHandler(&mockUserSvc{}).GetMyGlobalPermissions)
+	r.Get("/users/me/global-permissions", handler.NewUserHandler(&mockUserSvc{}).GetMyGlobalPermissions)
 
 	w := do(t, r, http.MethodGet, "/users/me/global-permissions", nil)
 	if w.Code != http.StatusUnauthorized {
@@ -661,7 +661,7 @@ func TestChangeMyPassword_Success(t *testing.T) {
 
 func TestChangeMyPassword_Unauthenticated(t *testing.T) {
 	r := chi.NewRouter()
-	r.Patch("/users/me/password",  handler.NewUserHandler(&mockUserSvc{}).ChangeMyPassword)
+	r.Patch("/users/me/password", handler.NewUserHandler(&mockUserSvc{}).ChangeMyPassword)
 
 	w := do(t, r, http.MethodPatch, "/users/me/password",
 		jsonBody(t, map[string]string{"current_password": "old12345", "new_password": "new12345"}))

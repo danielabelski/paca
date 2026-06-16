@@ -20,7 +20,7 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockAgentSvc struct {
-	getAgent   func(ctx context.Context, projectID, agentID uuid.UUID) (*agentdom.Agent, error)
+	getAgent    func(ctx context.Context, projectID, agentID uuid.UUID) (*agentdom.Agent, error)
 	createAgent func(ctx context.Context, projectID uuid.UUID, in agentdom.CreateAgentInput) (*agentdom.Agent, error)
 }
 

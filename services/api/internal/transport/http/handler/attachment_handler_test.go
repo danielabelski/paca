@@ -10,11 +10,11 @@ import (
 	"time"
 
 	attachmentdom "github.com/Paca-AI/api/internal/domain/attachment"
+	domainauth "github.com/Paca-AI/api/internal/domain/auth"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
 	httpmw "github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
-	domainauth "github.com/Paca-AI/api/internal/domain/auth"
 	"github.com/google/uuid"
 )
 

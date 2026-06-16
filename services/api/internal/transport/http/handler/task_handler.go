@@ -8,6 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
+
 	"github.com/Paca-AI/api/internal/apierr"
 	sprintdom "github.com/Paca-AI/api/internal/domain/sprint"
 	taskdom "github.com/Paca-AI/api/internal/domain/task"
@@ -16,11 +22,6 @@ import (
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"net/http"
-
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
-	"golang.org/x/sync/errgroup"
 )
 
 // TaskHandler handles task management endpoints.
@@ -909,7 +910,7 @@ func (h *TaskHandler) DeleteTask(w http.ResponseWriter, r *http.Request) {
 
 // --- helpers ----------------------------------------------------------------
 
-func parseTaskTypeID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
+func parseTaskTypeID(_ http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
 	id, err := uuid.Parse(chi.URLParam(r, "typeId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid task type id")
@@ -917,7 +918,7 @@ func parseTaskTypeID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error) 
 	return id, nil
 }
 
-func parseTaskStatusID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
+func parseTaskStatusID(_ http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
 	id, err := uuid.Parse(chi.URLParam(r, "statusId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid task status id")
@@ -925,7 +926,7 @@ func parseTaskStatusID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error
 	return id, nil
 }
 
-func parseTaskID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
+func parseTaskID(_ http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
 	id, err := uuid.Parse(chi.URLParam(r, "taskId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid task id")
@@ -1080,7 +1081,7 @@ func (h *TaskHandler) DeleteCustomFieldDefinition(w http.ResponseWriter, r *http
 	presenter.OK(w, r, map[string]any{"message": "custom field deleted"})
 }
 
-func parseCustomFieldID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
+func parseCustomFieldID(_ http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
 	id, err := uuid.Parse(chi.URLParam(r, "fieldId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid custom field id")
@@ -1091,7 +1092,7 @@ func parseCustomFieldID(w http.ResponseWriter, r *http.Request) (uuid.UUID, erro
 // --- Activities / Comments --------------------------------------------------
 
 // parseCommentID parses the :commentId path parameter.
-func parseCommentID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
+func parseCommentID(_ http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
 	id, err := uuid.Parse(chi.URLParam(r, "commentId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid comment id")

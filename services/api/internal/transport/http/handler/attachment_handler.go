@@ -1,17 +1,17 @@
 package handler
 
 import (
+	"net/http"
 	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/Paca-AI/api/internal/apierr"
 	attachmentdom "github.com/Paca-AI/api/internal/domain/attachment"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"net/http"
-
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 )
 
 // AttachmentHandler handles task-attachment endpoints.
@@ -223,7 +223,7 @@ func (h *AttachmentHandler) DeleteTaskAttachment(w http.ResponseWriter, r *http.
 
 // --- helpers ---------------------------------------------------------------
 
-func parseAttachmentID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
+func parseAttachmentID(_ http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
 	id, err := uuid.Parse(chi.URLParam(r, "attachmentId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid attachment id")

@@ -1,17 +1,17 @@
 package handler
 
 import (
+	"net/http"
 	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/Paca-AI/api/internal/apierr"
 	attachmentdom "github.com/Paca-AI/api/internal/domain/attachment"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"net/http"
-
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 )
 
 // DocFileHandler handles file upload/download endpoints for documents.
@@ -139,7 +139,7 @@ func (h *DocFileHandler) DeleteDocFile(w http.ResponseWriter, r *http.Request) {
 
 // --- helpers ----------------------------------------------------------------
 
-func parseDocFileID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
+func parseDocFileID(_ http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
 	id, err := uuid.Parse(chi.URLParam(r, "fileId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid file id")

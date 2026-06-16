@@ -2,16 +2,16 @@ package handler
 
 import (
 	"encoding/json"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/Paca-AI/api/internal/apierr"
 	docdom "github.com/Paca-AI/api/internal/domain/doc"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"net/http"
-
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 )
 
 // DocumentHandler handles documentation endpoints.
@@ -524,7 +524,7 @@ func (h *DocumentHandler) DeleteComment(w http.ResponseWriter, r *http.Request) 
 // Parse helpers
 // =============================================================================
 
-func parseDocID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
+func parseDocID(_ http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
 	id, err := uuid.Parse(chi.URLParam(r, "docId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid document id")
@@ -532,7 +532,7 @@ func parseDocID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
 	return id, nil
 }
 
-func parseDocFolderID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
+func parseDocFolderID(_ http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
 	id, err := uuid.Parse(chi.URLParam(r, "folderId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid folder id")
@@ -540,7 +540,7 @@ func parseDocFolderID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error)
 	return id, nil
 }
 
-func parseDocSnapshotID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
+func parseDocSnapshotID(_ http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
 	id, err := uuid.Parse(chi.URLParam(r, "snapshotId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid snapshot id")
@@ -548,7 +548,7 @@ func parseDocSnapshotID(w http.ResponseWriter, r *http.Request) (uuid.UUID, erro
 	return id, nil
 }
 
-func parseDocCommentID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
+func parseDocCommentID(_ http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
 	id, err := uuid.Parse(chi.URLParam(r, "commentId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid comment id")

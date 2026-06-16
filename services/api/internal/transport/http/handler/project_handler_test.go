@@ -208,21 +208,21 @@ func newProjectRouter(svc projectdom.Service) chi.Router {
 	r.Use(adminClaimsMiddleware())
 	h := handler.NewProjectHandler(svc, authorizer)
 	// Admin project CRUD
-	r.Get("/admin/projects",  h.ListProjects)
-	r.Post("/admin/projects",  h.CreateProject)
-	r.Get("/admin/projects/{projectId}",  h.GetProject)
-	r.Patch("/admin/projects/{projectId}",  h.UpdateProject)
-	r.Delete("/admin/projects/{projectId}",  h.DeleteProject)
+	r.Get("/admin/projects", h.ListProjects)
+	r.Post("/admin/projects", h.CreateProject)
+	r.Get("/admin/projects/{projectId}", h.GetProject)
+	r.Patch("/admin/projects/{projectId}", h.UpdateProject)
+	r.Delete("/admin/projects/{projectId}", h.DeleteProject)
 	// Project member routes
-	r.Get("/projects/{projectId}/members",  h.ListMembers)
-	r.Post("/projects/{projectId}/members",  h.AddMember)
-	r.Patch("/projects/{projectId}/members/{memberId}",  h.UpdateMemberRole)
-	r.Delete("/projects/{projectId}/members/{memberId}",  h.RemoveMember)
+	r.Get("/projects/{projectId}/members", h.ListMembers)
+	r.Post("/projects/{projectId}/members", h.AddMember)
+	r.Patch("/projects/{projectId}/members/{memberId}", h.UpdateMemberRole)
+	r.Delete("/projects/{projectId}/members/{memberId}", h.RemoveMember)
 	// Project role routes
-	r.Get("/projects/{projectId}/roles",  h.ListRoles)
-	r.Post("/projects/{projectId}/roles",  h.CreateRole)
-	r.Patch("/projects/{projectId}/roles/{roleId}",  h.UpdateRole)
-	r.Delete("/projects/{projectId}/roles/{roleId}",  h.DeleteRole)
+	r.Get("/projects/{projectId}/roles", h.ListRoles)
+	r.Post("/projects/{projectId}/roles", h.CreateRole)
+	r.Patch("/projects/{projectId}/roles/{roleId}", h.UpdateRole)
+	r.Delete("/projects/{projectId}/roles/{roleId}", h.DeleteRole)
 	return r
 }
 
@@ -336,7 +336,7 @@ func TestCreateProject_SeedsDefaultViews(t *testing.T) {
 	r := chi.NewRouter()
 	r.Use(adminClaimsMiddleware())
 	h := handler.NewProjectHandler(projectSvc, authorizer, handler.WithProjectDefaultViews(viewSvc, taskTypeSvc))
-	r.Post("/admin/projects",  h.CreateProject)
+	r.Post("/admin/projects", h.CreateProject)
 
 	w := do(t, r, http.MethodPost, "/admin/projects", jsonBody(t, map[string]any{"name": "alpha"}))
 	if w.Code != http.StatusCreated {

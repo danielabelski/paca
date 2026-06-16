@@ -108,7 +108,7 @@ func newE2EEnv(t *testing.T) *e2eEnv {
 		t.Fatalf("open admin db for test isolation: %v", adminErr)
 	}
 	if _, createErr := adminDB.ExecContext(ctx, fmt.Sprintf(`CREATE DATABASE %q`, testDBName)); createErr != nil {
-		_ = adminDB.DB.Close()
+		_ = adminDB.Close()
 		t.Fatalf("create per-test database %q: %v", testDBName, createErr)
 	}
 	t.Cleanup(func() {
@@ -118,7 +118,7 @@ func newE2EEnv(t *testing.T) *e2eEnv {
 			testDBName,
 		)
 		_, _ = adminDB.ExecContext(bgCtx, fmt.Sprintf(`DROP DATABASE IF EXISTS %q`, testDBName))
-		_ = adminDB.DB.Close()
+		_ = adminDB.Close()
 	})
 	pgDSN := strings.Replace(sharedPGDSN, "/testdb?", "/"+testDBName+"?", 1)
 
@@ -493,4 +493,3 @@ func socketFromDockerContext() string {
 	host := meta.Endpoints["docker"].Host
 	return strings.TrimPrefix(host, "unix://")
 }
-

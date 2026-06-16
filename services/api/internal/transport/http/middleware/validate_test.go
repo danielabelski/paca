@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +15,7 @@ type bindReq struct {
 
 func TestBindJSON_Success(t *testing.T) {
 	body := bytes.NewBufferString(`{"name":"alice"}`)
-	req := httptest.NewRequest(http.MethodPost, "/bind", body)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/bind", body)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -31,7 +32,7 @@ func TestBindJSON_Success(t *testing.T) {
 
 func TestBindJSON_Failure(t *testing.T) {
 	body := bytes.NewBufferString(`not-json`)
-	req := httptest.NewRequest(http.MethodPost, "/bind", body)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/bind", body)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 

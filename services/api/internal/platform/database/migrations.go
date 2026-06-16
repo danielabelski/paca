@@ -2,6 +2,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"io/fs"
@@ -29,7 +30,7 @@ func RunMigrations(db *sql.DB, migrationsDir string) error {
 			return fmt.Errorf("migrations: read %q: %w", path, err)
 		}
 
-		if _, err := db.Exec(string(data)); err != nil {
+		if _, err := db.ExecContext(context.Background(), string(data)); err != nil {
 			return fmt.Errorf("migrations: exec %q: %w", path, err)
 		}
 	}
@@ -57,7 +58,7 @@ func RunMigrationsFS(db *sql.DB, fsys fs.FS) error {
 			return fmt.Errorf("migrations: read %q: %w", e.Name(), err)
 		}
 
-		if _, err := db.Exec(string(data)); err != nil {
+		if _, err := db.ExecContext(context.Background(), string(data)); err != nil {
 			return fmt.Errorf("migrations: exec %q: %w", e.Name(), err)
 		}
 	}

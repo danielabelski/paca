@@ -98,7 +98,7 @@ func newTestRouter(t *testing.T) http.Handler {
 
 func newTestRouterWithStore(t *testing.T, store authz.PermissionStore) http.Handler {
 	t.Helper()
-	
+
 	deps := Deps{
 		TokenManager: jwttoken.New("test-secret", 15*time.Minute, 24*time.Hour),
 		Authorizer:   authz.NewAuthorizer(store),

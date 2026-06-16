@@ -30,11 +30,11 @@ type sprintViewRecord struct {
 }
 
 type viewTaskPositionRecord struct {
-	ID       string   `db:"id"`
-	ViewID   string   `db:"view_id"`
-	TaskID   string   `db:"task_id"`
-	Position float64  `db:"position"`
-	GroupKey *string  `db:"group_key"`
+	ID       string  `db:"id"`
+	ViewID   string  `db:"view_id"`
+	TaskID   string  `db:"task_id"`
+	Position float64 `db:"position"`
+	GroupKey *string `db:"group_key"`
 }
 
 // --- Repository struct -------------------------------------------------------

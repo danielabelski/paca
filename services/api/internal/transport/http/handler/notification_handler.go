@@ -1,15 +1,16 @@
 package handler
 
 import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	"github.com/Paca-AI/api/internal/apierr"
 	notificationdom "github.com/Paca-AI/api/internal/domain/notification"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"net/http"
-
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 )
 
 const defaultNotificationLimit = 50

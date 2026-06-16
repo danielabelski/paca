@@ -42,10 +42,10 @@ func withClaims(role string) func(http.Handler) http.Handler {
 func TestRequirePermissions_Unauthenticated(t *testing.T) {
 	r := chi.NewRouter()
 	r.With(RequirePermissions(authz.NewAuthorizer(nil), GlobalScope(), authz.PermissionUsersDelete)).
-		Get("/admin", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+		Get("/admin", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusUnauthorized {
@@ -57,10 +57,10 @@ func TestRequirePermissions_Forbidden(t *testing.T) {
 	r := chi.NewRouter()
 	r.With(withClaims("USER"),
 		RequirePermissions(authz.NewAuthorizer(nil), GlobalScope(), authz.PermissionUsersDelete)).
-		Get("/admin", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+		Get("/admin", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusForbidden {
@@ -73,10 +73,10 @@ func TestRequirePermissions_AllowedByStore(t *testing.T) {
 	r := chi.NewRouter()
 	r.With(withClaims("USER"),
 		RequirePermissions(authz.NewAuthorizer(store), GlobalScope(), authz.PermissionUsersDelete)).
-		Get("/admin", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+		Get("/admin", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -89,10 +89,10 @@ func TestRequirePermissions_ProjectScope(t *testing.T) {
 	r := chi.NewRouter()
 	r.With(withClaims("USER"),
 		RequirePermissions(authz.NewAuthorizer(store), ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
-		Get("/projects/{projectId}/tasks", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+		Get("/projects/{projectId}/tasks", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -108,10 +108,10 @@ func TestRequireAnyPermissions_Unauthenticated(t *testing.T) {
 	r := chi.NewRouter()
 	r.With(RequireAnyPermissions(authz.NewAuthorizer(nil),
 		PermissionGroup{Scope: GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
-	)).Get("/resource", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	)).Get("/resource", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/resource", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/resource", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusUnauthorized {
@@ -126,10 +126,10 @@ func TestRequireAnyPermissions_Forbidden(t *testing.T) {
 		RequireAnyPermissions(authz.NewAuthorizer(store),
 			PermissionGroup{Scope: GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionProjectMembersRead}},
-		)).Get("/projects/{projectId}/members", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+		)).Get("/projects/{projectId}/members", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/projects/"+uuid.NewString()+"/members", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/"+uuid.NewString()+"/members", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusForbidden {
@@ -144,10 +144,10 @@ func TestRequireAnyPermissions_AllowedByFirstGroup_GlobalProjectsRead(t *testing
 		RequireAnyPermissions(authz.NewAuthorizer(store),
 			PermissionGroup{Scope: GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionProjectMembersRead}},
-		)).Get("/projects/{projectId}/members", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+		)).Get("/projects/{projectId}/members", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/projects/"+uuid.NewString()+"/members", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/"+uuid.NewString()+"/members", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -162,10 +162,10 @@ func TestRequireAnyPermissions_AllowedBySecondGroup_ProjectScopedRead(t *testing
 		RequireAnyPermissions(authz.NewAuthorizer(store),
 			PermissionGroup{Scope: GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionProjectMembersRead}},
-		)).Get("/projects/{projectId}/members", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+		)).Get("/projects/{projectId}/members", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/projects/"+uuid.NewString()+"/members", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/"+uuid.NewString()+"/members", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -180,10 +180,10 @@ func TestRequireAnyPermissions_AllowedByWildcard_GlobalProjectsAll(t *testing.T)
 		RequireAnyPermissions(authz.NewAuthorizer(store),
 			PermissionGroup{Scope: GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionProjectMembersRead}},
-		)).Get("/projects/{projectId}/members", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+		)).Get("/projects/{projectId}/members", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/projects/"+uuid.NewString()+"/members", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/"+uuid.NewString()+"/members", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -197,10 +197,10 @@ func TestRequireAnyPermissions_InvalidProjectID_Returns400(t *testing.T) {
 	r.With(withClaims("USER"),
 		RequireAnyPermissions(authz.NewAuthorizer(store),
 			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionProjectMembersRead}},
-		)).Get("/projects/{projectId}/members", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+		)).Get("/projects/{projectId}/members", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/projects/not-a-uuid/members", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/not-a-uuid/members", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
@@ -215,10 +215,10 @@ func TestRequireAnyPermissions_InvalidProjectID_GlobalGroupSucceeds(t *testing.T
 		RequireAnyPermissions(authz.NewAuthorizer(store),
 			PermissionGroup{Scope: GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionProjectMembersRead}},
-		)).Get("/projects/{projectId}/members", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+		)).Get("/projects/{projectId}/members", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/projects/not-a-uuid/members", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/not-a-uuid/members", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -244,10 +244,10 @@ func TestRequirePublicProjectOrPermissions_AnonymousPublicProject_Allows(t *test
 	r := chi.NewRouter()
 	r.With(RequirePublicProjectOrPermissions(checker, authz.NewAuthorizer(nil),
 		PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-	)).Get("/projects/{projectId}/tasks", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	)).Get("/projects/{projectId}/tasks", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -260,10 +260,10 @@ func TestRequirePublicProjectOrPermissions_AnonymousPrivateProject_Returns401(t 
 	r := chi.NewRouter()
 	r.With(RequirePublicProjectOrPermissions(checker, authz.NewAuthorizer(nil),
 		PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-	)).Get("/projects/{projectId}/tasks", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	)).Get("/projects/{projectId}/tasks", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusUnauthorized {
@@ -276,10 +276,10 @@ func TestRequirePublicProjectOrPermissions_AnonymousInvalidProjectID_Returns400(
 	r := chi.NewRouter()
 	r.With(RequirePublicProjectOrPermissions(checker, authz.NewAuthorizer(nil),
 		PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-	)).Get("/projects/{projectId}/tasks", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	)).Get("/projects/{projectId}/tasks", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/projects/not-a-uuid/tasks", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/not-a-uuid/tasks", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
@@ -294,10 +294,10 @@ func TestRequirePublicProjectOrPermissions_AuthenticatedWithPermission_Allows(t 
 	r.With(withClaims("USER"),
 		RequirePublicProjectOrPermissions(checker, authz.NewAuthorizer(store),
 			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-		)).Get("/projects/{projectId}/tasks", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+		)).Get("/projects/{projectId}/tasks", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -312,10 +312,10 @@ func TestRequirePublicProjectOrPermissions_AuthenticatedWithoutPermission_Return
 	r.With(withClaims("USER"),
 		RequirePublicProjectOrPermissions(checker, authz.NewAuthorizer(store),
 			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-		)).Get("/projects/{projectId}/tasks", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+		)).Get("/projects/{projectId}/tasks", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusForbidden {

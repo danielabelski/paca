@@ -1,12 +1,14 @@
 package handler
 
 import (
-	"github.com/go-chi/chi/v5"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/Paca-AI/api/internal/apierr"
 	agentdom "github.com/Paca-AI/api/internal/domain/agent"
@@ -15,8 +17,6 @@ import (
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-
-	"github.com/google/uuid"
 )
 
 type agentActivityRecorder interface {
@@ -221,7 +221,7 @@ func (h *AgentHandler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 // parseAgentForProject parses projectId and agentId, verifies the agent belongs
 // to the project, and returns both IDs. Handlers that operate on agent sub-resources
 // (MCP servers, skills) must call this instead of parsing agentId alone.
-func (h *AgentHandler) parseAgentForProject(w http.ResponseWriter, r *http.Request) (projectID, agentID uuid.UUID, err error) {
+func (h *AgentHandler) parseAgentForProject(_ http.ResponseWriter, r *http.Request) (projectID, agentID uuid.UUID, err error) {
 	projectID, err = parseProjectID(r)
 	if err != nil {
 		return
@@ -654,5 +654,7 @@ func (h *AgentHandler) GetLLMModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json"); w.WriteHeader(http.StatusOK); w.Write(body)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
 }

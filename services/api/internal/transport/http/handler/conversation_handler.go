@@ -2,13 +2,14 @@ package handler
 
 import (
 	"encoding/json"
+	"net/http"
+
+	"github.com/google/uuid"
+
 	agentdom "github.com/Paca-AI/api/internal/domain/agent"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"net/http"
-
-	"github.com/google/uuid"
 )
 
 // ConversationHandler handles agent conversation endpoints.

@@ -4,15 +4,16 @@ import (
 	"context"
 	"strconv"
 
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	"github.com/Paca-AI/api/internal/apierr"
 	domainuser "github.com/Paca-AI/api/internal/domain/user"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"net/http"
-
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 )
 
 // SessionInvalidator revokes an authentication session by family ID.

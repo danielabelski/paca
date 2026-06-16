@@ -60,11 +60,11 @@ func (m *mockGlobalRoleSvc) ReplaceUserRoles(ctx context.Context, userID uuid.UU
 func newGlobalRoleRouter(svc globalroledom.Service) chi.Router {
 	r := chi.NewRouter()
 	h := handler.NewGlobalRoleHandler(svc)
-	r.Get("/admin/global-roles",  h.List)
-	r.Post("/admin/global-roles",  h.Create)
-	r.Patch("/admin/global-roles/{roleId}",  h.Update)
-	r.Delete("/admin/global-roles/{roleId}",  h.Delete)
-	r.Put("/admin/users/{userId}/global-roles",  h.ReplaceUserRoles)
+	r.Get("/admin/global-roles", h.List)
+	r.Post("/admin/global-roles", h.Create)
+	r.Patch("/admin/global-roles/{roleId}", h.Update)
+	r.Delete("/admin/global-roles/{roleId}", h.Delete)
+	r.Put("/admin/users/{userId}/global-roles", h.ReplaceUserRoles)
 	return r
 }
 

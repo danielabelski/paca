@@ -9,7 +9,6 @@ import (
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-
 )
 
 const (
@@ -130,7 +129,7 @@ func (h *AuthHandler) setTokenCookies(w http.ResponseWriter, pair *domainauth.To
 }
 
 // clearCookies expires both auth cookies immediately.
-func (h *AuthHandler) clearCookies(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) clearCookies(w http.ResponseWriter, _ *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     accessCookieName,
 		Value:    "",

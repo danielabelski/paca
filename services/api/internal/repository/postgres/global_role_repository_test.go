@@ -19,7 +19,7 @@ func openGlobalRoleRepoTestDB(t *testing.T) *sqlx.DB {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 
 	schema := `
 		CREATE TABLE global_roles (
@@ -40,7 +40,7 @@ func openGlobalRoleRepoTestDB(t *testing.T) *sqlx.DB {
 			updated_at DATETIME,
 			deleted_at DATETIME
 		);`
-	if _, err := db.Exec(schema); err != nil {
+	if _, err := db.ExecContext(context.Background(), schema); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
 	return db

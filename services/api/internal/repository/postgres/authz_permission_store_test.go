@@ -17,7 +17,7 @@ func openAuthzStoreTestDB(t *testing.T) *sqlx.DB {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 
 	schema := `
 		CREATE TABLE global_roles (
@@ -52,7 +52,7 @@ func openAuthzStoreTestDB(t *testing.T) *sqlx.DB {
 			user_id TEXT NOT NULL,
 			project_role_id TEXT NOT NULL
 		);`
-	if _, err := db.Exec(schema); err != nil {
+	if _, err := db.ExecContext(context.Background(), schema); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
 	return db

@@ -1,7 +1,11 @@
 package handler
 
 import (
+	"net/http"
 	"strconv"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/Paca-AI/api/internal/apierr"
 	projectdom "github.com/Paca-AI/api/internal/domain/project"
@@ -10,10 +14,6 @@ import (
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"net/http"
-
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 )
 
 // ProjectHandler handles project management endpoints.
@@ -138,12 +138,9 @@ func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.viewSvc != nil {
-		taskTypes, loadErr := loadTaskTypes(r.Context(), h.taskTypeSvc, p.ID)
-		if loadErr != nil {
-		}
+		taskTypes, _ := loadTaskTypes(r.Context(), h.taskTypeSvc, p.ID)
 		for _, input := range defaultProjectViewInputs(p.ID, taskTypes) {
-			if _, seedErr := h.viewSvc.CreateView(r.Context(), input); seedErr != nil {
-			}
+			_, _ = h.viewSvc.CreateView(r.Context(), input)
 		}
 	}
 

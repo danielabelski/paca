@@ -17,7 +17,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-
 // testCookieConfig is an insecure config suitable for unit tests.
 var testCookieConfig = handler.CookieConfig{
 	Secure:            false,
@@ -146,7 +145,7 @@ func errorCode(t *testing.T, w *httptest.ResponseRecorder) string {
 
 func TestHealth_OK(t *testing.T) {
 	r := chi.NewRouter()
-	r.Get("/healthz",  handler.NewHealthHandler().Check)
+	r.Get("/healthz", handler.NewHealthHandler().Check)
 
 	w := do(t, r, http.MethodGet, "/healthz", nil)
 	if w.Code != http.StatusOK {
@@ -165,7 +164,7 @@ func TestLogin_Success(t *testing.T) {
 		},
 	}
 	r := chi.NewRouter()
-	r.Post("/auth/login",  handler.NewAuthHandler(svc, testCookieConfig).Login)
+	r.Post("/auth/login", handler.NewAuthHandler(svc, testCookieConfig).Login)
 
 	w := do(t, r, http.MethodPost, "/auth/login",
 		jsonBody(t, map[string]string{"username": "alice", "password": "secret12"}))
@@ -190,7 +189,7 @@ func TestLogin_Success(t *testing.T) {
 
 func TestLogin_BadJSON(t *testing.T) {
 	r := chi.NewRouter()
-	r.Post("/auth/login",  handler.NewAuthHandler(&mockAuthSvc{}, testCookieConfig).Login)
+	r.Post("/auth/login", handler.NewAuthHandler(&mockAuthSvc{}, testCookieConfig).Login)
 
 	w := do(t, r, http.MethodPost, "/auth/login", bytes.NewBufferString("not-json"))
 	if w.Code == http.StatusOK {
@@ -200,7 +199,7 @@ func TestLogin_BadJSON(t *testing.T) {
 
 func TestLogin_MissingFields(t *testing.T) {
 	r := chi.NewRouter()
-	r.Post("/auth/login",  handler.NewAuthHandler(&mockAuthSvc{}, testCookieConfig).Login)
+	r.Post("/auth/login", handler.NewAuthHandler(&mockAuthSvc{}, testCookieConfig).Login)
 
 	// username missing
 	w := do(t, r, http.MethodPost, "/auth/login",
@@ -228,7 +227,7 @@ func TestLogin_InvalidCreds(t *testing.T) {
 		},
 	}
 	r := chi.NewRouter()
-	r.Post("/auth/login",  handler.NewAuthHandler(svc, testCookieConfig).Login)
+	r.Post("/auth/login", handler.NewAuthHandler(svc, testCookieConfig).Login)
 
 	w := do(t, r, http.MethodPost, "/auth/login",
 		jsonBody(t, map[string]string{"username": "alice", "password": "wrongpass"}))
@@ -251,7 +250,7 @@ func TestRefresh_Success(t *testing.T) {
 		},
 	}
 	r := chi.NewRouter()
-	r.Post("/auth/refresh",  handler.NewAuthHandler(svc, testCookieConfig).Refresh)
+	r.Post("/auth/refresh", handler.NewAuthHandler(svc, testCookieConfig).Refresh)
 
 	w := doWithCookie(t, r, http.MethodPost, "/auth/refresh", nil, "refresh_token", "old-rt")
 	if w.Code != http.StatusOK {
@@ -261,7 +260,7 @@ func TestRefresh_Success(t *testing.T) {
 
 func TestRefresh_MissingCookie(t *testing.T) {
 	r := chi.NewRouter()
-	r.Post("/auth/refresh",  handler.NewAuthHandler(&mockAuthSvc{}, testCookieConfig).Refresh)
+	r.Post("/auth/refresh", handler.NewAuthHandler(&mockAuthSvc{}, testCookieConfig).Refresh)
 
 	// No cookie — expect 401 with AUTH_MISSING_TOKEN.
 	w := do(t, r, http.MethodPost, "/auth/refresh", nil)
@@ -280,7 +279,7 @@ func TestRefresh_InvalidToken(t *testing.T) {
 		},
 	}
 	r := chi.NewRouter()
-	r.Post("/auth/refresh",  handler.NewAuthHandler(svc, testCookieConfig).Refresh)
+	r.Post("/auth/refresh", handler.NewAuthHandler(svc, testCookieConfig).Refresh)
 
 	w := doWithCookie(t, r, http.MethodPost, "/auth/refresh", nil, "refresh_token", "bad")
 	if w.Code != http.StatusUnauthorized {
@@ -325,7 +324,7 @@ func TestLogout_Success(t *testing.T) {
 func TestLogout_NoClaims(t *testing.T) {
 	r := chi.NewRouter()
 	// No claims-injecting middleware — claims will be nil.
-	r.Post("/auth/logout",  handler.NewAuthHandler(&mockAuthSvc{}, testCookieConfig).Logout)
+	r.Post("/auth/logout", handler.NewAuthHandler(&mockAuthSvc{}, testCookieConfig).Logout)
 
 	w := do(t, r, http.MethodPost, "/auth/logout", nil)
 	if w.Code != http.StatusUnauthorized {
@@ -349,7 +348,7 @@ func TestLogin_RememberMe_True_ForwardedToService(t *testing.T) {
 		},
 	}
 	r := chi.NewRouter()
-	r.Post("/auth/login",  handler.NewAuthHandler(svc, testCookieConfig).Login)
+	r.Post("/auth/login", handler.NewAuthHandler(svc, testCookieConfig).Login)
 
 	w := do(t, r, http.MethodPost, "/auth/login",
 		jsonBody(t, map[string]any{"username": "alice", "password": "secret12", "remember_me": true}))
@@ -370,7 +369,7 @@ func TestLogin_RememberMe_False_ForwardedToService(t *testing.T) {
 		},
 	}
 	r := chi.NewRouter()
-	r.Post("/auth/login",  handler.NewAuthHandler(svc, testCookieConfig).Login)
+	r.Post("/auth/login", handler.NewAuthHandler(svc, testCookieConfig).Login)
 
 	// Omitting remember_me defaults to false.
 	w := do(t, r, http.MethodPost, "/auth/login",
@@ -391,7 +390,7 @@ func TestLogin_RememberMe_True_LongCookieMaxAge(t *testing.T) {
 		},
 	}
 	r := chi.NewRouter()
-	r.Post("/auth/login",  handler.NewAuthHandler(svc, testCookieConfig).Login)
+	r.Post("/auth/login", handler.NewAuthHandler(svc, testCookieConfig).Login)
 
 	w := do(t, r, http.MethodPost, "/auth/login",
 		jsonBody(t, map[string]any{"username": "alice", "password": "secret12", "remember_me": true}))
@@ -419,7 +418,7 @@ func TestLogin_RememberMe_False_ShortCookieMaxAge(t *testing.T) {
 		},
 	}
 	r := chi.NewRouter()
-	r.Post("/auth/login",  handler.NewAuthHandler(svc, testCookieConfig).Login)
+	r.Post("/auth/login", handler.NewAuthHandler(svc, testCookieConfig).Login)
 
 	w := do(t, r, http.MethodPost, "/auth/login",
 		jsonBody(t, map[string]any{"username": "alice", "password": "secret12", "remember_me": false}))
@@ -447,7 +446,7 @@ func TestRefresh_CookieMaxAge_ReflectsServiceTTL(t *testing.T) {
 		},
 	}
 	r := chi.NewRouter()
-	r.Post("/auth/refresh",  handler.NewAuthHandler(svc, testCookieConfig).Refresh)
+	r.Post("/auth/refresh", handler.NewAuthHandler(svc, testCookieConfig).Refresh)
 
 	w := doWithCookie(t, r, http.MethodPost, "/auth/refresh", nil, "refresh_token", "old-rt")
 	if w.Code != http.StatusOK {

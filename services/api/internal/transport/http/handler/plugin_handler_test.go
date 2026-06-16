@@ -20,7 +20,7 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockPluginSvc struct {
-	install              func(ctx context.Context, in plugindom.InstallInput) (*plugindom.Plugin, error)
+	install                func(ctx context.Context, in plugindom.InstallInput) (*plugindom.Plugin, error)
 	updateExtensionSetting func(ctx context.Context, in plugindom.UpdateExtensionSettingInput) (*plugindom.PluginExtensionSetting, error)
 }
 

@@ -909,7 +909,7 @@ func splitPathSegments(path string) []string {
 // Helpers
 // -------------------------------------------------------------------------
 
-func parsePluginID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
+func parsePluginID(_ http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
 	raw := chi.URLParam(r, "pluginId")
 	id, err := uuid.Parse(raw)
 	if err != nil {

@@ -499,7 +499,9 @@ func (r *AgentRepository) ListConversations(ctx context.Context, in agentdom.Lis
 		return nil, 0, err
 	}
 
-	orderArgs := append(args, in.Offset, in.Limit)
+	orderArgs := make([]interface{}, len(args), len(args)+2)
+	copy(orderArgs, args)
+	orderArgs = append(orderArgs, in.Offset, in.Limit)
 	var recs []agentConversationRecord
 	if err := r.db.SelectContext(ctx, &recs, `SELECT `+conversationCols+` FROM agent_conversations `+where+
 		fmt.Sprintf(` ORDER BY created_at DESC OFFSET $%d LIMIT $%d`, idx, idx+1), orderArgs...); err != nil {

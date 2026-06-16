@@ -13,7 +13,7 @@ type HealthHandler struct{}
 func NewHealthHandler() *HealthHandler { return &HealthHandler{} }
 
 // Check responds with a 200 OK and a short status payload.
-func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
+func (h *HealthHandler) Check(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok"})

@@ -15,17 +15,17 @@ import (
 // --- sqlx models -----------------------------------------------------------
 
 type fileRecord struct {
-	ID                string     `db:"id"`
-	StorageKey        string     `db:"storage_key"`
-	Bucket            string     `db:"bucket"`
-	FileName          string     `db:"file_name"`
-	ContentType       string     `db:"content_type"`
-	FileSize          int64      `db:"file_size"`
-	UploadStatus      string     `db:"upload_status"`
-	MultipartUploadID *string    `db:"multipart_upload_id"`
-	UploadedBy        *string    `db:"uploaded_by"`
-	CreatedAt         time.Time  `db:"created_at"`
-	UpdatedAt         time.Time  `db:"updated_at"`
+	ID                string    `db:"id"`
+	StorageKey        string    `db:"storage_key"`
+	Bucket            string    `db:"bucket"`
+	FileName          string    `db:"file_name"`
+	ContentType       string    `db:"content_type"`
+	FileSize          int64     `db:"file_size"`
+	UploadStatus      string    `db:"upload_status"`
+	MultipartUploadID *string   `db:"multipart_upload_id"`
+	UploadedBy        *string   `db:"uploaded_by"`
+	CreatedAt         time.Time `db:"created_at"`
+	UpdatedAt         time.Time `db:"updated_at"`
 }
 
 type taskAttachmentRecord struct {
@@ -45,17 +45,17 @@ type taskAttachmentWithFileRow struct {
 	CreatedBy *string   `db:"created_by"`
 	CreatedAt time.Time `db:"created_at"`
 	// files columns (prefixed)
-	FileIDJoin          string     `db:"file_id_join"`
-	FileStorageKey      string     `db:"file_storage_key"`
-	FileBucket          string     `db:"file_bucket"`
-	FileFileName        string     `db:"file_file_name"`
-	FileContentType     string     `db:"file_content_type"`
-	FileFileSize        int64      `db:"file_file_size"`
-	FileUploadStatus    string     `db:"file_upload_status"`
-	FileMultipartUpload *string    `db:"file_multipart_upload_id"`
-	FileUploadedBy      *string    `db:"file_uploaded_by"`
-	FileCreatedAt       time.Time  `db:"file_created_at"`
-	FileUpdatedAt       time.Time  `db:"file_updated_at"`
+	FileIDJoin          string    `db:"file_id_join"`
+	FileStorageKey      string    `db:"file_storage_key"`
+	FileBucket          string    `db:"file_bucket"`
+	FileFileName        string    `db:"file_file_name"`
+	FileContentType     string    `db:"file_content_type"`
+	FileFileSize        int64     `db:"file_file_size"`
+	FileUploadStatus    string    `db:"file_upload_status"`
+	FileMultipartUpload *string   `db:"file_multipart_upload_id"`
+	FileUploadedBy      *string   `db:"file_uploaded_by"`
+	FileCreatedAt       time.Time `db:"file_created_at"`
+	FileUpdatedAt       time.Time `db:"file_updated_at"`
 }
 
 // --- Repository ------------------------------------------------------------

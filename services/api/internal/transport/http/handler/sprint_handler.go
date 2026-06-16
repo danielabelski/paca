@@ -1,15 +1,16 @@
 package handler
 
 import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	"github.com/Paca-AI/api/internal/apierr"
 	sprintdom "github.com/Paca-AI/api/internal/domain/sprint"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"net/http"
-
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 )
 
 // SprintHandler handles sprint management endpoints.
@@ -99,16 +100,10 @@ func (h *SprintHandler) CreateSprint(w http.ResponseWriter, r *http.Request) {
 
 	// Seed default views for every new sprint.
 	ctx := r.Context()
-	taskTypes, loadErr := loadTaskTypes(ctx, h.taskTypeSvc, s.ProjectID)
-	if loadErr != nil {
-	}
-	statuses, statusLoadErr := loadTaskStatuses(ctx, h.taskStatusSvc, s.ProjectID)
-	if statusLoadErr != nil {
-	}
+	taskTypes, _ := loadTaskTypes(ctx, h.taskTypeSvc, s.ProjectID)
+	statuses, _ := loadTaskStatuses(ctx, h.taskStatusSvc, s.ProjectID)
 	for _, input := range defaultSprintViewInputs(s.ProjectID, s.ID, taskTypes, statuses) {
-		if _, err := h.viewSvc.CreateView(ctx, input); err != nil {
-			// Non-fatal: the sprint was created; log and continue.
-		}
+		_, _ = h.viewSvc.CreateView(ctx, input)
 	}
 
 	presenter.Created(w, r, dto.SprintFromEntity(s))
@@ -196,7 +191,7 @@ func (h *SprintHandler) CompleteSprint(w http.ResponseWriter, r *http.Request) {
 }
 
 // parseSprintID extracts and validates the :sprintId path parameter.
-func parseSprintID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
+func parseSprintID(_ http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
 	id, err := uuid.Parse(chi.URLParam(r, "sprintId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid sprint id")

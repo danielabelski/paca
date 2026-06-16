@@ -253,9 +253,9 @@ func (r *DocumentRepository) FindFolderByID(_ context.Context, id uuid.UUID) (*d
 }
 
 // CreateFolder persists a new folder.
-func (r *DocumentRepository) CreateFolder(_ context.Context, f *docdom.DocFolder) error {
+func (r *DocumentRepository) CreateFolder(ctx context.Context, f *docdom.DocFolder) error {
 	rec := folderToRecord(f)
-	_, err := r.db.Exec(`
+	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO doc_folders (id, project_id, parent_id, name, position, created_by, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		rec.ID, rec.ProjectID, rec.ParentID, rec.Name, rec.Position, rec.CreatedBy, rec.CreatedAt, rec.UpdatedAt,
@@ -264,9 +264,9 @@ func (r *DocumentRepository) CreateFolder(_ context.Context, f *docdom.DocFolder
 }
 
 // UpdateFolder persists mutable changes to a folder.
-func (r *DocumentRepository) UpdateFolder(_ context.Context, f *docdom.DocFolder) error {
+func (r *DocumentRepository) UpdateFolder(ctx context.Context, f *docdom.DocFolder) error {
 	rec := folderToRecord(f)
-	_, err := r.db.Exec(`
+	_, err := r.db.ExecContext(ctx, `
 		UPDATE doc_folders SET project_id=$1, parent_id=$2, name=$3, position=$4, created_by=$5, updated_at=$6
 		WHERE id=$7`,
 		rec.ProjectID, rec.ParentID, rec.Name, rec.Position, rec.CreatedBy, rec.UpdatedAt, rec.ID,
@@ -275,8 +275,8 @@ func (r *DocumentRepository) UpdateFolder(_ context.Context, f *docdom.DocFolder
 }
 
 // DeleteFolder permanently deletes a folder.
-func (r *DocumentRepository) DeleteFolder(_ context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(`DELETE FROM doc_folders WHERE id = $1`, id.String())
+func (r *DocumentRepository) DeleteFolder(ctx context.Context, id uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM doc_folders WHERE id = $1`, id.String())
 	return err
 }
 
@@ -318,9 +318,9 @@ func (r *DocumentRepository) FindDocumentByID(_ context.Context, id uuid.UUID) (
 }
 
 // CreateDocument persists a new document.
-func (r *DocumentRepository) CreateDocument(_ context.Context, d *docdom.Document) error {
+func (r *DocumentRepository) CreateDocument(ctx context.Context, d *docdom.Document) error {
 	rec := documentToRecord(d)
-	_, err := r.db.Exec(`
+	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO documents (id, project_id, folder_id, title, content, position, created_by, updated_by, created_at, updated_at, deleted_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 		rec.ID, rec.ProjectID, rec.FolderID, rec.Title, rec.Content,
@@ -330,9 +330,9 @@ func (r *DocumentRepository) CreateDocument(_ context.Context, d *docdom.Documen
 }
 
 // UpdateDocument persists mutable changes to a document.
-func (r *DocumentRepository) UpdateDocument(_ context.Context, d *docdom.Document) error {
+func (r *DocumentRepository) UpdateDocument(ctx context.Context, d *docdom.Document) error {
 	rec := documentToRecord(d)
-	_, err := r.db.Exec(`
+	_, err := r.db.ExecContext(ctx, `
 		UPDATE documents SET project_id=$1, folder_id=$2, title=$3, content=$4, position=$5,
 		  created_by=$6, updated_by=$7, updated_at=$8, deleted_at=$9
 		WHERE id=$10`,
@@ -343,8 +343,8 @@ func (r *DocumentRepository) UpdateDocument(_ context.Context, d *docdom.Documen
 }
 
 // DeleteDocument soft-deletes a document.
-func (r *DocumentRepository) DeleteDocument(_ context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(`UPDATE documents SET deleted_at = $1 WHERE id = $2`, time.Now(), id.String())
+func (r *DocumentRepository) DeleteDocument(ctx context.Context, id uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE documents SET deleted_at = $1 WHERE id = $2`, time.Now(), id.String())
 	return err
 }
 
@@ -397,13 +397,13 @@ func (r *DocumentRepository) FindLatestSnapshot(_ context.Context, documentID uu
 }
 
 // CreateSnapshot persists a new snapshot.
-func (r *DocumentRepository) CreateSnapshot(_ context.Context, s *docdom.DocSnapshot) error {
+func (r *DocumentRepository) CreateSnapshot(ctx context.Context, s *docdom.DocSnapshot) error {
 	var createdBy *string
 	if s.CreatedBy != nil {
 		str := s.CreatedBy.String()
 		createdBy = &str
 	}
-	_, err := r.db.Exec(`
+	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO doc_snapshots (id, document_id, title, content, snapshot_number, created_by, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		s.ID.String(), s.DocumentID.String(), s.Title, s.Content, s.SnapshotNumber, createdBy, s.CreatedAt,
@@ -414,8 +414,8 @@ func (r *DocumentRepository) CreateSnapshot(_ context.Context, s *docdom.DocSnap
 // DeleteRecentSnapshotsExcept deletes all snapshots for a document created at
 // or after `since` whose ID is not `excludeID`. This consolidates rapid saves
 // so that at most one snapshot exists per time window.
-func (r *DocumentRepository) DeleteRecentSnapshotsExcept(_ context.Context, documentID uuid.UUID, excludeID uuid.UUID, since time.Time) error {
-	_, err := r.db.Exec(`
+func (r *DocumentRepository) DeleteRecentSnapshotsExcept(ctx context.Context, documentID uuid.UUID, excludeID uuid.UUID, since time.Time) error {
+	_, err := r.db.ExecContext(ctx, `
 		DELETE FROM doc_snapshots WHERE document_id = $1 AND id != $2 AND created_at >= $3`,
 		documentID.String(), excludeID.String(), since,
 	)
@@ -461,7 +461,7 @@ func (r *DocumentRepository) FindActivityByID(_ context.Context, id uuid.UUID) (
 }
 
 // CreateActivity persists a new activity record.
-func (r *DocumentRepository) CreateActivity(_ context.Context, a *docdom.Activity) error {
+func (r *DocumentRepository) CreateActivity(ctx context.Context, a *docdom.Activity) error {
 	content := a.Content
 	if content == nil {
 		content = json.RawMessage("{}")
@@ -471,7 +471,7 @@ func (r *DocumentRepository) CreateActivity(_ context.Context, a *docdom.Activit
 		s := a.ActorID.String()
 		actorID = &s
 	}
-	_, err := r.db.Exec(`
+	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO doc_activities (id, document_id, actor_id, activity_type, content, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		a.ID.String(), a.DocumentID.String(), actorID, string(a.ActivityType), content, a.CreatedAt, a.UpdatedAt,
@@ -480,17 +480,17 @@ func (r *DocumentRepository) CreateActivity(_ context.Context, a *docdom.Activit
 }
 
 // UpdateActivity persists mutable changes to an activity.
-func (r *DocumentRepository) UpdateActivity(_ context.Context, a *docdom.Activity) error {
+func (r *DocumentRepository) UpdateActivity(ctx context.Context, a *docdom.Activity) error {
 	content := a.Content
 	if content == nil {
 		content = json.RawMessage("{}")
 	}
-	_, err := r.db.Exec(`UPDATE doc_activities SET content = $1, updated_at = $2 WHERE id = $3`, content, a.UpdatedAt, a.ID.String())
+	_, err := r.db.ExecContext(ctx, `UPDATE doc_activities SET content = $1, updated_at = $2 WHERE id = $3`, content, a.UpdatedAt, a.ID.String())
 	return err
 }
 
 // DeleteActivity soft-deletes an activity.
-func (r *DocumentRepository) DeleteActivity(_ context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(`UPDATE doc_activities SET deleted_at = $1 WHERE id = $2`, time.Now(), id.String())
+func (r *DocumentRepository) DeleteActivity(ctx context.Context, id uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE doc_activities SET deleted_at = $1 WHERE id = $2`, time.Now(), id.String())
 	return err
 }

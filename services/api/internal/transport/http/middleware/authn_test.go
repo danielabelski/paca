@@ -34,7 +34,7 @@ func newTestTokenManager() *jwttoken.Manager {
 	return jwttoken.New("test-secret", 15*time.Minute, 24*time.Hour)
 }
 
-func okHandler(w http.ResponseWriter, r *http.Request) {
+func okHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(`{"ok":true}`))
@@ -44,7 +44,7 @@ func TestAuthn_MissingToken(t *testing.T) {
 	r := chi.NewRouter()
 	r.With(Authn(newTestTokenManager())).Get("/protected", okHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -67,7 +67,7 @@ func TestAuthn_InvalidToken(t *testing.T) {
 	r := chi.NewRouter()
 	r.With(Authn(newTestTokenManager())).Get("/protected", okHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Bearer not-a-token")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -95,7 +95,7 @@ func TestAuthn_ValidAccessTokenInHeader(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"username": claims.Username})
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+at)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -115,7 +115,7 @@ func TestAuthn_RefreshTokenRejected(t *testing.T) {
 	r := chi.NewRouter()
 	r.With(Authn(tm)).Get("/protected", okHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+rt)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -126,7 +126,7 @@ func TestAuthn_RefreshTokenRejected(t *testing.T) {
 }
 
 func TestClaimsFrom_Missing(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	if claims := ClaimsFrom(req); claims != nil {
 		t.Fatal("expected nil claims when absent")
 	}
@@ -145,7 +145,7 @@ func TestAuthn_APIKey_AuthorizationHeader(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "ApiKey test-api-key")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -168,7 +168,7 @@ func TestAuthn_APIKey_XAPIKeyHeader(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-API-Key", "test-api-key")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -184,7 +184,7 @@ func TestAuthn_APIKey_InvalidKey(t *testing.T) {
 	r := chi.NewRouter()
 	r.With(Authn(newTestTokenManager(), stub)).Get("/protected", okHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-API-Key", "invalid-key")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -200,7 +200,7 @@ func TestAuthn_APIKey_RevokedKey(t *testing.T) {
 	r := chi.NewRouter()
 	r.With(Authn(newTestTokenManager(), stub)).Get("/protected", okHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-API-Key", "revoked-key")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -225,7 +225,7 @@ func TestAuthn_APIKey_ExpiredKey(t *testing.T) {
 	r := chi.NewRouter()
 	r.With(Authn(newTestTokenManager(), stub)).Get("/protected", okHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-API-Key", "expired-key")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -248,7 +248,7 @@ func TestAuthn_APIKey_NotConfigured(t *testing.T) {
 	r := chi.NewRouter()
 	r.With(Authn(newTestTokenManager())).Get("/protected", okHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "ApiKey some-key")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -265,7 +265,7 @@ func TestRequireJWTAuth_BlocksAPIKey(t *testing.T) {
 	r := chi.NewRouter()
 	r.With(Authn(newTestTokenManager(), stub), RequireJWTAuth()).Get("/sensitive", okHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/sensitive", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/sensitive", nil)
 	req.Header.Set("X-API-Key", "some-key")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -294,7 +294,7 @@ func TestRequireJWTAuth_AllowsJWT(t *testing.T) {
 	r := chi.NewRouter()
 	r.With(Authn(tm), RequireJWTAuth()).Get("/sensitive", okHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/sensitive", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/sensitive", nil)
 	req.Header.Set("Authorization", "Bearer "+at)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -327,7 +327,7 @@ func TestAuthn_APIKey_WithValidAgentID(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-API-Key", "test-api-key")
 	req.Header.Set("X-Agent-ID", agentID.String())
 	w := httptest.NewRecorder()
@@ -362,7 +362,7 @@ func TestAuthn_APIKey_UserKeyCannotFakeAgentID(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-API-Key", "test-api-key")
 	req.Header.Set("X-Agent-ID", agentID.String())
 	w := httptest.NewRecorder()
@@ -395,7 +395,7 @@ func TestAuthn_APIKey_WithInvalidAgentID(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-API-Key", "test-api-key")
 	req.Header.Set("X-Agent-ID", "not-a-valid-uuid")
 	w := httptest.NewRecorder()
@@ -428,7 +428,7 @@ func TestAuthn_APIKey_WithoutAgentID(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-API-Key", "test-api-key")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)

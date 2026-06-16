@@ -2,12 +2,13 @@
 package database
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	_ "github.com/jackc/pgx/v5/stdlib" // register "pgx" driver
+	"github.com/jmoiron/sqlx"
 )
 
 // Config holds the settings required to open a database connection.
@@ -27,7 +28,7 @@ func Open(cfg Config, log *slog.Logger) (*sqlx.DB, error) {
 	db.SetMaxIdleConns(10)
 	db.SetConnMaxLifetime(30 * time.Minute)
 
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(context.Background()); err != nil {
 		return nil, fmt.Errorf("database: ping: %w", err)
 	}
 

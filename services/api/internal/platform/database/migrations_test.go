@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"path/filepath"
@@ -16,7 +17,7 @@ func openSQLite(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
 
@@ -36,7 +37,7 @@ func TestRunMigrations_Success(t *testing.T) {
 	}
 
 	var count int
-	if err := db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count); err != nil {
+	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM users").Scan(&count); err != nil {
 		t.Fatalf("count users: %v", err)
 	}
 	if count != 1 {

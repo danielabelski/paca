@@ -17,8 +17,8 @@ func openTxTestDB(t *testing.T) *sqlx.DB {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
-	if _, err := db.Exec("CREATE TABLE tx_values (v TEXT NOT NULL)"); err != nil {
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.ExecContext(context.Background(), "CREATE TABLE tx_values (v TEXT NOT NULL)"); err != nil {
 		t.Fatalf("create table: %v", err)
 	}
 	return db

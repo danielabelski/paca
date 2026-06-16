@@ -6,16 +6,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-
-	"github.com/go-chi/chi/v5"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	sprintdom "github.com/Paca-AI/api/internal/domain/sprint"
 	taskdom "github.com/Paca-AI/api/internal/domain/task"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
-	"github.com/google/uuid"
 )
 
 // ---------------------------------------------------------------------------
@@ -128,7 +128,7 @@ func (f *fakeViewSvcH) ReorderProjectViews(_ context.Context, _ uuid.UUID, _ spr
 // ---------------------------------------------------------------------------
 
 func TestCreateSprint_SeedsDefaultViews(t *testing.T) {
-	
+
 	sprintSvc := &fakeSprintSvcH{}
 	viewSvc := &fakeViewSvcH{}
 	taskTypeSvc := &fakeTaskTypeSvcH{taskTypes: []*taskdom.TaskType{
@@ -141,7 +141,7 @@ func TestCreateSprint_SeedsDefaultViews(t *testing.T) {
 	h := handler.NewSprintHandler(sprintSvc, viewSvc, handler.WithSprintDefaultTaskTypes(taskTypeSvc))
 
 	r := chi.NewRouter()
-	r.Post("/projects/{projectId}/sprints",  h.CreateSprint)
+	r.Post("/projects/{projectId}/sprints", h.CreateSprint)
 
 	body, _ := json.Marshal(map[string]any{"name": "Sprint 1"})
 	projectID := uuid.New()
@@ -231,7 +231,7 @@ func TestCreateSprint_SeedsDefaultViews(t *testing.T) {
 }
 
 func TestCompleteSprint_OK(t *testing.T) {
-	
+
 	sprintSvc := &fakeSprintSvcH{}
 	viewSvc := &fakeViewSvcH{}
 
@@ -247,7 +247,7 @@ func TestCompleteSprint_OK(t *testing.T) {
 
 	h := handler.NewSprintHandler(sprintSvc, viewSvc)
 	r := chi.NewRouter()
-	r.Post("/projects/{projectId}/sprints/{sprintId}/complete",  h.CompleteSprint)
+	r.Post("/projects/{projectId}/sprints/{sprintId}/complete", h.CompleteSprint)
 
 	body, _ := json.Marshal(map[string]any{})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
@@ -281,7 +281,7 @@ func TestCompleteSprint_NotFound(t *testing.T) {
 	h := handler.NewSprintHandler(sprintSvc, viewSvc)
 
 	r := chi.NewRouter()
-	r.Post("/projects/{projectId}/sprints/{sprintId}/complete",  h.CompleteSprint)
+	r.Post("/projects/{projectId}/sprints/{sprintId}/complete", h.CompleteSprint)
 
 	body, _ := json.Marshal(map[string]any{})
 	projectID := uuid.New()

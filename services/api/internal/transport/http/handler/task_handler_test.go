@@ -7,18 +7,18 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-
-	"github.com/go-chi/chi/v5"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	sprintdom "github.com/Paca-AI/api/internal/domain/sprint"
 	taskdom "github.com/Paca-AI/api/internal/domain/task"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
-	"github.com/google/uuid"
 )
 
 // ---------------------------------------------------------------------------

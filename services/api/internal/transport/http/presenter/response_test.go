@@ -1,6 +1,7 @@
 package presenter
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -14,7 +15,7 @@ import (
 )
 
 func newTestRequest(requestID string) *http.Request {
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	if requestID != "" {
 		r = r.WithContext(httpx.WithRequestID(r.Context(), requestID))
 	}

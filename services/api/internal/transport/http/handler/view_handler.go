@@ -1,15 +1,16 @@
 package handler
 
 import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	"github.com/Paca-AI/api/internal/apierr"
 	sprintdom "github.com/Paca-AI/api/internal/domain/sprint"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"net/http"
-
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 )
 
 // ViewHandler handles sprint-view and task-position endpoints.
@@ -24,7 +25,7 @@ func NewViewHandler(svc sprintdom.ViewService) *ViewHandler {
 
 // viewContextFromQuery reads the ?context query param (sprint | backlog | timeline).
 // Returns an error for unknown values. Defaults to "sprint" when omitted.
-func viewContextFromQuery(w http.ResponseWriter, r *http.Request) (sprintdom.ViewContext, error) {
+func viewContextFromQuery(_ http.ResponseWriter, r *http.Request) (sprintdom.ViewContext, error) {
 	raw := defaultQuery(r, "context", string(sprintdom.ViewContextSprint))
 	vc := sprintdom.ViewContext(raw)
 	switch vc {
@@ -292,7 +293,7 @@ func (h *ViewHandler) BulkMoveTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 // parseViewID extracts and validates the :viewId path parameter.
-func parseViewID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
+func parseViewID(_ http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
 	id, err := uuid.Parse(chi.URLParam(r, "viewId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid view id")
