@@ -254,12 +254,13 @@ func (r *Runtime) HandleRequest(ctx context.Context, pluginName string, reqPaylo
 	callCtx, cancel := context.WithTimeout(ctx, r.limits.MaxCallDuration)
 	results, callErr := fn.Call(callCtx, ptrLen[0], ptrLen[1])
 	cancel()
-	inst.mu.Unlock()
 
 	if callErr != nil {
+		inst.mu.Unlock()
 		return nil, fmt.Errorf("plugin %q: HandleRequest: %w", pluginName, callErr)
 	}
 	if len(results) < 1 {
+		inst.mu.Unlock()
 		return nil, fmt.Errorf("plugin %q: HandleRequest returned wrong number of values", pluginName)
 	}
 
@@ -267,13 +268,16 @@ func (r *Runtime) HandleRequest(ctx context.Context, pluginName string, reqPaylo
 	outPtr := uint64(combined) >> 32
 	outLen := uint64(combined) & 0xFFFFFFFF
 	resp, readErr := readFromMemory(inst.mod, outPtr, outLen)
-	if readErr != nil {
-		return nil, readErr
-	}
 
-	// Reset the allocator after copying out the response to allow buffer reuse.
+	// Reset the allocator before releasing the mutex so the next caller cannot
+	// start writing into mallocBuffer while we are still reading the response.
 	if resetFn := inst.mod.ExportedFunction("ResetAllocator"); resetFn != nil {
 		_, _ = resetFn.Call(ctx) // Best-effort; ignore errors
+	}
+	inst.mu.Unlock()
+
+	if readErr != nil {
+		return nil, readErr
 	}
 
 	return resp, nil
@@ -515,10 +519,11 @@ func (r *Runtime) registerDBFunctions(b wazero.HostModuleBuilder, p plugindom.Pl
 // execQuery runs a SELECT statement scoped to the plugin schema and returns a
 // dbQueryResult JSON-encoded result.
 func (r *Runtime) execQuery(ctx context.Context, schema, sqlStr, paramsJSON string) (*dbQueryResult, error) {
-	// Restrict to SELECT statements only.
+	// Allow SELECT and DML statements that use RETURNING.
 	trimmed := strings.TrimSpace(strings.ToUpper(sqlStr))
-	if !strings.HasPrefix(trimmed, "SELECT") {
-		return nil, fmt.Errorf("paca.db_query: only SELECT statements are allowed")
+	isDML := strings.HasPrefix(trimmed, "INSERT") || strings.HasPrefix(trimmed, "UPDATE") || strings.HasPrefix(trimmed, "DELETE")
+	if !strings.HasPrefix(trimmed, "SELECT") && !(isDML && strings.Contains(trimmed, "RETURNING")) {
+		return nil, fmt.Errorf("paca.db_query: only SELECT and DML with RETURNING statements are allowed")
 	}
 
 	var queryParams []any

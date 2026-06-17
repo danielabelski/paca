@@ -509,13 +509,15 @@ func (h *PluginHandler) ProxyRequest(w http.ResponseWriter, r *http.Request) {
 
 	// The full sub-path after /plugins/:pluginId/ is captured by the wildcard param.
 	// Plugins may embed /projects/:projectId/ within this path at their own discretion.
-	subPath := chi.URLParam(r, "path")
+	subPath := chi.URLParam(r, "*")
 	if subPath == "" {
 		subPath = "/"
 	}
 
 	route, pathParams := matchPluginRoute(found.Manifest.Backend.Routes, r.Method, subPath)
-	if !h.applyPluginRouteMiddlewares(w, r, route, pathParams) {
+	var mwOK bool
+	r, mwOK = h.applyPluginRouteMiddlewares(w, r, route, pathParams)
+	if !mwOK {
 		return
 	}
 
@@ -654,48 +656,48 @@ func (h *PluginHandler) ProxyRequest(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(pluginResp.Body)
 }
 
-func (h *PluginHandler) applyPluginRouteMiddlewares(w http.ResponseWriter, r *http.Request, route *plugindom.PluginRoute, pathParams map[string]string) bool {
+func (h *PluginHandler) applyPluginRouteMiddlewares(w http.ResponseWriter, r *http.Request, route *plugindom.PluginRoute, pathParams map[string]string) (*http.Request, bool) {
 	for _, mw := range h.routeMiddlewares(route) {
 		name := strings.ToLower(strings.TrimSpace(mw.Name))
 		switch name {
 		case "authn":
 			if h.tokenManager == nil {
 				presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "plugin route auth middleware is not configured"))
-				return false
+				return r, false
 			}
 			var ok bool
 			r, ok = middleware.EnforceAuthn(w, r, h.tokenManager, h.apiKeyAuth)
 			if !ok {
-				return false
+				return r, false
 			}
 		case "optionalauthn":
 			if h.tokenManager == nil {
 				presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "plugin route auth middleware is not configured"))
-				return false
+				return r, false
 			}
 			var ok bool
 			r, ok = middleware.EnforceOptionalAuthn(w, r, h.tokenManager, h.apiKeyAuth)
 			if !ok {
-				return false
+				return r, false
 			}
 		case "requirefreshpassword":
 			var ok bool
 			r, ok = middleware.EnforceFreshPassword(w, r)
 			if !ok {
-				return false
+				return r, false
 			}
 		case "requirejwtauth":
 			if !middleware.EnforceJWTAuth(w, r) {
-				return false
+				return r, false
 			}
 		case "requirepermissions":
 			if h.authorizer == nil {
 				presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "plugin route authorization middleware is not configured"))
-				return false
+				return r, false
 			}
 			if len(mw.Permissions) == 0 {
 				presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "plugin route requirePermissions requires at least one permission"))
-				return false
+				return r, false
 			}
 			scopeResolver := middleware.GlobalScope()
 			scope := strings.ToLower(strings.TrimSpace(mw.Scope))
@@ -721,7 +723,7 @@ func (h *PluginHandler) applyPluginRouteMiddlewares(w http.ResponseWriter, r *ht
 				}
 			default:
 				presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "plugin route requirePermissions has invalid scope"))
-				return false
+				return r, false
 			}
 
 			perms := make([]authz.Permission, 0, len(mw.Permissions))
@@ -729,15 +731,15 @@ func (h *PluginHandler) applyPluginRouteMiddlewares(w http.ResponseWriter, r *ht
 				perms = append(perms, authz.Permission(p))
 			}
 			if !middleware.EnforcePermissions(w, r, h.authorizer, scopeResolver, perms...) {
-				return false
+				return r, false
 			}
 		default:
 			presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "plugin route uses unsupported middleware: "+mw.Name))
-			return false
+			return r, false
 		}
 	}
 
-	return true
+	return r, true
 }
 
 func (h *PluginHandler) routeMiddlewares(route *plugindom.PluginRoute) []plugindom.PluginRouteMiddleware {
