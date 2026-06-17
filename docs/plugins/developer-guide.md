@@ -245,7 +245,7 @@ GOOS=wasip1 GOARCH=wasm go build -o ../dist/my-plugin.wasm .
     "react-dom": "^18.3.0"
   },
   "devDependencies": {
-    "@originjs/vite-plugin-federation": "^1.3.5",
+    "@module-federation/vite": "^1.16.8",
     "@vitejs/plugin-react": "^4.3.0",
     "typescript": "^5.6.0",
     "vite": "^5.4.0"
@@ -256,7 +256,7 @@ GOOS=wasip1 GOARCH=wasm go build -o ../dist/my-plugin.wasm .
 ### `frontend/vite.config.ts`
 
 ```ts
-import federation from "@originjs/vite-plugin-federation";
+import { federation } from "@module-federation/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 

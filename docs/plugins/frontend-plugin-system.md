@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Paca frontend plugin system is built on **Vite Module Federation** (via `@originjs/vite-plugin-federation`). The core `apps/web` application acts as the **host**. Each plugin ships as a **remote entry** — a separately built JavaScript bundle that exposes React components through a well-known contract defined by `@paca-ai/plugin-sdk-react`.
+The Paca frontend plugin system is built on **Vite Module Federation** (via `@module-federation/vite`). The core `apps/web` application acts as the **host**. Each plugin ships as a **remote entry** — a separately built JavaScript bundle that exposes React components through a well-known contract defined by `@paca-ai/plugin-sdk-react`.
 
 Plugins are loaded lazily when the user first navigates to a surface that has an active plugin registered for it. No plugin code is fetched until it is needed.
 
@@ -135,11 +135,11 @@ Extension point registrations include an `order` field. The **super admin** can 
 
 ## Plugin Build Setup
 
-A plugin's frontend uses Vite with `@originjs/vite-plugin-federation`:
+A plugin's frontend uses Vite with `@module-federation/vite`:
 
 ```ts
 // vite.config.ts (plugin)
-import federation from "@originjs/vite-plugin-federation";
+import { federation } from "@module-federation/vite";
 
 export default {
   plugins: [

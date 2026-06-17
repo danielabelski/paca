@@ -93,13 +93,7 @@ function getRemoteComponent(remoteEntryUrl: string, component: string) {
 		const shareScope = await initializeShareScope();
 		console.log("[Host] Share scope initialized before container loading");
 
-		// Dynamically import the remote entry script, then access the
-		// named export.  Module Federation remotes expose an object with
-		// an `init` function and a `get` function; we use the standard
-		// dynamic import() which Vite's federation plugin intercepts at
-		// build time for declared remotes.  For runtime-declared remotes
-		// (our case) we use the low-level __federation_method_getRemote
-		// approach via a script tag + globalThis container.
+		// Dynamically import the remote entry ESM and use its get/init exports.
 		const container = await loadRemoteContainer(remoteEntryUrl);
 		console.log("[Host] Container loaded:", !!container);
 
@@ -144,7 +138,7 @@ function loadRemoteContainer(remoteEntryUrl: string): Promise<RemoteContainer> {
 	const cached = containerCache.get(remoteEntryUrl);
 	if (cached) return cached;
 
-	// @originjs/vite-plugin-federation emits ES modules that export { get, init }
+	// @module-federation/vite emits ES modules that export { get, init }
 	// directly. Use dynamic import() to load the module and get its exports.
 	const containerPromise =
 		// biome-ignore lint/suspicious/noExplicitAny: dynamic remote import
