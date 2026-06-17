@@ -1,12 +1,15 @@
 package handler
 
 import (
+	"encoding/json"
+	"net/http"
+
+	"github.com/google/uuid"
+
 	agentdom "github.com/Paca-AI/api/internal/domain/agent"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // ConversationHandler handles agent conversation endpoints.
@@ -20,123 +23,123 @@ func NewConversationHandler(svc agentdom.Service) *ConversationHandler {
 }
 
 // ListConversations handles GET /projects/:projectId/conversations.
-func (h *ConversationHandler) ListConversations(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *ConversationHandler) ListConversations(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	offset, limit := parseOffsetLimit(c)
+	offset, limit := parseOffsetLimit(r)
 	filter := agentdom.ListConversationsFilter{
 		ProjectID: &projectID,
 		Limit:     limit,
 		Offset:    offset,
 	}
-	if agentIDStr := c.Query("agent_id"); agentIDStr != "" {
+	if agentIDStr := r.URL.Query().Get("agent_id"); agentIDStr != "" {
 		if id, err := uuid.Parse(agentIDStr); err == nil {
 			filter.AgentID = &id
 		}
 	}
-	if statusStr := c.Query("status"); statusStr != "" {
+	if statusStr := r.URL.Query().Get("status"); statusStr != "" {
 		filter.Status = &statusStr
 	}
 
-	convs, total, err := h.svc.ListConversations(c.Request.Context(), filter)
+	convs, total, err := h.svc.ListConversations(r.Context(), filter)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.AgentConversationResponse, 0, len(convs))
 	for _, conv := range convs {
 		resp = append(resp, dto.ConversationFromEntity(conv))
 	}
-	presenter.OK(c, gin.H{"items": resp, "total": total})
+	presenter.OK(w, r, map[string]any{"items": resp, "total": total})
 }
 
 // GetConversation handles GET /projects/:projectId/conversations/:conversationId.
-func (h *ConversationHandler) GetConversation(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *ConversationHandler) GetConversation(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	convID, err := parseParamUUID(c, "conversationId")
+	convID, err := parseParamUUID(r, "conversationId")
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	conv, err := h.svc.GetConversation(c.Request.Context(), projectID, convID)
+	conv, err := h.svc.GetConversation(r.Context(), projectID, convID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.ConversationFromEntity(conv))
+	presenter.OK(w, r, dto.ConversationFromEntity(conv))
 }
 
 // ListConversationEvents handles GET /projects/:projectId/conversations/:conversationId/events.
-func (h *ConversationHandler) ListConversationEvents(c *gin.Context) {
-	convID, err := parseParamUUID(c, "conversationId")
+func (h *ConversationHandler) ListConversationEvents(w http.ResponseWriter, r *http.Request) {
+	convID, err := parseParamUUID(r, "conversationId")
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	offset, limit := parseOffsetLimit(c)
-	events, total, err := h.svc.ListConversationEvents(c.Request.Context(), convID, offset, limit)
+	offset, limit := parseOffsetLimit(r)
+	events, total, err := h.svc.ListConversationEvents(r.Context(), convID, offset, limit)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.AgentConversationEventResponse, 0, len(events))
 	for _, e := range events {
 		resp = append(resp, dto.ConversationEventFromEntity(e))
 	}
-	presenter.OK(c, gin.H{"items": resp, "total": total})
+	presenter.OK(w, r, map[string]any{"items": resp, "total": total})
 }
 
 // StopConversation handles POST /projects/:projectId/conversations/:conversationId/stop.
-func (h *ConversationHandler) StopConversation(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *ConversationHandler) StopConversation(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	convID, err := parseParamUUID(c, "conversationId")
+	convID, err := parseParamUUID(r, "conversationId")
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	if err := h.svc.StopConversation(c.Request.Context(), projectID, convID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.StopConversation(r.Context(), projectID, convID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, gin.H{"message": "conversation stopped"})
+	presenter.OK(w, r, map[string]any{"message": "conversation stopped"})
 }
 
 // SendConversationMessage handles POST /projects/:projectId/conversations/:conversationId/messages.
-func (h *ConversationHandler) SendConversationMessage(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *ConversationHandler) SendConversationMessage(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	convID, err := parseParamUUID(c, "conversationId")
+	convID, err := parseParamUUID(r, "conversationId")
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	var req dto.SendMessageRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		presenter.Error(c, err)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	claims := middleware.ClaimsFrom(c)
+	claims := middleware.ClaimsFrom(r)
 	memberID, _ := uuid.Parse(claims.Subject)
 
-	if err := h.svc.SendConversationMessage(c.Request.Context(), projectID, convID, req.Message, memberID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.SendConversationMessage(r.Context(), projectID, convID, req.Message, memberID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, gin.H{"message": "message sent"})
+	presenter.OK(w, r, map[string]any{"message": "message sent"})
 }

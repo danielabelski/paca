@@ -1,110 +1,100 @@
-// Package postgres — GORM implementation of taskdom.Repository.
+// Package postgres — sqlx implementation of taskdom.Repository.
 package postgres
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	taskdom "github.com/Paca-AI/api/internal/domain/task"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
+	"github.com/jmoiron/sqlx"
 )
 
-// --- GORM models ------------------------------------------------------------
+// --- sqlx models ------------------------------------------------------------
 
 type taskTypeRecord struct {
-	ID          string  `gorm:"primarykey;type:uuid"`
-	ProjectID   string  `gorm:"type:uuid;not null;column:project_id"`
-	Name        string  `gorm:"not null"`
-	Icon        *string `gorm:"type:text"`
-	Color       *string `gorm:"type:text"`
-	Description *string `gorm:"type:text"`
-	IsDefault   bool    `gorm:"not null;default:false;column:is_default"`
-	IsSystem    bool    `gorm:"not null;default:false;column:is_system"`
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID          string    `db:"id"`
+	ProjectID   string    `db:"project_id"`
+	Name        string    `db:"name"`
+	Icon        *string   `db:"icon"`
+	Color       *string   `db:"color"`
+	Description *string   `db:"description"`
+	IsDefault   bool      `db:"is_default"`
+	IsSystem    bool      `db:"is_system"`
+	CreatedAt   time.Time `db:"created_at"`
+	UpdatedAt   time.Time `db:"updated_at"`
 }
-
-func (taskTypeRecord) TableName() string { return "task_types" }
 
 type taskStatusRecord struct {
-	ID        string  `gorm:"primarykey;type:uuid"`
-	ProjectID string  `gorm:"type:uuid;not null;column:project_id"`
-	Name      string  `gorm:"not null"`
-	Color     *string `gorm:"type:text"`
-	Position  int     `gorm:"not null;default:0"`
-	Category  string  `gorm:"not null"`
-	IsDefault bool    `gorm:"not null;default:false;column:is_default"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID        string    `db:"id"`
+	ProjectID string    `db:"project_id"`
+	Name      string    `db:"name"`
+	Color     *string   `db:"color"`
+	Position  int       `db:"position"`
+	Category  string    `db:"category"`
+	IsDefault bool      `db:"is_default"`
+	CreatedAt time.Time `db:"created_at"`
+	UpdatedAt time.Time `db:"updated_at"`
 }
-
-func (taskStatusRecord) TableName() string { return "task_statuses" }
 
 type taskRecord struct {
-	ID           string          `gorm:"primarykey;type:uuid"`
-	ProjectID    string          `gorm:"type:uuid;not null;column:project_id"`
-	TaskNumber   int64           `gorm:"not null;default:0;column:task_number"`
-	TaskTypeID   *string         `gorm:"type:uuid;column:task_type_id"`
-	StatusID     *string         `gorm:"type:uuid;column:status_id"`
-	SprintID     *string         `gorm:"type:uuid;column:sprint_id"`
-	ParentTaskID *string         `gorm:"type:uuid;column:parent_task_id"`
-	Title        string          `gorm:"not null"`
-	Description  json.RawMessage `gorm:"type:jsonb"`
-	Importance   int             `gorm:"not null;default:0"`
-	StoryPoints  *int            `gorm:"column:story_points"`
-	AssigneeID   *string         `gorm:"type:uuid;column:assignee_id"`
-	ReporterID   *string         `gorm:"type:uuid;column:reporter_id"`
-	CustomFields []byte          `gorm:"type:jsonb;not null;column:custom_fields"`
-	StartDate    *time.Time      `gorm:"type:date;column:start_date"`
-	DueDate      *time.Time      `gorm:"type:date;column:due_date"`
-	Tags         []byte          `gorm:"type:jsonb;not null;column:tags"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	DeletedAt    gorm.DeletedAt `gorm:"index"`
+	ID           string           `db:"id"`
+	ProjectID    string           `db:"project_id"`
+	TaskNumber   int64            `db:"task_number"`
+	TaskTypeID   *string          `db:"task_type_id"`
+	StatusID     *string          `db:"status_id"`
+	SprintID     *string          `db:"sprint_id"`
+	ParentTaskID *string          `db:"parent_task_id"`
+	Title        string           `db:"title"`
+	Description  *json.RawMessage `db:"description"`
+	Importance   int              `db:"importance"`
+	StoryPoints  *int             `db:"story_points"`
+	AssigneeID   *string          `db:"assignee_id"`
+	ReporterID   *string          `db:"reporter_id"`
+	CustomFields []byte           `db:"custom_fields"`
+	StartDate    *time.Time       `db:"start_date"`
+	DueDate      *time.Time       `db:"due_date"`
+	Tags         []byte           `db:"tags"`
+	CreatedAt    time.Time        `db:"created_at"`
+	UpdatedAt    time.Time        `db:"updated_at"`
+	DeletedAt    *time.Time       `db:"deleted_at"`
 }
-
-func (taskRecord) TableName() string { return "tasks" }
 
 // taskCounterRecord mirrors the task_counters table used for atomic
 // per-project task number generation.
 type taskCounterRecord struct {
-	ProjectID string `gorm:"primarykey;type:uuid;column:project_id"`
-	LastValue int64  `gorm:"not null;default:0;column:last_value"`
+	ProjectID string `db:"project_id"`
+	LastValue int64  `db:"last_value"`
 }
 
-func (taskCounterRecord) TableName() string { return "task_counters" }
-
-// taskWithPositionRow is a flat struct for scanning the view_position LEFT JOIN
-// result. It explicitly lists every column from taskRecord plus vtp_position so
-// that GORM maps columns by name without the embedded-model relationship logic
-// that fires when the embedded type has a TableName() method.
+// taskWithPositionRow is a flat struct for scanning the view_position LEFT JOIN result.
 type taskWithPositionRow struct {
-	ID           string          `gorm:"column:id"`
-	ProjectID    string          `gorm:"column:project_id"`
-	TaskNumber   int64           `gorm:"column:task_number"`
-	TaskTypeID   *string         `gorm:"column:task_type_id"`
-	StatusID     *string         `gorm:"column:status_id"`
-	SprintID     *string         `gorm:"column:sprint_id"`
-	ParentTaskID *string         `gorm:"column:parent_task_id"`
-	Title        string          `gorm:"column:title"`
-	Description  json.RawMessage `gorm:"column:description"`
-	Importance   int             `gorm:"column:importance"`
-	StoryPoints  *int            `gorm:"column:story_points"`
-	AssigneeID   *string         `gorm:"column:assignee_id"`
-	ReporterID   *string         `gorm:"column:reporter_id"`
-	CustomFields []byte          `gorm:"column:custom_fields"`
-	StartDate    *time.Time      `gorm:"column:start_date"`
-	DueDate      *time.Time      `gorm:"column:due_date"`
-	Tags         []byte          `gorm:"column:tags"`
-	CreatedAt    time.Time       `gorm:"column:created_at"`
-	UpdatedAt    time.Time       `gorm:"column:updated_at"`
-	DeletedAt    gorm.DeletedAt  `gorm:"column:deleted_at"`
-	VTPPosition  *float64        `gorm:"column:vtp_position"`
+	ID           string           `db:"id"`
+	ProjectID    string           `db:"project_id"`
+	TaskNumber   int64            `db:"task_number"`
+	TaskTypeID   *string          `db:"task_type_id"`
+	StatusID     *string          `db:"status_id"`
+	SprintID     *string          `db:"sprint_id"`
+	ParentTaskID *string          `db:"parent_task_id"`
+	Title        string           `db:"title"`
+	Description  *json.RawMessage `db:"description"`
+	Importance   int              `db:"importance"`
+	StoryPoints  *int             `db:"story_points"`
+	AssigneeID   *string          `db:"assignee_id"`
+	ReporterID   *string          `db:"reporter_id"`
+	CustomFields []byte           `db:"custom_fields"`
+	StartDate    *time.Time       `db:"start_date"`
+	DueDate      *time.Time       `db:"due_date"`
+	Tags         []byte           `db:"tags"`
+	CreatedAt    time.Time        `db:"created_at"`
+	UpdatedAt    time.Time        `db:"updated_at"`
+	DeletedAt    *time.Time       `db:"deleted_at"`
+	VTPPosition  *float64         `db:"vtp_position"`
 }
 
 func (r *taskWithPositionRow) asTaskRecord() taskRecord {
@@ -134,25 +124,68 @@ func (r *taskWithPositionRow) asTaskRecord() taskRecord {
 
 // --- Repository struct -------------------------------------------------------
 
-// TaskRepository is the GORM implementation of taskdom.Repository.
+// TaskRepository is the sqlx implementation of taskdom.Repository.
 type TaskRepository struct {
-	db *gorm.DB
+	db *sqlx.DB
 }
 
 // NewTaskRepository returns a new TaskRepository.
-func NewTaskRepository(db *gorm.DB) *TaskRepository {
+func NewTaskRepository(db *sqlx.DB) *TaskRepository {
 	return &TaskRepository{db: db}
+}
+
+// --- queryBuilder is a small helper for building parameterized SQL queries ---
+
+type queryBuilder struct {
+	whereClauses []string
+	args         []interface{}
+	idx          int
+}
+
+func newQueryBuilder() *queryBuilder {
+	return &queryBuilder{idx: 1}
+}
+
+func (b *queryBuilder) add(clause string, val interface{}) {
+	b.whereClauses = append(b.whereClauses, clause)
+	b.args = append(b.args, val)
+	b.idx++
+}
+
+func (b *queryBuilder) addInClause(col string, vals []string) {
+	if len(vals) == 0 {
+		return
+	}
+	placeholders := make([]string, len(vals))
+	for i, v := range vals {
+		placeholders[i] = fmt.Sprintf("$%d", b.idx)
+		b.args = append(b.args, v)
+		b.idx++
+	}
+	b.whereClauses = append(b.whereClauses, col+" IN ("+strings.Join(placeholders, ",")+")")
+}
+
+func (b *queryBuilder) placeholder() string {
+	p := fmt.Sprintf("$%d", b.idx)
+	b.idx++
+	return p
+}
+
+func (b *queryBuilder) where() string {
+	if len(b.whereClauses) == 0 {
+		return ""
+	}
+	return " AND " + strings.Join(b.whereClauses, " AND ")
 }
 
 // --- Task Types -------------------------------------------------------------
 
+const taskTypeCols = `id, project_id, name, icon, color, description, is_default, is_system, created_at, updated_at`
+
 // ListTaskTypes returns all task types for a project.
 func (r *TaskRepository) ListTaskTypes(ctx context.Context, projectID uuid.UUID) ([]*taskdom.TaskType, error) {
 	var records []taskTypeRecord
-	if err := r.db.WithContext(ctx).
-		Where("project_id = ?", projectID.String()).
-		Order("name ASC").
-		Find(&records).Error; err != nil {
+	if err := r.db.SelectContext(ctx, &records, `SELECT `+taskTypeCols+` FROM task_types WHERE project_id = $1 ORDER BY name ASC`, projectID.String()); err != nil {
 		return nil, fmt.Errorf("task type repo: list: %w", err)
 	}
 	out := make([]*taskdom.TaskType, 0, len(records))
@@ -165,8 +198,8 @@ func (r *TaskRepository) ListTaskTypes(ctx context.Context, projectID uuid.UUID)
 // FindTaskTypeByID returns the task type with the given ID.
 func (r *TaskRepository) FindTaskTypeByID(ctx context.Context, id uuid.UUID) (*taskdom.TaskType, error) {
 	var rec taskTypeRecord
-	err := r.db.WithContext(ctx).Where("id = ?", id.String()).First(&rec).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	err := r.db.GetContext(ctx, &rec, `SELECT `+taskTypeCols+` FROM task_types WHERE id = $1`, id.String())
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, taskdom.ErrTypeNotFound
 	}
 	if err != nil {
@@ -177,19 +210,13 @@ func (r *TaskRepository) FindTaskTypeByID(ctx context.Context, id uuid.UUID) (*t
 
 // CreateTaskType persists a new task type.
 func (r *TaskRepository) CreateTaskType(ctx context.Context, t *taskdom.TaskType) error {
-	rec := &taskTypeRecord{
-		ID:          t.ID.String(),
-		ProjectID:   t.ProjectID.String(),
-		Name:        t.Name,
-		Icon:        t.Icon,
-		Color:       t.Color,
-		Description: t.Description,
-		IsDefault:   t.IsDefault,
-		IsSystem:    t.IsSystem,
-		CreatedAt:   t.CreatedAt,
-		UpdatedAt:   t.UpdatedAt,
-	}
-	if err := r.db.WithContext(ctx).Create(rec).Error; err != nil {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO task_types (id, project_id, name, icon, color, description, is_default, is_system, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		t.ID.String(), t.ProjectID.String(), t.Name, t.Icon, t.Color,
+		t.Description, t.IsDefault, t.IsSystem, t.CreatedAt, t.UpdatedAt,
+	)
+	if err != nil {
 		return fmt.Errorf("task type repo: create: %w", err)
 	}
 	return nil
@@ -197,46 +224,40 @@ func (r *TaskRepository) CreateTaskType(ctx context.Context, t *taskdom.TaskType
 
 // UpdateTaskType persists changes to an existing task type.
 func (r *TaskRepository) UpdateTaskType(ctx context.Context, t *taskdom.TaskType) error {
-	updates := map[string]any{
-		"name":        t.Name,
-		"icon":        t.Icon,
-		"color":       t.Color,
-		"description": t.Description,
-		"updated_at":  t.UpdatedAt,
-	}
-	res := r.db.WithContext(ctx).Model(&taskTypeRecord{}).Where("id = ?", t.ID.String()).Updates(updates)
-	if res.Error != nil {
-		return fmt.Errorf("task type repo: update: %w", res.Error)
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE task_types SET name=$1, icon=$2, color=$3, description=$4, updated_at=$5 WHERE id=$6`,
+		t.Name, t.Icon, t.Color, t.Description, t.UpdatedAt, t.ID.String(),
+	)
+	if err != nil {
+		return fmt.Errorf("task type repo: update: %w", err)
 	}
 	return nil
 }
 
 // DeleteTaskType removes a task type by ID.
 func (r *TaskRepository) DeleteTaskType(ctx context.Context, id uuid.UUID) error {
-	res := r.db.WithContext(ctx).Delete(&taskTypeRecord{}, "id = ?", id.String())
-	if res.Error != nil {
-		return fmt.Errorf("task type repo: delete: %w", res.Error)
+	_, err := r.db.ExecContext(ctx, `DELETE FROM task_types WHERE id = $1`, id.String())
+	if err != nil {
+		return fmt.Errorf("task type repo: delete: %w", err)
 	}
 	return nil
 }
 
 // SetDefaultTaskType atomically marks typeID as the project's default task type,
-// clearing is_default on all other types in the same project. The operation is
-// expressed as a single SQL statement so concurrent calls cannot produce multiple
-// defaults. The partial unique index uq_task_types_one_default (project_id WHERE
-// is_default = true) further enforces this invariant at the DB level.
+// clearing is_default on all other types in the same project.
 func (r *TaskRepository) SetDefaultTaskType(ctx context.Context, projectID, typeID uuid.UUID) error {
-	res := r.db.WithContext(ctx).Exec(`
+	result, err := r.db.ExecContext(ctx, `
 		UPDATE task_types
-		SET is_default = (id = ?), updated_at = NOW()
-		WHERE project_id = ?
-		  AND EXISTS (SELECT 1 FROM task_types WHERE id = ? AND project_id = ?)`,
-		typeID.String(), projectID.String(), typeID.String(), projectID.String(),
+		SET is_default = (id = $1), updated_at = NOW()
+		WHERE project_id = $2
+		  AND EXISTS (SELECT 1 FROM task_types WHERE id = $1 AND project_id = $2)`,
+		typeID.String(), projectID.String(),
 	)
-	if res.Error != nil {
-		return fmt.Errorf("task type repo: set default: %w", res.Error)
+	if err != nil {
+		return fmt.Errorf("task type repo: set default: %w", err)
 	}
-	if res.RowsAffected == 0 {
+	n, _ := result.RowsAffected()
+	if n == 0 {
 		return taskdom.ErrTypeNotFound
 	}
 	return nil
@@ -244,13 +265,12 @@ func (r *TaskRepository) SetDefaultTaskType(ctx context.Context, projectID, type
 
 // --- Task Statuses ---------------------------------------------------------
 
+const taskStatusCols = `id, project_id, name, color, position, category, is_default, created_at, updated_at`
+
 // ListTaskStatuses returns all task statuses for a project ordered by position.
 func (r *TaskRepository) ListTaskStatuses(ctx context.Context, projectID uuid.UUID) ([]*taskdom.TaskStatus, error) {
 	var records []taskStatusRecord
-	if err := r.db.WithContext(ctx).
-		Where("project_id = ?", projectID.String()).
-		Order("position ASC").
-		Find(&records).Error; err != nil {
+	if err := r.db.SelectContext(ctx, &records, `SELECT `+taskStatusCols+` FROM task_statuses WHERE project_id = $1 ORDER BY position ASC`, projectID.String()); err != nil {
 		return nil, fmt.Errorf("task status repo: list: %w", err)
 	}
 	out := make([]*taskdom.TaskStatus, 0, len(records))
@@ -263,8 +283,8 @@ func (r *TaskRepository) ListTaskStatuses(ctx context.Context, projectID uuid.UU
 // FindTaskStatusByID returns the task status with the given ID.
 func (r *TaskRepository) FindTaskStatusByID(ctx context.Context, id uuid.UUID) (*taskdom.TaskStatus, error) {
 	var rec taskStatusRecord
-	err := r.db.WithContext(ctx).Where("id = ?", id.String()).First(&rec).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	err := r.db.GetContext(ctx, &rec, `SELECT `+taskStatusCols+` FROM task_statuses WHERE id = $1`, id.String())
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, taskdom.ErrStatusNotFound
 	}
 	if err != nil {
@@ -275,18 +295,13 @@ func (r *TaskRepository) FindTaskStatusByID(ctx context.Context, id uuid.UUID) (
 
 // CreateTaskStatus persists a new task status.
 func (r *TaskRepository) CreateTaskStatus(ctx context.Context, s *taskdom.TaskStatus) error {
-	rec := &taskStatusRecord{
-		ID:        s.ID.String(),
-		ProjectID: s.ProjectID.String(),
-		Name:      s.Name,
-		Color:     s.Color,
-		Position:  s.Position,
-		Category:  string(s.Category),
-		IsDefault: s.IsDefault,
-		CreatedAt: s.CreatedAt,
-		UpdatedAt: s.UpdatedAt,
-	}
-	if err := r.db.WithContext(ctx).Create(rec).Error; err != nil {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO task_statuses (id, project_id, name, color, position, category, is_default, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		s.ID.String(), s.ProjectID.String(), s.Name, s.Color, s.Position,
+		string(s.Category), s.IsDefault, s.CreatedAt, s.UpdatedAt,
+	)
+	if err != nil {
 		return fmt.Errorf("task status repo: create: %w", err)
 	}
 	return nil
@@ -294,41 +309,32 @@ func (r *TaskRepository) CreateTaskStatus(ctx context.Context, s *taskdom.TaskSt
 
 // UpdateTaskStatus persists changes to an existing task status.
 func (r *TaskRepository) UpdateTaskStatus(ctx context.Context, s *taskdom.TaskStatus) error {
-	updates := map[string]any{
-		"name":       s.Name,
-		"color":      s.Color,
-		"category":   string(s.Category),
-		"updated_at": s.UpdatedAt,
-	}
-	res := r.db.WithContext(ctx).Model(&taskStatusRecord{}).Where("id = ?", s.ID.String()).Updates(updates)
-	if res.Error != nil {
-		return fmt.Errorf("task status repo: update: %w", res.Error)
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE task_statuses SET name=$1, color=$2, category=$3, updated_at=$4 WHERE id=$5`,
+		s.Name, s.Color, string(s.Category), s.UpdatedAt, s.ID.String(),
+	)
+	if err != nil {
+		return fmt.Errorf("task status repo: update: %w", err)
 	}
 	return nil
 }
 
 // DeleteTaskStatus removes a task status by ID.
 func (r *TaskRepository) DeleteTaskStatus(ctx context.Context, id uuid.UUID) error {
-	res := r.db.WithContext(ctx).Delete(&taskStatusRecord{}, "id = ?", id.String())
-	if res.Error != nil {
-		return fmt.Errorf("task status repo: delete: %w", res.Error)
+	_, err := r.db.ExecContext(ctx, `DELETE FROM task_statuses WHERE id = $1`, id.String())
+	if err != nil {
+		return fmt.Errorf("task status repo: delete: %w", err)
 	}
 	return nil
 }
 
 // SetDefaultTaskStatus marks statusID as the project's default task status,
 // clearing is_default on all other statuses in the same project.
-// SELECT FOR UPDATE at the start locks all project rows, serializing concurrent
-// calls so the clear→set pair never races. Two separate UPDATE statements are
-// required because a single multi-row UPDATE triggers uq_task_statuses_one_default
-// row-by-row before all rows are written.
 func (r *TaskRepository) SetDefaultTaskStatus(ctx context.Context, projectID, statusID uuid.UUID) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return WithTx(ctx, r.db, func(tx *sqlx.Tx) error {
 		// Lock all statuses for this project to serialize concurrent calls.
 		var ids []string
-		if err := tx.Raw(`SELECT id FROM task_statuses WHERE project_id = ? FOR UPDATE`,
-			projectID.String(),
-		).Scan(&ids).Error; err != nil {
+		if err := tx.SelectContext(ctx, &ids, `SELECT id FROM task_statuses WHERE project_id = $1 FOR UPDATE`, projectID.String()); err != nil {
 			return fmt.Errorf("task status repo: set default (lock): %w", err)
 		}
 
@@ -343,15 +349,11 @@ func (r *TaskRepository) SetDefaultTaskStatus(ctx context.Context, projectID, st
 			return taskdom.ErrStatusNotFound
 		}
 
-		if err := tx.Exec(`UPDATE task_statuses SET is_default = false, updated_at = NOW() WHERE project_id = ? AND is_default = true`,
-			projectID.String(),
-		).Error; err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE task_statuses SET is_default = false, updated_at = NOW() WHERE project_id = $1 AND is_default = true`, projectID.String()); err != nil {
 			return fmt.Errorf("task status repo: set default (clear): %w", err)
 		}
 
-		if err := tx.Exec(`UPDATE task_statuses SET is_default = true, updated_at = NOW() WHERE id = ? AND project_id = ?`,
-			statusID.String(), projectID.String(),
-		).Error; err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE task_statuses SET is_default = true, updated_at = NOW() WHERE id = $1 AND project_id = $2`, statusID.String(), projectID.String()); err != nil {
 			return fmt.Errorf("task status repo: set default (set): %w", err)
 		}
 
@@ -362,10 +364,8 @@ func (r *TaskRepository) SetDefaultTaskStatus(ctx context.Context, projectID, st
 // FindDefaultTaskType returns the project's default task type, or nil if none is set.
 func (r *TaskRepository) FindDefaultTaskType(ctx context.Context, projectID uuid.UUID) (*taskdom.TaskType, error) {
 	var rec taskTypeRecord
-	err := r.db.WithContext(ctx).
-		Where("project_id = ? AND is_default = true", projectID.String()).
-		First(&rec).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	err := r.db.GetContext(ctx, &rec, `SELECT `+taskTypeCols+` FROM task_types WHERE project_id = $1 AND is_default = true`, projectID.String())
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -377,10 +377,8 @@ func (r *TaskRepository) FindDefaultTaskType(ctx context.Context, projectID uuid
 // FindDefaultTaskStatus returns the project's default task status, or nil if none is set.
 func (r *TaskRepository) FindDefaultTaskStatus(ctx context.Context, projectID uuid.UUID) (*taskdom.TaskStatus, error) {
 	var rec taskStatusRecord
-	err := r.db.WithContext(ctx).
-		Where("project_id = ? AND is_default = true", projectID.String()).
-		First(&rec).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	err := r.db.GetContext(ctx, &rec, `SELECT `+taskStatusCols+` FROM task_statuses WHERE project_id = $1 AND is_default = true`, projectID.String())
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -391,221 +389,315 @@ func (r *TaskRepository) FindDefaultTaskStatus(ctx context.Context, projectID uu
 
 // --- Tasks ------------------------------------------------------------------
 
-// applyTaskFilter adds WHERE predicates for all TaskFilter fields except
-// CursorAfter (which is handled separately by applyCursorWhere).
-// It is shared by ListTasks, CountTasks, and SumTaskField so that adding a new
-// filter dimension only requires a single change.
-func applyTaskFilter(q *gorm.DB, filter taskdom.TaskFilter) *gorm.DB {
+const taskCols = `id, project_id, task_number, task_type_id, status_id, sprint_id, parent_task_id,
+	title, description, importance, story_points, assignee_id, reporter_id,
+	custom_fields, start_date, due_date, tags, created_at, updated_at, deleted_at`
+
+// applyTaskFilter adds WHERE predicates for all TaskFilter fields.
+// b is the shared queryBuilder; the base "project_id = $1 AND deleted_at IS NULL" clause is already set.
+func applyTaskFilter(b *queryBuilder, filter taskdom.TaskFilter) {
 	switch {
 	case filter.ParentTaskID != nil:
-		q = q.Where("parent_task_id = ?", filter.ParentTaskID.String())
+		p := b.placeholder()
+		b.whereClauses = append(b.whereClauses, "parent_task_id = "+p)
+		b.args = append(b.args, filter.ParentTaskID.String())
 	case len(filter.SprintIDs) > 0:
-		q = q.Where("sprint_id IN ?", uuidSliceToStrSlice(filter.SprintIDs))
+		b.addInClause("sprint_id", uuidSliceToStrSlice(filter.SprintIDs))
 	case filter.BacklogOnly:
-		q = q.Where("sprint_id IS NULL")
+		b.whereClauses = append(b.whereClauses, "sprint_id IS NULL")
 	case filter.SprintID != nil:
-		q = q.Where("sprint_id = ?", filter.SprintID.String())
+		p := b.placeholder()
+		b.whereClauses = append(b.whereClauses, "sprint_id = "+p)
+		b.args = append(b.args, filter.SprintID.String())
 	}
 
 	if len(filter.StatusIDs) > 0 {
-		q = q.Where("status_id IN ?", uuidSliceToStrSlice(filter.StatusIDs))
+		b.addInClause("status_id", uuidSliceToStrSlice(filter.StatusIDs))
 	} else if filter.StatusID != nil {
-		q = q.Where("status_id = ?", filter.StatusID.String())
+		p := b.placeholder()
+		b.whereClauses = append(b.whereClauses, "status_id = "+p)
+		b.args = append(b.args, filter.StatusID.String())
 	}
 
 	switch {
 	case filter.AssigneeNull && len(filter.AssigneeIDs) > 0:
-		q = q.Where("assignee_id IS NULL OR assignee_id IN ?", uuidSliceToStrSlice(filter.AssigneeIDs))
+		// Build: assignee_id IS NULL OR assignee_id IN (...)
+		placeholders := make([]string, len(filter.AssigneeIDs))
+		for i, id := range filter.AssigneeIDs {
+			placeholders[i] = fmt.Sprintf("$%d", b.idx)
+			b.args = append(b.args, id.String())
+			b.idx++
+		}
+		b.whereClauses = append(b.whereClauses, "(assignee_id IS NULL OR assignee_id IN ("+strings.Join(placeholders, ",")+")")
 	case filter.AssigneeNull:
-		q = q.Where("assignee_id IS NULL")
+		b.whereClauses = append(b.whereClauses, "assignee_id IS NULL")
 	case len(filter.AssigneeIDs) > 0:
-		q = q.Where("assignee_id IN ?", uuidSliceToStrSlice(filter.AssigneeIDs))
+		b.addInClause("assignee_id", uuidSliceToStrSlice(filter.AssigneeIDs))
 	case filter.AssigneeID != nil:
-		q = q.Where("assignee_id = ?", filter.AssigneeID.String())
+		p := b.placeholder()
+		b.whereClauses = append(b.whereClauses, "assignee_id = "+p)
+		b.args = append(b.args, filter.AssigneeID.String())
 	}
 
 	switch {
 	case filter.TaskTypeNull:
-		q = q.Where("task_type_id IS NULL")
+		b.whereClauses = append(b.whereClauses, "task_type_id IS NULL")
 	case len(filter.TaskTypeIDs) > 0:
-		q = q.Where("task_type_id IN ?", uuidSliceToStrSlice(filter.TaskTypeIDs))
+		b.addInClause("task_type_id", uuidSliceToStrSlice(filter.TaskTypeIDs))
 	}
-
-	return q
 }
 
-// applyTaskSort adds the SELECT extension, JOIN (when needed), and ORDER BY
-// clause to q based on the sort configuration.
-// The secondary sort on (created_at ASC, id ASC) guarantees stable pagination.
-func applyTaskSort(q *gorm.DB, sort taskdom.TaskSort) *gorm.DB {
+// applyTaskSort returns the FROM/JOIN extension and ORDER BY clause.
+// When view_position is used, it also returns a modified SELECT cols string.
+func applyTaskSort(sort taskdom.TaskSort, b *queryBuilder) (fromClause, orderByClause, selectCols string) {
+	selectCols = "tasks." + strings.ReplaceAll(taskCols, "\n\t", "\n\ttasks.")
+	fromClause = "FROM tasks"
+
 	switch sort.By {
 	case "view_position":
-		// LEFT JOIN view_task_positions so the position value is available for
-		// ORDER BY and cursor pagination. Tasks without a row sort last (NULLS
-		// LAST), with created_at as the tiebreaker.
 		if sort.ViewID != nil {
-			q = q.
-				Select("tasks.*, vtp.position AS vtp_position").
-				Joins("LEFT JOIN view_task_positions vtp ON vtp.task_id = tasks.id AND vtp.view_id = ?", sort.ViewID)
+			p := b.placeholder()
+			b.args = append(b.args, sort.ViewID.String())
+			fromClause = "FROM tasks LEFT JOIN view_task_positions vtp ON vtp.task_id = tasks.id AND vtp.view_id = " + p
+			selectCols = "tasks.*, vtp.position AS vtp_position"
 		}
-		return q.Order("vtp.position ASC NULLS LAST, tasks.created_at ASC, tasks.id ASC")
+		orderByClause = "vtp.position ASC NULLS LAST, tasks.created_at ASC, tasks.id ASC"
 	case "importance":
-		return q.Order("importance DESC, created_at ASC, id ASC")
+		orderByClause = "importance DESC, created_at ASC, id ASC"
 	case "title":
-		return q.Order("title ASC, created_at ASC, id ASC")
+		orderByClause = "title ASC, created_at ASC, id ASC"
 	case "story_points":
-		return q.Order("story_points DESC NULLS LAST, created_at ASC, id ASC")
+		orderByClause = "story_points DESC NULLS LAST, created_at ASC, id ASC"
 	case "start_date":
-		return q.Order("start_date ASC NULLS LAST, created_at ASC, id ASC")
+		orderByClause = "start_date ASC NULLS LAST, created_at ASC, id ASC"
 	case "due_date":
-		return q.Order("due_date ASC NULLS LAST, created_at ASC, id ASC")
+		orderByClause = "due_date ASC NULLS LAST, created_at ASC, id ASC"
 	default:
 		if sort.By != "" && sort.CFType != "" {
-			return applyCFTaskSort(q, sort)
+			orderByClause = buildCFOrderBy(sort, b)
+		} else {
+			orderByClause = "created_at ASC, id ASC"
 		}
-		// sort.By == "created" (the public API key) falls here and uses created_at ASC.
-		return q.Order("created_at ASC, id ASC")
 	}
+	return
 }
 
-// applyCFTaskSort applies ORDER BY for a custom-field sort using JSONB expressions.
-func applyCFTaskSort(q *gorm.DB, sort taskdom.TaskSort) *gorm.DB {
+func buildCFOrderBy(sort taskdom.TaskSort, b *queryBuilder) string {
 	switch sort.CFType {
 	case "number":
-		return q.Order(clause.Expr{
-			SQL:  "(custom_fields->>?)::numeric ASC NULLS LAST, created_at ASC, id ASC",
-			Vars: []interface{}{sort.By},
-		})
+		p := b.placeholder()
+		b.args = append(b.args, sort.By)
+		return fmt.Sprintf("(custom_fields->>%s)::numeric ASC NULLS LAST, created_at ASC, id ASC", p)
 	case "date":
-		return q.Order(clause.Expr{
-			SQL:  "(custom_fields->>?)::date ASC NULLS LAST, created_at ASC, id ASC",
-			Vars: []interface{}{sort.By},
-		})
+		p := b.placeholder()
+		b.args = append(b.args, sort.By)
+		return fmt.Sprintf("(custom_fields->>%s)::date ASC NULLS LAST, created_at ASC, id ASC", p)
 	case "select":
 		if len(sort.CFOpts) == 0 {
-			return q.Order("created_at ASC, id ASC")
+			return "created_at ASC, id ASC"
 		}
-		caseSQL, caseArgs := buildCFSelectCaseSQL(sort.By, sort.CFOpts)
-		return q.Order(clause.Expr{
-			SQL:  caseSQL + " ASC, created_at ASC, id ASC",
-			Vars: caseArgs,
-		})
+		caseSQL, caseArgs := buildCFSelectCaseSQL(sort.By, sort.CFOpts, b)
+		_ = caseArgs
+		return caseSQL + " ASC, created_at ASC, id ASC"
 	}
-	return q.Order("created_at ASC, id ASC")
+	return "created_at ASC, id ASC"
 }
 
 // buildCFSelectCaseSQL builds a parameterized CASE expression for select CF ordering.
-// Returns the SQL fragment and the corresponding bound args.
-func buildCFSelectCaseSQL(key string, opts []string) (string, []interface{}) {
-	args := []interface{}{key}
-	sql := "CASE custom_fields->>?"
+func buildCFSelectCaseSQL(key string, opts []string, b *queryBuilder) (string, []interface{}) {
+	keyP := b.placeholder()
+	b.args = append(b.args, key)
+	sql := "CASE custom_fields->>" + keyP
 	for i, opt := range opts {
-		sql += fmt.Sprintf(" WHEN ? THEN %d", i)
-		args = append(args, opt)
+		p := b.placeholder()
+		b.args = append(b.args, opt)
+		sql += fmt.Sprintf(" WHEN %s THEN %d", p, i)
 	}
 	sql += " ELSE 9999 END"
-	return sql, args
+	return sql, nil
 }
 
-// applyCursorWhere adds the keyset-pagination WHERE predicate that skips rows
-// already returned on the previous page.  The predicate is derived from the
-// sort key stored inside the cursor so it correctly handles each sort order
-// (including DESC, NULLS LAST, and custom JSONB field variants).
-func applyCursorWhere(q *gorm.DB, cur *taskdom.TaskCursor, sort taskdom.TaskSort) *gorm.DB {
+// applyCursorWhere adds the keyset-pagination WHERE predicate.
+func applyCursorWhere(b *queryBuilder, cur *taskdom.TaskCursor, sort taskdom.TaskSort) {
 	ca := cur.CreatedAt.UTC()
 	id := cur.ID
 
 	switch cur.SortBy {
 	case "view_position":
-		// Positioned tasks (vtp.position IS NOT NULL) sort before unpositioned ones.
-		// Use a full keyset predicate so equal positions are handled correctly:
-		//   position strictly greater, OR same position with a later (created_at, id), OR unpositioned.
-		// Cursor for an unpositioned task: only unpositioned tasks after (created_at, id).
 		if cur.SortNumVal != nil {
 			pos := *cur.SortNumVal
-			return q.Where(
-				"vtp.position > ? OR (vtp.position = ? AND (tasks.created_at, tasks.id) > (?, ?)) OR vtp.position IS NULL",
-				pos, pos, ca, id,
-			)
+			p1 := b.placeholder()
+			b.args = append(b.args, pos)
+			p2 := b.placeholder()
+			b.args = append(b.args, pos)
+			p3 := b.placeholder()
+			b.args = append(b.args, ca)
+			p4 := b.placeholder()
+			b.args = append(b.args, id)
+			b.whereClauses = append(b.whereClauses, fmt.Sprintf(
+				"(vtp.position > %s OR (vtp.position = %s AND (tasks.created_at, tasks.id) > (%s, %s)) OR vtp.position IS NULL)",
+				p1, p2, p3, p4))
+		} else {
+			p1 := b.placeholder()
+			b.args = append(b.args, ca)
+			p2 := b.placeholder()
+			b.args = append(b.args, id)
+			b.whereClauses = append(b.whereClauses, fmt.Sprintf("(vtp.position IS NULL AND (tasks.created_at, tasks.id) > (%s, %s))", p1, p2))
 		}
-		return q.Where("vtp.position IS NULL AND (tasks.created_at, tasks.id) > (?, ?)", ca, id)
 	case "importance":
 		imp := int64(*cur.SortNumVal)
-		return q.Where(
-			"importance < ? OR (importance = ? AND (created_at, id) > (?, ?))",
-			imp, imp, ca, id,
-		)
+		p1 := b.placeholder()
+		b.args = append(b.args, imp)
+		p2 := b.placeholder()
+		b.args = append(b.args, imp)
+		p3 := b.placeholder()
+		b.args = append(b.args, ca)
+		p4 := b.placeholder()
+		b.args = append(b.args, id)
+		b.whereClauses = append(b.whereClauses, fmt.Sprintf("(importance < %s OR (importance = %s AND (created_at, id) > (%s, %s)))", p1, p2, p3, p4))
 	case "title":
 		t := *cur.SortStrVal
-		return q.Where(
-			"title > ? OR (title = ? AND (created_at, id) > (?, ?))",
-			t, t, ca, id,
-		)
+		p1 := b.placeholder()
+		b.args = append(b.args, t)
+		p2 := b.placeholder()
+		b.args = append(b.args, t)
+		p3 := b.placeholder()
+		b.args = append(b.args, ca)
+		p4 := b.placeholder()
+		b.args = append(b.args, id)
+		b.whereClauses = append(b.whereClauses, fmt.Sprintf("(title > %s OR (title = %s AND (created_at, id) > (%s, %s)))", p1, p2, p3, p4))
 	case "story_points":
 		if cur.SortNumVal != nil {
 			sp := int64(*cur.SortNumVal)
-			return q.Where(
-				"story_points < ? OR (story_points = ? AND (created_at, id) > (?, ?)) OR story_points IS NULL",
-				sp, sp, ca, id,
-			)
+			p1 := b.placeholder()
+			b.args = append(b.args, sp)
+			p2 := b.placeholder()
+			b.args = append(b.args, sp)
+			p3 := b.placeholder()
+			b.args = append(b.args, ca)
+			p4 := b.placeholder()
+			b.args = append(b.args, id)
+			b.whereClauses = append(b.whereClauses, fmt.Sprintf("(story_points < %s OR (story_points = %s AND (created_at, id) > (%s, %s)) OR story_points IS NULL)", p1, p2, p3, p4))
+		} else {
+			p1 := b.placeholder()
+			b.args = append(b.args, ca)
+			p2 := b.placeholder()
+			b.args = append(b.args, id)
+			b.whereClauses = append(b.whereClauses, fmt.Sprintf("(story_points IS NULL AND (created_at, id) > (%s, %s))", p1, p2))
 		}
-		return q.Where("story_points IS NULL AND (created_at, id) > (?, ?)", ca, id)
 	case "start_date":
 		if cur.SortTimeVal != nil {
 			d := *cur.SortTimeVal
-			return q.Where(
-				"start_date > ?::date OR (start_date = ?::date AND (created_at, id) > (?, ?)) OR start_date IS NULL",
-				d, d, ca, id,
-			)
+			p1 := b.placeholder()
+			b.args = append(b.args, d)
+			p2 := b.placeholder()
+			b.args = append(b.args, d)
+			p3 := b.placeholder()
+			b.args = append(b.args, ca)
+			p4 := b.placeholder()
+			b.args = append(b.args, id)
+			b.whereClauses = append(b.whereClauses, fmt.Sprintf("(start_date > %s::date OR (start_date = %s::date AND (created_at, id) > (%s, %s)) OR start_date IS NULL)", p1, p2, p3, p4))
+		} else {
+			p1 := b.placeholder()
+			b.args = append(b.args, ca)
+			p2 := b.placeholder()
+			b.args = append(b.args, id)
+			b.whereClauses = append(b.whereClauses, fmt.Sprintf("(start_date IS NULL AND (created_at, id) > (%s, %s))", p1, p2))
 		}
-		return q.Where("start_date IS NULL AND (created_at, id) > (?, ?)", ca, id)
 	case "due_date":
 		if cur.SortTimeVal != nil {
 			d := *cur.SortTimeVal
-			return q.Where(
-				"due_date > ?::date OR (due_date = ?::date AND (created_at, id) > (?, ?)) OR due_date IS NULL",
-				d, d, ca, id,
-			)
+			p1 := b.placeholder()
+			b.args = append(b.args, d)
+			p2 := b.placeholder()
+			b.args = append(b.args, d)
+			p3 := b.placeholder()
+			b.args = append(b.args, ca)
+			p4 := b.placeholder()
+			b.args = append(b.args, id)
+			b.whereClauses = append(b.whereClauses, fmt.Sprintf("(due_date > %s::date OR (due_date = %s::date AND (created_at, id) > (%s, %s)) OR due_date IS NULL)", p1, p2, p3, p4))
+		} else {
+			p1 := b.placeholder()
+			b.args = append(b.args, ca)
+			p2 := b.placeholder()
+			b.args = append(b.args, id)
+			b.whereClauses = append(b.whereClauses, fmt.Sprintf("(due_date IS NULL AND (created_at, id) > (%s, %s))", p1, p2))
 		}
-		return q.Where("due_date IS NULL AND (created_at, id) > (?, ?)", ca, id)
 	default:
-		// Custom field cursor — use sort metadata to build keyset predicate.
 		if cur.SortBy != "" && sort.CFType != "" {
-			return applyCFCursorWhere(q, cur, sort, ca, id)
+			applyCFCursorWhere(b, cur, sort, ca, id)
+			return
 		}
-		return q.Where("(created_at, id) > (?, ?)", ca, id)
+		p1 := b.placeholder()
+		b.args = append(b.args, ca)
+		p2 := b.placeholder()
+		b.args = append(b.args, id)
+		b.whereClauses = append(b.whereClauses, fmt.Sprintf("((created_at, id) > (%s, %s))", p1, p2))
 	}
 }
 
 // applyCFCursorWhere builds the keyset WHERE predicate for custom-field sorts.
-func applyCFCursorWhere(q *gorm.DB, cur *taskdom.TaskCursor, sort taskdom.TaskSort, ca interface{}, id string) *gorm.DB {
+func applyCFCursorWhere(b *queryBuilder, cur *taskdom.TaskCursor, sort taskdom.TaskSort, ca interface{}, id string) {
 	switch sort.CFType {
 	case "number":
 		if cur.SortNumVal != nil {
 			v := *cur.SortNumVal
-			return q.Where(clause.Expr{
-				SQL:  "(custom_fields->>?)::numeric > ? OR ((custom_fields->>?)::numeric = ? AND (created_at, id) > (?, ?)) OR custom_fields->>? IS NULL",
-				Vars: []interface{}{sort.By, v, sort.By, v, ca, id, sort.By},
-			})
+			keyP := b.placeholder()
+			b.args = append(b.args, sort.By)
+			vP := b.placeholder()
+			b.args = append(b.args, v)
+			keyP2 := b.placeholder()
+			b.args = append(b.args, sort.By)
+			vP2 := b.placeholder()
+			b.args = append(b.args, v)
+			caP := b.placeholder()
+			b.args = append(b.args, ca)
+			idP := b.placeholder()
+			b.args = append(b.args, id)
+			keyP3 := b.placeholder()
+			b.args = append(b.args, sort.By)
+			b.whereClauses = append(b.whereClauses, fmt.Sprintf(
+				"((custom_fields->>%s)::numeric > %s OR ((custom_fields->>%s)::numeric = %s AND (created_at, id) > (%s, %s)) OR custom_fields->>%s IS NULL)",
+				keyP, vP, keyP2, vP2, caP, idP, keyP3))
+		} else {
+			keyP := b.placeholder()
+			b.args = append(b.args, sort.By)
+			caP := b.placeholder()
+			b.args = append(b.args, ca)
+			idP := b.placeholder()
+			b.args = append(b.args, id)
+			b.whereClauses = append(b.whereClauses, fmt.Sprintf("(custom_fields->>%s IS NULL AND (created_at, id) > (%s, %s))", keyP, caP, idP))
 		}
-		return q.Where(clause.Expr{
-			SQL:  "custom_fields->>? IS NULL AND (created_at, id) > (?, ?)",
-			Vars: []interface{}{sort.By, ca, id},
-		})
 	case "date":
 		if cur.SortTimeVal != nil {
 			d := *cur.SortTimeVal
-			return q.Where(clause.Expr{
-				SQL:  "(custom_fields->>?)::date > ?::date OR ((custom_fields->>?)::date = ?::date AND (created_at, id) > (?, ?)) OR custom_fields->>? IS NULL",
-				Vars: []interface{}{sort.By, d, sort.By, d, ca, id, sort.By},
-			})
+			keyP := b.placeholder()
+			b.args = append(b.args, sort.By)
+			dP := b.placeholder()
+			b.args = append(b.args, d)
+			keyP2 := b.placeholder()
+			b.args = append(b.args, sort.By)
+			dP2 := b.placeholder()
+			b.args = append(b.args, d)
+			caP := b.placeholder()
+			b.args = append(b.args, ca)
+			idP := b.placeholder()
+			b.args = append(b.args, id)
+			keyP3 := b.placeholder()
+			b.args = append(b.args, sort.By)
+			b.whereClauses = append(b.whereClauses, fmt.Sprintf(
+				"((custom_fields->>%s)::date > %s::date OR ((custom_fields->>%s)::date = %s::date AND (created_at, id) > (%s, %s)) OR custom_fields->>%s IS NULL)",
+				keyP, dP, keyP2, dP2, caP, idP, keyP3))
+		} else {
+			keyP := b.placeholder()
+			b.args = append(b.args, sort.By)
+			caP := b.placeholder()
+			b.args = append(b.args, ca)
+			idP := b.placeholder()
+			b.args = append(b.args, id)
+			b.whereClauses = append(b.whereClauses, fmt.Sprintf("(custom_fields->>%s IS NULL AND (created_at, id) > (%s, %s))", keyP, caP, idP))
 		}
-		return q.Where(clause.Expr{
-			SQL:  "custom_fields->>? IS NULL AND (created_at, id) > (?, ?)",
-			Vars: []interface{}{sort.By, ca, id},
-		})
 	case "select":
-		// Map cursor value to its option index (unknown → 9999).
 		curIdx := 9999
 		if cur.SortStrVal != nil {
 			for i, opt := range sort.CFOpts {
@@ -615,50 +707,65 @@ func applyCFCursorWhere(q *gorm.DB, cur *taskdom.TaskCursor, sort taskdom.TaskSo
 				}
 			}
 		}
-		caseSQL, caseArgs := buildCFSelectCaseSQL(sort.By, sort.CFOpts)
-		// Build: (CASE ...) > curIdx OR ((CASE ...) = curIdx AND (created_at, id) > (ca, id))
-		// The CASE expression appears twice, so caseArgs must be duplicated.
-		allArgs := make([]interface{}, 0, len(caseArgs)*2+4)
-		allArgs = append(allArgs, caseArgs...)
-		allArgs = append(allArgs, curIdx)
-		allArgs = append(allArgs, caseArgs...)
-		allArgs = append(allArgs, curIdx, ca, id)
-		return q.Where(clause.Expr{
-			SQL:  fmt.Sprintf("(%s) > ? OR ((%s) = ? AND (created_at, id) > (?, ?))", caseSQL, caseSQL),
-			Vars: allArgs,
-		})
+		caseSQL1, _ := buildCFSelectCaseSQL(sort.By, sort.CFOpts, b)
+		curIdxP := b.placeholder()
+		b.args = append(b.args, curIdx)
+		caseSQL2, _ := buildCFSelectCaseSQL(sort.By, sort.CFOpts, b)
+		curIdxP2 := b.placeholder()
+		b.args = append(b.args, curIdx)
+		caP := b.placeholder()
+		b.args = append(b.args, ca)
+		idP := b.placeholder()
+		b.args = append(b.args, id)
+		b.whereClauses = append(b.whereClauses, fmt.Sprintf(
+			"((%s) > %s OR ((%s) = %s AND (created_at, id) > (%s, %s)))",
+			caseSQL1, curIdxP, caseSQL2, curIdxP2, caP, idP))
+	default:
+		p1 := b.placeholder()
+		b.args = append(b.args, ca)
+		p2 := b.placeholder()
+		b.args = append(b.args, id)
+		b.whereClauses = append(b.whereClauses, fmt.Sprintf("((created_at, id) > (%s, %s))", p1, p2))
 	}
-	return q.Where("(created_at, id) > (?, ?)", ca, id)
 }
 
 // ListTasks returns a page of tasks with optional filter.
-// When filter.CursorAfter is nil, returns from the beginning.
-// When set, returns tasks strictly after the cursor position.
-// hasMore is true when a next page exists beyond the returned slice.
 func (r *TaskRepository) ListTasks(ctx context.Context, projectID uuid.UUID, filter taskdom.TaskFilter, limit int, sort taskdom.TaskSort) ([]*taskdom.Task, bool, error) {
-	q := r.db.WithContext(ctx).Model(&taskRecord{}).
-		Where("project_id = ?", projectID.String())
-	q = applyTaskFilter(q, filter)
+	b := newQueryBuilder()
 
+	// Base fixed args
+	pidP := b.placeholder()
+	b.args = append(b.args, projectID.String())
+	baseWhere := "tasks.project_id = " + pidP + " AND tasks.deleted_at IS NULL"
+
+	// Apply sort first (it may add a JOIN arg for view_id)
+	fromClause, orderByClause, selectCols := applyTaskSort(sort, b)
+
+	// Apply filters
+	applyTaskFilter(b, filter)
+
+	// Apply cursor
 	if filter.CursorAfter != nil {
 		cur, err := taskdom.DecodeTaskCursor(*filter.CursorAfter)
 		if err != nil {
 			return nil, false, fmt.Errorf("task repo: invalid cursor: %w", err)
 		}
-		q = applyCursorWhere(q, cur, sort)
+		applyCursorWhere(b, cur, sort)
 	}
 
-	// applyTaskSort adds the JOIN + SELECT extension for view_position and the
-	// ORDER BY for all sort keys — must happen before Limit so the DB sorts the
-	// full result set before pagination cuts it.
-	sortedQ := applyTaskSort(q, sort)
+	limitP := b.placeholder()
+	b.args = append(b.args, limit+1)
 
-	// view_position uses a flat scan struct (taskWithPositionRow) instead of
-	// taskRecord because GORM v2 treats embedded structs with TableName() as
-	// relationships and silently skips their fields during Scan.
+	whereSQL := baseWhere
+	if len(b.whereClauses) > 0 {
+		whereSQL += " AND " + strings.Join(b.whereClauses, " AND ")
+	}
+
+	query := fmt.Sprintf(`SELECT %s %s WHERE %s ORDER BY %s LIMIT %s`, selectCols, fromClause, whereSQL, orderByClause, limitP)
+
 	if sort.By == "view_position" && sort.ViewID != nil {
 		var rows []taskWithPositionRow
-		if err := sortedQ.Limit(limit + 1).Scan(&rows).Error; err != nil {
+		if err := r.db.SelectContext(ctx, &rows, query, b.args...); err != nil {
 			return nil, false, fmt.Errorf("task repo: list (view_position): %w", err)
 		}
 		hasMore := len(rows) > limit
@@ -679,7 +786,7 @@ func (r *TaskRepository) ListTasks(ctx context.Context, projectID uuid.UUID, fil
 	}
 
 	var records []taskRecord
-	if err := sortedQ.Limit(limit + 1).Find(&records).Error; err != nil {
+	if err := r.db.SelectContext(ctx, &records, query, b.args...); err != nil {
 		return nil, false, fmt.Errorf("task repo: list: %w", err)
 	}
 
@@ -699,34 +806,51 @@ func (r *TaskRepository) ListTasks(ctx context.Context, projectID uuid.UUID, fil
 	return tasks, hasMore, nil
 }
 
-// CountTasks returns the total number of tasks matching filter for a project,
-// ignoring cursor-based pagination so the result reflects the true total.
+// CountTasks returns the total number of tasks matching filter for a project.
 func (r *TaskRepository) CountTasks(ctx context.Context, projectID uuid.UUID, filter taskdom.TaskFilter) (int64, error) {
-	q := r.db.WithContext(ctx).Model(&taskRecord{}).
-		Where("project_id = ?", projectID.String())
-	q = applyTaskFilter(q, filter)
+	b := newQueryBuilder()
+
+	pidP := b.placeholder()
+	b.args = append(b.args, projectID.String())
+	baseWhere := "project_id = " + pidP + " AND deleted_at IS NULL"
+
+	applyTaskFilter(b, filter)
+
+	whereSQL := baseWhere
+	if len(b.whereClauses) > 0 {
+		whereSQL += " AND " + strings.Join(b.whereClauses, " AND ")
+	}
 
 	var count int64
-	if err := q.Count(&count).Error; err != nil {
+	if err := r.db.GetContext(ctx, &count, `SELECT COUNT(*) FROM tasks WHERE `+whereSQL, b.args...); err != nil {
 		return 0, fmt.Errorf("task repo: count: %w", err)
 	}
 	return count, nil
 }
 
-// SumTaskField sums a numeric task field across all tasks matching filter,
-// ignoring cursor-based pagination so the result reflects the true total.
-// fieldKey must be "story_points" or a custom field key (stored in the custom_fields JSONB column).
+// SumTaskField sums a numeric task field across all tasks matching filter.
 func (r *TaskRepository) SumTaskField(ctx context.Context, projectID uuid.UUID, filter taskdom.TaskFilter, fieldKey string) (float64, error) {
-	q := r.db.WithContext(ctx).Model(&taskRecord{}).
-		Where("project_id = ?", projectID.String())
-	q = applyTaskFilter(q, filter)
+	b := newQueryBuilder()
+
+	pidP := b.placeholder()
+	b.args = append(b.args, projectID.String())
+	baseWhere := "project_id = " + pidP + " AND deleted_at IS NULL"
+
+	applyTaskFilter(b, filter)
+
+	whereSQL := baseWhere
+	if len(b.whereClauses) > 0 {
+		whereSQL += " AND " + strings.Join(b.whereClauses, " AND ")
+	}
 
 	var sum float64
 	var err error
 	if fieldKey == "story_points" {
-		err = q.Select("COALESCE(SUM(story_points), 0)").Scan(&sum).Error
+		err = r.db.GetContext(ctx, &sum, `SELECT COALESCE(SUM(story_points), 0) FROM tasks WHERE `+whereSQL, b.args...)
 	} else {
-		err = q.Select("COALESCE(SUM((custom_fields->>?)::numeric), 0)", fieldKey).Scan(&sum).Error
+		keyP := b.placeholder()
+		b.args = append(b.args, fieldKey)
+		err = r.db.GetContext(ctx, &sum, `SELECT COALESCE(SUM((custom_fields->>`+keyP+`)::numeric), 0) FROM tasks WHERE `+whereSQL, b.args...)
 	}
 	if err != nil {
 		return 0, fmt.Errorf("task repo: sum field %q: %w", fieldKey, err)
@@ -737,10 +861,8 @@ func (r *TaskRepository) SumTaskField(ctx context.Context, projectID uuid.UUID, 
 // FindTaskByID returns the task with the given ID (non-deleted).
 func (r *TaskRepository) FindTaskByID(ctx context.Context, id uuid.UUID) (*taskdom.Task, error) {
 	var rec taskRecord
-	err := r.db.WithContext(ctx).
-		Where("id = ?", id.String()).
-		First(&rec).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	err := r.db.GetContext(ctx, &rec, `SELECT `+taskCols+` FROM tasks WHERE id = $1 AND deleted_at IS NULL`, id.String())
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, taskdom.ErrTaskNotFound
 	}
 	if err != nil {
@@ -749,14 +871,11 @@ func (r *TaskRepository) FindTaskByID(ctx context.Context, id uuid.UUID) (*taskd
 	return toTaskEntity(&rec)
 }
 
-// FindTaskByNumber returns the task with the given project-scoped task number
-// (non-deleted).
+// FindTaskByNumber returns the task with the given project-scoped task number (non-deleted).
 func (r *TaskRepository) FindTaskByNumber(ctx context.Context, projectID uuid.UUID, taskNumber int64) (*taskdom.Task, error) {
 	var rec taskRecord
-	err := r.db.WithContext(ctx).
-		Where("project_id = ? AND task_number = ?", projectID.String(), taskNumber).
-		First(&rec).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	err := r.db.GetContext(ctx, &rec, `SELECT `+taskCols+` FROM tasks WHERE project_id = $1 AND task_number = $2 AND deleted_at IS NULL`, projectID.String(), taskNumber)
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, taskdom.ErrTaskNotFound
 	}
 	if err != nil {
@@ -765,8 +884,7 @@ func (r *TaskRepository) FindTaskByNumber(ctx context.Context, projectID uuid.UU
 	return toTaskEntity(&rec)
 }
 
-// CreateTask persists a new task, assigning the next per-project task_number
-// atomically via INSERT … ON CONFLICT DO UPDATE on task_counters.
+// CreateTask persists a new task, assigning the next per-project task_number atomically.
 func (r *TaskRepository) CreateTask(ctx context.Context, t *taskdom.Task) error {
 	cf, err := json.Marshal(t.CustomFields)
 	if err != nil {
@@ -781,43 +899,34 @@ func (r *TaskRepository) CreateTask(ctx context.Context, t *taskdom.Task) error 
 		return fmt.Errorf("task repo: marshal tags: %w", err)
 	}
 
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return WithTx(ctx, r.db, func(tx *sqlx.Tx) error {
 		// Atomically increment the per-project counter and retrieve its new value.
 		var counter taskCounterRecord
-		if err := tx.Raw(`
+		if err := tx.GetContext(ctx, &counter, `
 			INSERT INTO task_counters (project_id, last_value)
-			VALUES (?, 1)
+			VALUES ($1, 1)
 			ON CONFLICT (project_id) DO UPDATE
 			  SET last_value = task_counters.last_value + 1
-			RETURNING last_value`,
+			RETURNING project_id, last_value`,
 			t.ProjectID.String(),
-		).Scan(&counter).Error; err != nil {
+		); err != nil {
 			return fmt.Errorf("task repo: increment counter: %w", err)
 		}
 		t.TaskNumber = counter.LastValue
 
-		rec := &taskRecord{
-			ID:           t.ID.String(),
-			ProjectID:    t.ProjectID.String(),
-			TaskNumber:   t.TaskNumber,
-			TaskTypeID:   uuidPtrToStrPtr(t.TaskTypeID),
-			StatusID:     uuidPtrToStrPtr(t.StatusID),
-			SprintID:     uuidPtrToStrPtr(t.SprintID),
-			ParentTaskID: uuidPtrToStrPtr(t.ParentTaskID),
-			Title:        t.Title,
-			Description:  t.Description,
-			Importance:   t.Importance,
-			StoryPoints:  t.StoryPoints,
-			AssigneeID:   uuidPtrToStrPtr(t.AssigneeID),
-			ReporterID:   uuidPtrToStrPtr(t.ReporterID),
-			CustomFields: cf,
-			StartDate:    t.StartDate,
-			DueDate:      t.DueDate,
-			Tags:         tagsJSON,
-			CreatedAt:    t.CreatedAt,
-			UpdatedAt:    t.UpdatedAt,
-		}
-		if err := tx.Create(rec).Error; err != nil {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO tasks (id, project_id, task_number, task_type_id, status_id, sprint_id, parent_task_id,
+			  title, description, importance, story_points, assignee_id, reporter_id,
+			  custom_fields, start_date, due_date, tags, created_at, updated_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+			t.ID.String(), t.ProjectID.String(), t.TaskNumber,
+			uuidPtrToStrPtr(t.TaskTypeID), uuidPtrToStrPtr(t.StatusID),
+			uuidPtrToStrPtr(t.SprintID), uuidPtrToStrPtr(t.ParentTaskID),
+			t.Title, t.Description, t.Importance, t.StoryPoints,
+			uuidPtrToStrPtr(t.AssigneeID), uuidPtrToStrPtr(t.ReporterID),
+			cf, t.StartDate, t.DueDate, tagsJSON, t.CreatedAt, t.UpdatedAt,
+		)
+		if err != nil {
 			return fmt.Errorf("task repo: create: %w", err)
 		}
 		return nil
@@ -838,41 +947,33 @@ func (r *TaskRepository) UpdateTask(ctx context.Context, t *taskdom.Task) error 
 	if err != nil {
 		return fmt.Errorf("task repo: marshal tags: %w", err)
 	}
-	updates := map[string]any{
-		"task_type_id":   uuidPtrToStrPtr(t.TaskTypeID),
-		"status_id":      uuidPtrToStrPtr(t.StatusID),
-		"sprint_id":      uuidPtrToStrPtr(t.SprintID),
-		"parent_task_id": uuidPtrToStrPtr(t.ParentTaskID),
-		"title":          t.Title,
-		"description":    t.Description,
-		"importance":     t.Importance,
-		"story_points":   t.StoryPoints,
-		"assignee_id":    uuidPtrToStrPtr(t.AssigneeID),
-		"reporter_id":    uuidPtrToStrPtr(t.ReporterID),
-		"custom_fields":  cf,
-		"start_date":     t.StartDate,
-		"due_date":       t.DueDate,
-		"tags":           tagsJSON,
-		"updated_at":     t.UpdatedAt,
-	}
-	res := r.db.WithContext(ctx).Model(&taskRecord{}).
-		Where("id = ?", t.ID.String()).
-		Updates(updates)
-	if res.Error != nil {
-		return fmt.Errorf("task repo: update: %w", res.Error)
+	_, err = r.db.ExecContext(ctx, `
+		UPDATE tasks SET
+		  task_type_id=$1, status_id=$2, sprint_id=$3, parent_task_id=$4,
+		  title=$5, description=$6, importance=$7, story_points=$8,
+		  assignee_id=$9, reporter_id=$10, custom_fields=$11,
+		  start_date=$12, due_date=$13, tags=$14, updated_at=$15
+		WHERE id=$16`,
+		uuidPtrToStrPtr(t.TaskTypeID), uuidPtrToStrPtr(t.StatusID),
+		uuidPtrToStrPtr(t.SprintID), uuidPtrToStrPtr(t.ParentTaskID),
+		t.Title, t.Description, t.Importance, t.StoryPoints,
+		uuidPtrToStrPtr(t.AssigneeID), uuidPtrToStrPtr(t.ReporterID),
+		cf, t.StartDate, t.DueDate, tagsJSON, t.UpdatedAt, t.ID.String(),
+	)
+	if err != nil {
+		return fmt.Errorf("task repo: update: %w", err)
 	}
 	return nil
 }
 
 // DeleteTask soft-deletes a task by setting deleted_at.
 func (r *TaskRepository) DeleteTask(ctx context.Context, id uuid.UUID) error {
-	res := r.db.WithContext(ctx).
-		Where("id = ?", id.String()).
-		Delete(&taskRecord{})
-	if res.Error != nil {
-		return fmt.Errorf("task repo: delete: %w", res.Error)
+	result, err := r.db.ExecContext(ctx, `UPDATE tasks SET deleted_at=$1 WHERE id=$2 AND deleted_at IS NULL`, time.Now(), id.String())
+	if err != nil {
+		return fmt.Errorf("task repo: delete: %w", err)
 	}
-	if res.RowsAffected == 0 {
+	n, _ := result.RowsAffected()
+	if n == 0 {
 		return taskdom.ErrTaskNotFound
 	}
 	return nil
@@ -881,19 +982,21 @@ func (r *TaskRepository) DeleteTask(ctx context.Context, id uuid.UUID) error {
 // BulkMoveSprintTasks reassigns all non-done tasks that belong to sourceSprintID
 // to targetSprintID (nil = backlog) in a single UPDATE statement.
 func (r *TaskRepository) BulkMoveSprintTasks(ctx context.Context, projectID, sourceSprintID uuid.UUID, targetSprintID *uuid.UUID) error {
-	doneStatusSubquery := r.db.Model(&taskStatusRecord{}).
-		Select("id").
-		Where("project_id = ? AND category = ?", projectID.String(), string(taskdom.StatusCategoryDone))
-
-	res := r.db.WithContext(ctx).Model(&taskRecord{}).
-		Where("project_id = ? AND sprint_id = ?", projectID.String(), sourceSprintID.String()).
-		Where("status_id IS NULL OR status_id NOT IN (?)", doneStatusSubquery).
-		Updates(map[string]any{
-			"sprint_id":  uuidPtrToStrPtr(targetSprintID),
-			"updated_at": time.Now(),
-		})
-	if res.Error != nil {
-		return fmt.Errorf("task repo: bulk move sprint tasks: %w", res.Error)
+	var targetSprintStr *string
+	if targetSprintID != nil {
+		s := targetSprintID.String()
+		targetSprintStr = &s
+	}
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE tasks SET sprint_id=$1, updated_at=$2
+		WHERE project_id=$3 AND sprint_id=$4
+		  AND (status_id IS NULL OR status_id NOT IN (
+		    SELECT id FROM task_statuses WHERE project_id=$3 AND category=$5
+		  ))`,
+		targetSprintStr, time.Now(), projectID.String(), sourceSprintID.String(), string(taskdom.StatusCategoryDone),
+	)
+	if err != nil {
+		return fmt.Errorf("task repo: bulk move sprint tasks: %w", err)
 	}
 	return nil
 }
@@ -957,9 +1060,9 @@ func toTaskEntity(r *taskRecord) (*taskdom.Task, error) {
 		tags = []string{}
 	}
 
-	var deletedAt *time.Time
-	if r.DeletedAt.Valid {
-		deletedAt = &r.DeletedAt.Time
+	var desc json.RawMessage
+	if r.Description != nil {
+		desc = *r.Description
 	}
 
 	return &taskdom.Task{
@@ -971,7 +1074,7 @@ func toTaskEntity(r *taskRecord) (*taskdom.Task, error) {
 		SprintID:     strPtrToUUIDPtr(r.SprintID),
 		ParentTaskID: strPtrToUUIDPtr(r.ParentTaskID),
 		Title:        r.Title,
-		Description:  r.Description,
+		Description:  desc,
 		Importance:   r.Importance,
 		StoryPoints:  r.StoryPoints,
 		AssigneeID:   strPtrToUUIDPtr(r.AssigneeID),
@@ -982,34 +1085,30 @@ func toTaskEntity(r *taskRecord) (*taskdom.Task, error) {
 		Tags:         tags,
 		CreatedAt:    r.CreatedAt,
 		UpdatedAt:    r.UpdatedAt,
-		DeletedAt:    deletedAt,
+		DeletedAt:    r.DeletedAt,
 	}, nil
 }
 
 // --- Custom Field Definitions -----------------------------------------------
 
 type customFieldDefinitionRecord struct {
-	ID          string `gorm:"primarykey;type:uuid"`
-	ProjectID   string `gorm:"type:uuid;not null;column:project_id"`
-	FieldKey    string `gorm:"not null;column:field_key"`
-	DisplayName string `gorm:"not null;column:display_name"`
-	FieldType   string `gorm:"not null;column:field_type"`
-	Options     []byte `gorm:"type:jsonb;column:options"`
-	IsRequired  bool   `gorm:"not null;default:false;column:is_required"`
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID          string    `db:"id"`
+	ProjectID   string    `db:"project_id"`
+	FieldKey    string    `db:"field_key"`
+	DisplayName string    `db:"display_name"`
+	FieldType   string    `db:"field_type"`
+	Options     []byte    `db:"options"`
+	IsRequired  bool      `db:"is_required"`
+	CreatedAt   time.Time `db:"created_at"`
+	UpdatedAt   time.Time `db:"updated_at"`
 }
 
-func (customFieldDefinitionRecord) TableName() string { return "custom_field_definitions" }
+const customFieldCols = `id, project_id, field_key, display_name, field_type, options, is_required, created_at, updated_at`
 
-// ListCustomFieldDefinitions returns all custom field definitions for a
-// project ordered by display_name.
+// ListCustomFieldDefinitions returns all custom field definitions for a project ordered by display_name.
 func (r *TaskRepository) ListCustomFieldDefinitions(ctx context.Context, projectID uuid.UUID) ([]*taskdom.CustomFieldDefinition, error) {
 	var records []customFieldDefinitionRecord
-	if err := r.db.WithContext(ctx).
-		Where("project_id = ?", projectID.String()).
-		Order("display_name ASC").
-		Find(&records).Error; err != nil {
+	if err := r.db.SelectContext(ctx, &records, `SELECT `+customFieldCols+` FROM custom_field_definitions WHERE project_id = $1 ORDER BY display_name ASC`, projectID.String()); err != nil {
 		return nil, fmt.Errorf("custom field repo: list: %w", err)
 	}
 	out := make([]*taskdom.CustomFieldDefinition, 0, len(records))
@@ -1023,12 +1122,11 @@ func (r *TaskRepository) ListCustomFieldDefinitions(ctx context.Context, project
 	return out, nil
 }
 
-// FindCustomFieldDefinitionByID returns the custom field definition with the
-// given ID.
+// FindCustomFieldDefinitionByID returns the custom field definition with the given ID.
 func (r *TaskRepository) FindCustomFieldDefinitionByID(ctx context.Context, id uuid.UUID) (*taskdom.CustomFieldDefinition, error) {
 	var rec customFieldDefinitionRecord
-	err := r.db.WithContext(ctx).Where("id = ?", id.String()).First(&rec).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	err := r.db.GetContext(ctx, &rec, `SELECT `+customFieldCols+` FROM custom_field_definitions WHERE id = $1`, id.String())
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, taskdom.ErrCustomFieldNotFound
 	}
 	if err != nil {
@@ -1043,18 +1141,13 @@ func (r *TaskRepository) CreateCustomFieldDefinition(ctx context.Context, f *tas
 	if err != nil {
 		return err
 	}
-	rec := &customFieldDefinitionRecord{
-		ID:          f.ID.String(),
-		ProjectID:   f.ProjectID.String(),
-		FieldKey:    f.FieldKey,
-		DisplayName: f.DisplayName,
-		FieldType:   string(f.FieldType),
-		Options:     opts,
-		IsRequired:  f.IsRequired,
-		CreatedAt:   f.CreatedAt,
-		UpdatedAt:   f.UpdatedAt,
-	}
-	if err := r.db.WithContext(ctx).Create(rec).Error; err != nil {
+	_, err = r.db.ExecContext(ctx, `
+		INSERT INTO custom_field_definitions (id, project_id, field_key, display_name, field_type, options, is_required, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		f.ID.String(), f.ProjectID.String(), f.FieldKey, f.DisplayName,
+		string(f.FieldType), opts, f.IsRequired, f.CreatedAt, f.UpdatedAt,
+	)
+	if err != nil {
 		if isUniqueViolation(err) {
 			return taskdom.ErrCustomFieldKeyTaken
 		}
@@ -1063,34 +1156,28 @@ func (r *TaskRepository) CreateCustomFieldDefinition(ctx context.Context, f *tas
 	return nil
 }
 
-// UpdateCustomFieldDefinition persists changes to an existing custom field
-// definition.
+// UpdateCustomFieldDefinition persists changes to an existing custom field definition.
 func (r *TaskRepository) UpdateCustomFieldDefinition(ctx context.Context, f *taskdom.CustomFieldDefinition) error {
 	opts, err := marshalOptions(f.Options)
 	if err != nil {
 		return err
 	}
-	updates := map[string]any{
-		"display_name": f.DisplayName,
-		"field_type":   string(f.FieldType),
-		"options":      opts,
-		"is_required":  f.IsRequired,
-		"updated_at":   f.UpdatedAt,
-	}
-	res := r.db.WithContext(ctx).Model(&customFieldDefinitionRecord{}).
-		Where("id = ?", f.ID.String()).
-		Updates(updates)
-	if res.Error != nil {
-		return fmt.Errorf("custom field repo: update: %w", res.Error)
+	_, err = r.db.ExecContext(ctx, `
+		UPDATE custom_field_definitions SET display_name=$1, field_type=$2, options=$3, is_required=$4, updated_at=$5
+		WHERE id=$6`,
+		f.DisplayName, string(f.FieldType), opts, f.IsRequired, f.UpdatedAt, f.ID.String(),
+	)
+	if err != nil {
+		return fmt.Errorf("custom field repo: update: %w", err)
 	}
 	return nil
 }
 
 // DeleteCustomFieldDefinition removes a custom field definition by ID.
 func (r *TaskRepository) DeleteCustomFieldDefinition(ctx context.Context, id uuid.UUID) error {
-	res := r.db.WithContext(ctx).Delete(&customFieldDefinitionRecord{}, "id = ?", id.String())
-	if res.Error != nil {
-		return fmt.Errorf("custom field repo: delete: %w", res.Error)
+	_, err := r.db.ExecContext(ctx, `DELETE FROM custom_field_definitions WHERE id = $1`, id.String())
+	if err != nil {
+		return fmt.Errorf("custom field repo: delete: %w", err)
 	}
 	return nil
 }

@@ -23,7 +23,6 @@ import (
 	usersvc "github.com/Paca-AI/api/internal/service/user"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
 	"github.com/Paca-AI/api/internal/transport/http/router"
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
@@ -436,13 +435,12 @@ func (s *projectPermStore) ListAgentProjectPermissions(_ context.Context, agentI
 	return nil, fmt.Errorf("agent permissions not found")
 }
 
-func buildProjectTestRouter(repo *fakeProjectRepo, store *projectPermStore) *gin.Engine {
+func buildProjectTestRouter(repo *fakeProjectRepo, store *projectPermStore) http.Handler {
 	r, _ := buildProjectTestRouterWithTaskRepo(repo, store, newFakeTaskRepoIT())
 	return r
 }
 
-func buildProjectTestRouterWithTaskRepo(repo *fakeProjectRepo, store *projectPermStore, taskRepo *fakeTaskRepo) (*gin.Engine, *fakeTaskRepo) {
-	gin.SetMode(gin.TestMode)
+func buildProjectTestRouterWithTaskRepo(repo *fakeProjectRepo, store *projectPermStore, taskRepo *fakeTaskRepo) (http.Handler, *fakeTaskRepo) {
 	tm := jwttoken.New(testSecret, 15*time.Minute, 168*time.Hour)
 	refreshStore := &fakeRefreshStore{}
 	userRepo := newFakeUserRepo()
@@ -475,7 +473,7 @@ func issueProjectToken(t *testing.T, subject string) string {
 	return tok
 }
 
-func serve(r *gin.Engine, req *http.Request) *httptest.ResponseRecorder {
+func serve(r http.Handler, req *http.Request) *httptest.ResponseRecorder {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w

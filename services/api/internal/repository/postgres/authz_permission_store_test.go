@@ -2,45 +2,58 @@ package postgres
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/Paca-AI/api/internal/platform/authz"
 	"github.com/google/uuid"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
+	"github.com/jmoiron/sqlx"
+	_ "github.com/mattn/go-sqlite3"
 )
 
-type projectRoleTestRecord struct {
-	ID          string `gorm:"primaryKey;type:uuid"`
-	ProjectID   *string
-	RoleName    string `gorm:"column:role_name"`
-	Permissions []byte `gorm:"type:jsonb;not null"`
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-}
-
-func (projectRoleTestRecord) TableName() string { return "project_roles" }
-
-type projectMemberTestRecord struct {
-	ID            string `gorm:"primaryKey;type:uuid"`
-	ProjectID     string `gorm:"type:uuid;column:project_id"`
-	UserID        string `gorm:"type:uuid;column:user_id"`
-	ProjectRoleID string `gorm:"type:uuid;column:project_role_id"`
-}
-
-func (projectMemberTestRecord) TableName() string { return "project_members" }
-
-func openAuthzStoreTestDB(t *testing.T) *gorm.DB {
+func openAuthzStoreTestDB(t *testing.T) *sqlx.DB {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "authz-store-test.db")
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	db, err := sqlx.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&userRecord{}, &globalRoleRecord{}, &projectRoleTestRecord{}, &projectMemberTestRecord{}); err != nil {
-		t.Fatalf("auto migrate: %v", err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	schema := `
+		CREATE TABLE global_roles (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			permissions BLOB NOT NULL,
+			created_at DATETIME,
+			updated_at DATETIME
+		);
+		CREATE TABLE users (
+			id TEXT PRIMARY KEY,
+			username TEXT NOT NULL,
+			password_hash TEXT NOT NULL,
+			full_name TEXT NOT NULL,
+			role_id TEXT NOT NULL,
+			must_change_password INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME,
+			updated_at DATETIME,
+			deleted_at DATETIME
+		);
+		CREATE TABLE project_roles (
+			id TEXT PRIMARY KEY,
+			project_id TEXT,
+			role_name TEXT NOT NULL,
+			permissions BLOB NOT NULL,
+			created_at DATETIME,
+			updated_at DATETIME
+		);
+		CREATE TABLE project_members (
+			id TEXT PRIMARY KEY,
+			project_id TEXT NOT NULL,
+			user_id TEXT NOT NULL,
+			project_role_id TEXT NOT NULL
+		);`
+	if _, err := db.ExecContext(context.Background(), schema); err != nil {
+		t.Fatalf("create schema: %v", err)
 	}
 	return db
 }
@@ -48,26 +61,22 @@ func openAuthzStoreTestDB(t *testing.T) *gorm.DB {
 func TestAuthzPermissionStore_ListGlobalPermissions(t *testing.T) {
 	db := openAuthzStoreTestDB(t)
 	store := NewAuthzPermissionStore(db)
+	ctx := context.Background()
 
 	roleID := uuid.New().String()
-	if err := db.Create(&globalRoleRecord{
-		ID:          roleID,
-		Name:        "ADMIN",
-		Permissions: []byte(`{"users.delete":true,"global_roles.write":true}`),
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
-	}).Error; err != nil {
-		t.Fatalf("seed role: %v", err)
-	}
+	now := time.Now()
+	db.MustExec(
+		`INSERT INTO global_roles (id, name, permissions, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)`,
+		roleID, "ADMIN", []byte(`{"users.delete":true,"global_roles.write":true}`), now, now,
+	)
 
-	// Seed user whose role_id points directly to the role (new schema).
 	userID := uuid.New()
-	user := &userRecord{ID: userID.String(), Username: "alice", PasswordHash: "hash", FullName: "Alice", RoleID: roleID}
-	if err := db.Create(user).Error; err != nil {
-		t.Fatalf("seed user: %v", err)
-	}
+	db.MustExec(
+		`INSERT INTO users (id, username, password_hash, full_name, role_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		userID.String(), "alice", "hash", "Alice", roleID, now, now,
+	)
 
-	perms, err := store.ListGlobalPermissions(context.Background(), userID)
+	perms, err := store.ListGlobalPermissions(ctx, userID)
 	if err != nil {
 		t.Fatalf("list global permissions: %v", err)
 	}
@@ -79,37 +88,33 @@ func TestAuthzPermissionStore_ListGlobalPermissions(t *testing.T) {
 func TestAuthzPermissionStore_ListProjectPermissions(t *testing.T) {
 	db := openAuthzStoreTestDB(t)
 	store := NewAuthzPermissionStore(db)
+	ctx := context.Background()
 
 	userID := uuid.New()
 	projectID := uuid.New()
 	roleID := uuid.New()
+	now := time.Now()
 
-	user := &userRecord{ID: userID.String(), Username: "alice", PasswordHash: "hash", FullName: "Alice", RoleID: uuid.New().String()}
-	if err := db.Create(user).Error; err != nil {
-		t.Fatalf("seed user: %v", err)
-	}
+	// Seed a global role for the user's role_id FK
+	globalRoleID := uuid.New().String()
+	db.MustExec(
+		`INSERT INTO global_roles (id, name, permissions, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)`,
+		globalRoleID, "USER", []byte(`{}`), now, now,
+	)
+	db.MustExec(
+		`INSERT INTO users (id, username, password_hash, full_name, role_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		userID.String(), "alice", "hash", "Alice", globalRoleID, now, now,
+	)
+	db.MustExec(
+		`INSERT INTO project_roles (id, project_id, role_name, permissions, created_at, updated_at) VALUES ($1, NULL, $2, $3, $4, $5)`,
+		roleID.String(), "PROJECT_MANAGER", []byte(`{"tasks.write":true,"tasks.read":true}`), now, now,
+	)
+	db.MustExec(
+		`INSERT INTO project_members (id, project_id, user_id, project_role_id) VALUES ($1, $2, $3, $4)`,
+		uuid.New().String(), projectID.String(), userID.String(), roleID.String(),
+	)
 
-	if err := db.Create(&projectRoleTestRecord{
-		ID:          roleID.String(),
-		ProjectID:   nil,
-		RoleName:    "PROJECT_MANAGER",
-		Permissions: []byte(`{"tasks.write":true,"tasks.read":true}`),
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
-	}).Error; err != nil {
-		t.Fatalf("seed project role: %v", err)
-	}
-
-	if err := db.Create(&projectMemberTestRecord{
-		ID:            uuid.New().String(),
-		ProjectID:     projectID.String(),
-		UserID:        userID.String(),
-		ProjectRoleID: roleID.String(),
-	}).Error; err != nil {
-		t.Fatalf("seed project member: %v", err)
-	}
-
-	perms, err := store.ListProjectPermissions(context.Background(), userID, projectID)
+	perms, err := store.ListProjectPermissions(ctx, userID, projectID)
 	if err != nil {
 		t.Fatalf("list project permissions: %v", err)
 	}

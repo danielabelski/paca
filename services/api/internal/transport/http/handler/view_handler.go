@@ -1,13 +1,16 @@
 package handler
 
 import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	"github.com/Paca-AI/api/internal/apierr"
 	sprintdom "github.com/Paca-AI/api/internal/domain/sprint"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // ViewHandler handles sprint-view and task-position endpoints.
@@ -22,8 +25,8 @@ func NewViewHandler(svc sprintdom.ViewService) *ViewHandler {
 
 // viewContextFromQuery reads the ?context query param (sprint | backlog | timeline).
 // Returns an error for unknown values. Defaults to "sprint" when omitted.
-func viewContextFromQuery(c *gin.Context) (sprintdom.ViewContext, error) {
-	raw := c.DefaultQuery("context", string(sprintdom.ViewContextSprint))
+func viewContextFromQuery(r *http.Request) (sprintdom.ViewContext, error) {
+	raw := defaultQuery(r, "context", string(sprintdom.ViewContextSprint))
 	vc := sprintdom.ViewContext(raw)
 	switch vc {
 	case sprintdom.ViewContextSprint, sprintdom.ViewContextBacklog, sprintdom.ViewContextTimeline:
@@ -34,8 +37,8 @@ func viewContextFromQuery(c *gin.Context) (sprintdom.ViewContext, error) {
 }
 
 // parseQueryUUID reads a named UUID from the request query string.
-func parseQueryUUID(c *gin.Context, param string) (uuid.UUID, error) {
-	raw := c.Query(param)
+func parseQueryUUID(r *http.Request, param string) (uuid.UUID, error) {
+	raw := r.URL.Query().Get(param)
 	if raw == "" {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, param+" is required")
 	}
@@ -48,85 +51,89 @@ func parseQueryUUID(c *gin.Context, param string) (uuid.UUID, error) {
 
 // ListViews handles GET /projects/:projectId/views?context=sprint|backlog|timeline.
 // Sprint context additionally requires ?sprint_id=<uuid>.
-func (h *ViewHandler) ListViews(c *gin.Context) {
-	viewCtx, err := viewContextFromQuery(c)
+func (h *ViewHandler) ListViews(w http.ResponseWriter, r *http.Request) {
+	viewCtx, err := viewContextFromQuery(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	projectID, err := parseProjectID(c)
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var views []*sprintdom.SprintView
 	if viewCtx == sprintdom.ViewContextSprint {
 		var sprintID uuid.UUID
-		sprintID, err = parseQueryUUID(c, "sprint_id")
+		sprintID, err = parseQueryUUID(r, "sprint_id")
 		if err != nil {
-			presenter.Error(c, err)
+			presenter.Error(w, r, err)
 			return
 		}
-		views, err = h.svc.ListViews(c.Request.Context(), sprintID)
+		views, err = h.svc.ListViews(r.Context(), sprintID)
 	} else {
-		views, err = h.svc.ListProjectViews(c.Request.Context(), projectID, viewCtx)
+		views, err = h.svc.ListProjectViews(r.Context(), projectID, viewCtx)
 	}
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.ViewResponse, 0, len(views))
 	for _, v := range views {
 		resp = append(resp, dto.ViewFromEntity(v))
 	}
-	presenter.OK(c, gin.H{"items": resp})
+	presenter.OK(w, r, map[string]any{"items": resp})
 }
 
 // GetView handles GET /projects/:projectId/views/:viewId.
-func (h *ViewHandler) GetView(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *ViewHandler) GetView(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	viewID, err := parseViewID(c)
+	viewID, err := parseViewID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	v, err := h.svc.GetView(c.Request.Context(), projectID, viewID)
+	v, err := h.svc.GetView(r.Context(), projectID, viewID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.ViewFromEntity(v))
+	presenter.OK(w, r, dto.ViewFromEntity(v))
 }
 
 // CreateView handles POST /projects/:projectId/views?context=sprint|backlog|timeline.
 // Sprint context additionally requires ?sprint_id=<uuid>.
-func (h *ViewHandler) CreateView(c *gin.Context) {
-	viewCtx, err := viewContextFromQuery(c)
+func (h *ViewHandler) CreateView(w http.ResponseWriter, r *http.Request) {
+	viewCtx, err := viewContextFromQuery(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	projectID, err := parseProjectID(c)
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.CreateViewRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if req.Name == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "name is required"))
 		return
 	}
 
 	var input sprintdom.CreateViewInput
 	if viewCtx == sprintdom.ViewContextSprint {
-		sprintID, err := parseQueryUUID(c, "sprint_id")
+		sprintID, err := parseQueryUUID(r, "sprint_id")
 		if err != nil {
-			presenter.Error(c, err)
+			presenter.Error(w, r, err)
 			return
 		}
 		input = req.ToCreateInput(sprintID, projectID)
@@ -134,134 +141,138 @@ func (h *ViewHandler) CreateView(c *gin.Context) {
 		input = req.ToCreateProjectViewInput(projectID, viewCtx)
 	}
 
-	v, err := h.svc.CreateView(c.Request.Context(), input)
+	v, err := h.svc.CreateView(r.Context(), input)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.Created(c, dto.ViewFromEntity(v))
+	presenter.Created(w, r, dto.ViewFromEntity(v))
 }
 
 // UpdateView handles PATCH /projects/:projectId/views/:viewId.
-func (h *ViewHandler) UpdateView(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *ViewHandler) UpdateView(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	viewID, err := parseViewID(c)
+	viewID, err := parseViewID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.UpdateViewRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
-	v, err := h.svc.UpdateView(c.Request.Context(), projectID, viewID, req.ToUpdateInput())
+	v, err := h.svc.UpdateView(r.Context(), projectID, viewID, req.ToUpdateInput())
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.ViewFromEntity(v))
+	presenter.OK(w, r, dto.ViewFromEntity(v))
 }
 
 // DeleteView handles DELETE /sprints/:sprintId/views/:viewId.
-func (h *ViewHandler) DeleteView(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *ViewHandler) DeleteView(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	viewID, err := parseViewID(c)
+	viewID, err := parseViewID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	if err := h.svc.DeleteView(c.Request.Context(), projectID, viewID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.DeleteView(r.Context(), projectID, viewID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.NoContent(c)
+	presenter.NoContent(w)
 }
 
 // ListTaskPositions handles GET /projects/:projectId/views/:viewId/task-positions.
-func (h *ViewHandler) ListTaskPositions(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *ViewHandler) ListTaskPositions(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	viewID, err := parseViewID(c)
+	viewID, err := parseViewID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	positions, err := h.svc.ListTaskPositions(c.Request.Context(), projectID, viewID)
+	positions, err := h.svc.ListTaskPositions(r.Context(), projectID, viewID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.TaskPositionResponse, 0, len(positions))
 	for _, p := range positions {
 		resp = append(resp, dto.TaskPositionFromEntity(p))
 	}
-	presenter.OK(c, gin.H{"items": resp})
+	presenter.OK(w, r, map[string]any{"items": resp})
 }
 
 // MoveTask handles PUT /views/:viewId/task-positions/:taskId.
-func (h *ViewHandler) MoveTask(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *ViewHandler) MoveTask(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	viewID, err := parseViewID(c)
+	viewID, err := parseViewID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	taskID, err := parseTaskIDParam(c, "taskId")
+	taskID, err := parseTaskIDParam(r, "taskId")
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.MoveTaskRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
-	if err := h.svc.MoveTask(c.Request.Context(), projectID, viewID, sprintdom.MoveTaskInput{
+	if err := h.svc.MoveTask(r.Context(), projectID, viewID, sprintdom.MoveTaskInput{
 		TaskID:   taskID,
 		Position: req.Position,
 		GroupKey: req.GroupKey,
 	}); err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.NoContent(c)
+	presenter.NoContent(w)
 }
 
 // BulkMoveTasks handles PUT /views/:viewId/task-positions.
 // Upserts the manual positions of multiple tasks in a view within a single
 // database transaction.
-func (h *ViewHandler) BulkMoveTasks(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *ViewHandler) BulkMoveTasks(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	viewID, err := parseViewID(c)
+	viewID, err := parseViewID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.BulkMoveTasksRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if len(req.Items) == 0 {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "items must not be empty"))
 		return
 	}
 
@@ -274,16 +285,16 @@ func (h *ViewHandler) BulkMoveTasks(c *gin.Context) {
 		})
 	}
 
-	if err := h.svc.BulkMoveTasks(c.Request.Context(), projectID, viewID, items); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.BulkMoveTasks(r.Context(), projectID, viewID, items); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.NoContent(c)
+	presenter.NoContent(w)
 }
 
 // parseViewID extracts and validates the :viewId path parameter.
-func parseViewID(c *gin.Context) (uuid.UUID, error) {
-	id, err := uuid.Parse(c.Param("viewId"))
+func parseViewID(r *http.Request) (uuid.UUID, error) {
+	id, err := uuid.Parse(chi.URLParam(r, "viewId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid view id")
 	}
@@ -291,8 +302,8 @@ func parseViewID(c *gin.Context) (uuid.UUID, error) {
 }
 
 // parseTaskIDParam extracts and validates a task UUID from the named path parameter.
-func parseTaskIDParam(c *gin.Context, param string) (uuid.UUID, error) {
-	id, err := uuid.Parse(c.Param(param))
+func parseTaskIDParam(r *http.Request, param string) (uuid.UUID, error) {
+	id, err := uuid.Parse(chi.URLParam(r, param))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid task id")
 	}
@@ -301,37 +312,41 @@ func parseTaskIDParam(c *gin.Context, param string) (uuid.UUID, error) {
 
 // ReorderViews handles PUT /projects/:projectId/views/positions?context=sprint|backlog|timeline.
 // Sprint context additionally requires ?sprint_id=<uuid>.
-func (h *ViewHandler) ReorderViews(c *gin.Context) {
-	viewCtx, err := viewContextFromQuery(c)
+func (h *ViewHandler) ReorderViews(w http.ResponseWriter, r *http.Request) {
+	viewCtx, err := viewContextFromQuery(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	projectID, err := parseProjectID(c)
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.ReorderViewsRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if len(req.ViewIDs) == 0 {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "view_ids must not be empty"))
 		return
 	}
 
 	if viewCtx == sprintdom.ViewContextSprint {
 		var sprintID uuid.UUID
-		sprintID, err = parseQueryUUID(c, "sprint_id")
+		sprintID, err = parseQueryUUID(r, "sprint_id")
 		if err != nil {
-			presenter.Error(c, err)
+			presenter.Error(w, r, err)
 			return
 		}
-		err = h.svc.ReorderViews(c.Request.Context(), sprintID, req.ViewIDs)
+		err = h.svc.ReorderViews(r.Context(), sprintID, req.ViewIDs)
 	} else {
-		err = h.svc.ReorderProjectViews(c.Request.Context(), projectID, viewCtx, req.ViewIDs)
+		err = h.svc.ReorderProjectViews(r.Context(), projectID, viewCtx, req.ViewIDs)
 	}
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.NoContent(c)
+	presenter.NoContent(w)
 }

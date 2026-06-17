@@ -20,7 +20,7 @@ import (
 	sprintdom "github.com/Paca-AI/api/internal/domain/sprint"
 	taskdom "github.com/Paca-AI/api/internal/domain/task"
 	userdom "github.com/Paca-AI/api/internal/domain/user"
-	"github.com/gin-gonic/gin"
+	"github.com/Paca-AI/api/internal/transport/http/httpx"
 )
 
 // envelope is the standard JSON wrapper for every response.
@@ -33,46 +33,46 @@ type envelope struct {
 }
 
 // OK writes a 200 success response.
-func OK(c *gin.Context, data any) {
-	c.JSON(http.StatusOK, envelope{
+func OK(w http.ResponseWriter, r *http.Request, data any) {
+	httpx.WriteJSON(w, http.StatusOK, envelope{
 		Success:   true,
 		Data:      data,
-		RequestID: requestID(c),
+		RequestID: httpx.RequestIDFromContext(r.Context()),
 	})
 }
 
 // Created writes a 201 success response.
-func Created(c *gin.Context, data any) {
-	c.JSON(http.StatusCreated, envelope{
+func Created(w http.ResponseWriter, r *http.Request, data any) {
+	httpx.WriteJSON(w, http.StatusCreated, envelope{
 		Success:   true,
 		Data:      data,
-		RequestID: requestID(c),
+		RequestID: httpx.RequestIDFromContext(r.Context()),
 	})
 }
 
 // NoContent writes a 204 No Content response with no body.
-func NoContent(c *gin.Context) {
-	c.Status(http.StatusNoContent)
+func NoContent(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // Error maps a domain/service error to an HTTP status + error code and writes
 // a JSON error envelope.  If err is an *apierr.Error, its code is used
 // directly; otherwise the code is derived from known domain sentinel errors.
-func Error(c *gin.Context, err error) {
+func Error(w http.ResponseWriter, r *http.Request, err error) {
 	status, code := statusAndCodeFor(err)
 
 	// For internal/unexpected errors, avoid leaking implementation details to clients.
 	publicMsg := err.Error()
 	if status == http.StatusInternalServerError || code == apierr.CodeInternalError {
-		slog.Error("unhandled error", "error", err, "request_id", requestID(c))
+		slog.Error("unhandled error", "error", err, "request_id", httpx.RequestIDFromContext(r.Context()))
 		publicMsg = "internal server error"
 	}
 
-	c.AbortWithStatusJSON(status, envelope{
+	httpx.WriteJSON(w, status, envelope{
 		Success:   false,
 		ErrorCode: string(code),
 		Error:     publicMsg,
-		RequestID: requestID(c),
+		RequestID: httpx.RequestIDFromContext(r.Context()),
 	})
 }
 
@@ -435,13 +435,4 @@ func httpStatusForCode(code apierr.Code) int {
 	default:
 		return http.StatusInternalServerError
 	}
-}
-
-func requestID(c *gin.Context) string {
-	if id, ok := c.Get("request_id"); ok {
-		if s, ok := id.(string); ok {
-			return s
-		}
-	}
-	return ""
 }

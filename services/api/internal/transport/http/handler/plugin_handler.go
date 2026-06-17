@@ -18,7 +18,8 @@ import (
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"github.com/gin-gonic/gin"
+
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
@@ -70,10 +71,10 @@ func (h *PluginHandler) WithMarketplace(
 // -------------------------------------------------------------------------
 
 // ListPlugins handles GET /api/v1/plugins.
-func (h *PluginHandler) ListPlugins(c *gin.Context) {
-	plugins, err := h.svc.ListPlugins(c.Request.Context())
+func (h *PluginHandler) ListPlugins(w http.ResponseWriter, r *http.Request) {
+	plugins, err := h.svc.ListPlugins(r.Context())
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	pluginIDs := make([]uuid.UUID, 0, len(plugins))
@@ -81,9 +82,9 @@ func (h *PluginHandler) ListPlugins(c *gin.Context) {
 		pluginIDs = append(pluginIDs, p.ID)
 	}
 
-	settingsByPlugin, err := h.svc.ListExtensionSettingsForPlugins(c.Request.Context(), pluginIDs)
+	settingsByPlugin, err := h.svc.ListExtensionSettingsForPlugins(r.Context(), pluginIDs)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
@@ -91,71 +92,79 @@ func (h *PluginHandler) ListPlugins(c *gin.Context) {
 	for _, p := range plugins {
 		items = append(items, dto.PluginResponseFromEntityWithSettings(p, settingsByPlugin[p.ID]))
 	}
-	presenter.OK(c, dto.PluginListResponse{Plugins: items})
+	presenter.OK(w, r, dto.PluginListResponse{Plugins: items})
 }
 
 // InstallPlugin handles POST /api/v1/admin/plugins.
-func (h *PluginHandler) InstallPlugin(c *gin.Context) {
+func (h *PluginHandler) InstallPlugin(w http.ResponseWriter, r *http.Request) {
 	var req dto.InstallPluginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, err.Error()))
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, err.Error()))
 		return
 	}
-	plugin, err := h.svc.InstallPlugin(c.Request.Context(), plugindom.InstallInput{
+	if req.Name == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "plugin name is required"))
+		return
+	}
+	if req.Version == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "version is required"))
+		return
+	}
+	plugin, err := h.svc.InstallPlugin(r.Context(), plugindom.InstallInput{
 		Name:     req.Name,
 		Version:  req.Version,
 		Manifest: req.Manifest,
 		Enabled:  req.Enabled,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.Created(c, dto.PluginResponseFromEntity(plugin))
+	presenter.Created(w, r, dto.PluginResponseFromEntity(plugin))
 }
 
 // ListMarketplacePlugins handles GET /api/v1/admin/plugins/marketplace.
-func (h *PluginHandler) ListMarketplacePlugins(c *gin.Context) {
+func (h *PluginHandler) ListMarketplacePlugins(w http.ResponseWriter, r *http.Request) {
 	if h.marketplace == nil {
-		presenter.Error(c, apierr.New(apierr.CodeInternalError, "marketplace not configured"))
+		presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "marketplace not configured"))
 		return
 	}
 
-	catalog, err := h.marketplace.List(c.Request.Context())
+	catalog, err := h.marketplace.List(r.Context())
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeInternalError, "failed to fetch marketplace catalog"))
+		presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "failed to fetch marketplace catalog"))
 		return
 	}
 
-	presenter.OK(c, dto.MarketplacePluginListResponseFromCatalog(catalog))
+	presenter.OK(w, r, dto.MarketplacePluginListResponseFromCatalog(catalog))
 }
 
 // InstallMarketplacePlugin handles POST /api/v1/admin/plugins/marketplace/install.
-func (h *PluginHandler) InstallMarketplacePlugin(c *gin.Context) {
+func (h *PluginHandler) InstallMarketplacePlugin(w http.ResponseWriter, r *http.Request) {
 	if h.marketplace == nil || h.installer == nil {
-		presenter.Error(c, apierr.New(apierr.CodeInternalError, "marketplace installer not configured"))
+		presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "marketplace installer not configured"))
 		return
 	}
 
 	var req dto.InstallMarketplacePluginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, err.Error()))
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, err.Error()))
 		return
 	}
 
-	entry, err := h.marketplace.FindPlugin(c.Request.Context(), req.Name)
+	entry, err := h.marketplace.FindPlugin(r.Context(), req.Name)
 	if err != nil {
 		if err == pluginrt.ErrMarketplacePluginNotFound {
-			presenter.Error(c, apierr.New(apierr.CodePluginNotFound, "plugin not found in marketplace"))
+			presenter.Error(w, r, apierr.New(apierr.CodePluginNotFound, "plugin not found in marketplace"))
 			return
 		}
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "failed to resolve marketplace plugin: "+err.Error()))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "failed to resolve marketplace plugin: "+err.Error()))
 		return
 	}
 
-	manifest, err := h.installer.Install(c.Request.Context(), *entry)
+	manifest, err := h.installer.Install(r.Context(), *entry)
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "failed to install plugin artifacts: "+err.Error()))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "failed to install plugin artifacts: "+err.Error()))
 		return
 	}
 
@@ -175,59 +184,59 @@ func (h *PluginHandler) InstallMarketplacePlugin(c *gin.Context) {
 		enabled = *req.Enabled
 	}
 
-	pl, err := h.svc.InstallPlugin(c.Request.Context(), plugindom.InstallInput{
+	pl, err := h.svc.InstallPlugin(r.Context(), plugindom.InstallInput{
 		Name:     entry.Name,
 		Version:  entry.Version,
 		Manifest: manifest,
 		Enabled:  enabled,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	if h.migrationRunner != nil {
-		if err := h.migrationRunner.Run(c.Request.Context(), pl.Name); err != nil {
-			_ = h.svc.DeletePlugin(c.Request.Context(), pl.ID)
-			presenter.Error(c, apierr.New(apierr.CodeInternalError, "failed to run plugin migrations: "+err.Error()))
+		if err := h.migrationRunner.Run(r.Context(), pl.Name); err != nil {
+			_ = h.svc.DeletePlugin(r.Context(), pl.ID)
+			presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "failed to run plugin migrations: "+err.Error()))
 			return
 		}
 	}
 
 	if pl.Enabled && h.runtime != nil {
-		if err := h.runtime.Load(c.Request.Context(), *pl); err != nil {
-			_ = h.svc.DeletePlugin(c.Request.Context(), pl.ID)
-			presenter.Error(c, apierr.New(apierr.CodeInternalError, "failed to load plugin runtime: "+err.Error()))
+		if err := h.runtime.Load(r.Context(), *pl); err != nil {
+			_ = h.svc.DeletePlugin(r.Context(), pl.ID)
+			presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "failed to load plugin runtime: "+err.Error()))
 			return
 		}
 	}
 
 	success = true
-	presenter.Created(c, dto.PluginResponseFromEntity(pl))
+	presenter.Created(w, r, dto.PluginResponseFromEntity(pl))
 }
 
 // UpdatePlugin handles PATCH /api/v1/admin/plugins/:pluginId.
-func (h *PluginHandler) UpdatePlugin(c *gin.Context) {
-	id, err := parsePluginID(c)
+func (h *PluginHandler) UpdatePlugin(w http.ResponseWriter, r *http.Request) {
+	id, err := parsePluginID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	var req dto.UpdatePluginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, err.Error()))
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, err.Error()))
 		return
 	}
-	plugin, err := h.svc.UpdatePlugin(c.Request.Context(), id, plugindom.UpdateInput{
+	plugin, err := h.svc.UpdatePlugin(r.Context(), id, plugindom.UpdateInput{
 		Version:  req.Version,
 		Manifest: req.Manifest,
 		Enabled:  req.Enabled,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.PluginResponseFromEntity(plugin))
+	presenter.OK(w, r, dto.PluginResponseFromEntity(plugin))
 }
 
 // UpgradeMarketplacePlugin handles POST /api/v1/admin/plugins/:pluginId/upgrade.
@@ -235,22 +244,22 @@ func (h *PluginHandler) UpdatePlugin(c *gin.Context) {
 // marketplace version is strictly newer than the installed version, downloads and
 // replaces all artifacts, runs any new migrations, updates the DB record, and
 // reloads the plugin in the WASM runtime.
-func (h *PluginHandler) UpgradeMarketplacePlugin(c *gin.Context) {
+func (h *PluginHandler) UpgradeMarketplacePlugin(w http.ResponseWriter, r *http.Request) {
 	if h.marketplace == nil || h.installer == nil {
-		presenter.Error(c, apierr.New(apierr.CodeInternalError, "marketplace installer not configured"))
+		presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "marketplace installer not configured"))
 		return
 	}
 
-	id, err := parsePluginID(c)
+	id, err := parsePluginID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	// Resolve the installed plugin record.
-	plugins, err := h.svc.ListPlugins(c.Request.Context())
+	plugins, err := h.svc.ListPlugins(r.Context())
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	var installed *plugindom.Plugin
@@ -261,44 +270,44 @@ func (h *PluginHandler) UpgradeMarketplacePlugin(c *gin.Context) {
 		}
 	}
 	if installed == nil {
-		presenter.Error(c, apierr.New(apierr.CodePluginNotFound, "plugin not found"))
+		presenter.Error(w, r, apierr.New(apierr.CodePluginNotFound, "plugin not found"))
 		return
 	}
 
 	// Look up the marketplace entry by the plugin's reverse-DNS name.
-	entry, err := h.marketplace.FindPlugin(c.Request.Context(), installed.Name)
+	entry, err := h.marketplace.FindPlugin(r.Context(), installed.Name)
 	if err != nil {
 		if err == pluginrt.ErrMarketplacePluginNotFound {
-			presenter.Error(c, apierr.New(apierr.CodePluginNotFound, "plugin not found in marketplace"))
+			presenter.Error(w, r, apierr.New(apierr.CodePluginNotFound, "plugin not found in marketplace"))
 			return
 		}
-		presenter.Error(c, apierr.New(apierr.CodeInternalError, "failed to resolve marketplace plugin: "+err.Error()))
+		presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "failed to resolve marketplace plugin: "+err.Error()))
 		return
 	}
 
 	// Enforce semver ordering: refuse no-ops and downgrades.
 	cmp, err := compareSemver(entry.Version, installed.Version)
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "version comparison failed: "+err.Error()))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "version comparison failed: "+err.Error()))
 		return
 	}
 	switch {
 	case cmp == 0:
-		presenter.Error(c, apierr.New(apierr.CodePluginAlreadyUpToDate, "plugin is already up to date"))
+		presenter.Error(w, r, apierr.New(apierr.CodePluginAlreadyUpToDate, "plugin is already up to date"))
 		return
 	case cmp < 0:
-		presenter.Error(c, apierr.New(apierr.CodePluginDowngradeNotAllowed, "marketplace version is older than installed version"))
+		presenter.Error(w, r, apierr.New(apierr.CodePluginDowngradeNotAllowed, "marketplace version is older than installed version"))
 		return
 	}
 
 	// Download and overwrite existing artifacts.
-	manifest, err := h.installer.Install(c.Request.Context(), *entry)
+	manifest, err := h.installer.Install(r.Context(), *entry)
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "failed to install plugin artifacts: "+err.Error()))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "failed to install plugin artifacts: "+err.Error()))
 		return
 	}
 	if manifest.Version != entry.Version {
-		presenter.Error(c, apierr.New(
+		presenter.Error(w, r, apierr.New(
 			apierr.CodeBadRequest,
 			fmt.Sprintf(
 				"downloaded plugin manifest version %q does not match marketplace version %q",
@@ -311,14 +320,14 @@ func (h *PluginHandler) UpgradeMarketplacePlugin(c *gin.Context) {
 
 	// Capture the currently persisted plugin state so we can delay DB writes
 	// until the upgraded runtime is active and best-effort roll back on failure.
-	plugins, err = h.svc.ListPlugins(c.Request.Context())
+	plugins, err = h.svc.ListPlugins(r.Context())
 	if err != nil {
 		if h.installer != nil {
 			if cleanupErr := h.installer.Uninstall(installed.Name); cleanupErr != nil {
 				slog.Error("plugin upgrade: failed to clean up installed artifacts after state lookup failure", "name", installed.Name, "error", cleanupErr)
 			}
 		}
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
@@ -335,7 +344,7 @@ func (h *PluginHandler) UpgradeMarketplacePlugin(c *gin.Context) {
 				slog.Error("plugin upgrade: failed to clean up installed artifacts after missing plugin state", "name", installed.Name, "error", cleanupErr)
 			}
 		}
-		presenter.Error(c, apierr.New(apierr.CodePluginNotFound, "plugin not found"))
+		presenter.Error(w, r, apierr.New(apierr.CodePluginNotFound, "plugin not found"))
 		return
 	}
 
@@ -350,9 +359,9 @@ func (h *PluginHandler) UpgradeMarketplacePlugin(c *gin.Context) {
 
 	// Run any new migrations introduced by the upgraded version (idempotent).
 	if h.migrationRunner != nil {
-		if err := h.migrationRunner.Run(c.Request.Context(), installed.Name); err != nil {
+		if err := h.migrationRunner.Run(r.Context(), installed.Name); err != nil {
 			cleanupArtifacts("migration failure")
-			presenter.Error(c, apierr.New(apierr.CodeInternalError, "failed to run plugin migrations: "+err.Error()))
+			presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "failed to run plugin migrations: "+err.Error()))
 			return
 		}
 	}
@@ -365,47 +374,47 @@ func (h *PluginHandler) UpgradeMarketplacePlugin(c *gin.Context) {
 	runtimePlugin.Version = newVersion
 	runtimePlugin.Manifest = manifest
 	if runtimePlugin.Enabled && h.runtime != nil {
-		if err := h.runtime.Load(c.Request.Context(), runtimePlugin); err != nil {
+		if err := h.runtime.Load(r.Context(), runtimePlugin); err != nil {
 			cleanupArtifacts("runtime reload failure")
 			slog.Error("plugin upgrade: failed to reload runtime", "name", runtimePlugin.Name, "error", err)
-			presenter.Error(c, apierr.New(apierr.CodeInternalError, "artifacts upgraded but runtime reload failed: "+err.Error()))
+			presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "artifacts upgraded but runtime reload failed: "+err.Error()))
 			return
 		}
 	}
 
 	// Persist the new version and manifest only after migrations and runtime
 	// reload succeed.
-	updated, err := h.svc.UpdatePlugin(c.Request.Context(), id, plugindom.UpdateInput{
+	updated, err := h.svc.UpdatePlugin(r.Context(), id, plugindom.UpdateInput{
 		Version:  &newVersion,
 		Manifest: &manifest,
 	})
 	if err != nil {
 		if current.Enabled && h.runtime != nil {
-			if rollbackErr := h.runtime.Load(c.Request.Context(), *current); rollbackErr != nil {
+			if rollbackErr := h.runtime.Load(r.Context(), *current); rollbackErr != nil {
 				slog.Error("plugin upgrade: failed to roll back runtime after DB update failure", "name", current.Name, "error", rollbackErr)
 			}
 		}
 		cleanupArtifacts("db update failure")
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	presenter.OK(c, dto.PluginResponseFromEntity(updated))
+	presenter.OK(w, r, dto.PluginResponseFromEntity(updated))
 }
 
 // DeletePlugin handles DELETE /api/v1/admin/plugins/:pluginId.
-func (h *PluginHandler) DeletePlugin(c *gin.Context) {
-	id, err := parsePluginID(c)
+func (h *PluginHandler) DeletePlugin(w http.ResponseWriter, r *http.Request) {
+	id, err := parsePluginID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var pluginName string
 	if h.runtime != nil || h.installer != nil {
-		plugins, err := h.svc.ListPlugins(c.Request.Context())
+		plugins, err := h.svc.ListPlugins(r.Context())
 		if err != nil {
-			presenter.Error(c, err)
+			presenter.Error(w, r, err)
 			return
 		}
 		for _, p := range plugins {
@@ -416,12 +425,12 @@ func (h *PluginHandler) DeletePlugin(c *gin.Context) {
 		}
 	}
 
-	if err := h.svc.DeletePlugin(c.Request.Context(), id); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.DeletePlugin(r.Context(), id); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
 	if h.runtime != nil && pluginName != "" {
-		h.runtime.Unload(c.Request.Context(), pluginName)
+		h.runtime.Unload(r.Context(), pluginName)
 	}
 	if h.installer != nil && pluginName != "" {
 		if err := h.installer.Uninstall(pluginName); err != nil {
@@ -429,7 +438,7 @@ func (h *PluginHandler) DeletePlugin(c *gin.Context) {
 			slog.Error("failed to uninstall plugin artifacts", "name", pluginName, "error", err)
 		}
 	}
-	presenter.NoContent(c)
+	presenter.NoContent(w)
 }
 
 // -------------------------------------------------------------------------
@@ -438,23 +447,31 @@ func (h *PluginHandler) DeletePlugin(c *gin.Context) {
 
 // UpdateExtensionSetting handles PATCH /api/v1/admin/plugin-extension-settings.
 // Only the super admin may call this endpoint.
-func (h *PluginHandler) UpdateExtensionSetting(c *gin.Context) {
+func (h *PluginHandler) UpdateExtensionSetting(w http.ResponseWriter, r *http.Request) {
 	var req dto.UpdatePluginExtensionSettingRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, err.Error()))
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, err.Error()))
+		return
+	}
+	if req.PluginID == uuid.Nil {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "plugin_id is required"))
+		return
+	}
+	if req.ExtensionPoint == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "extension_point is required"))
 		return
 	}
 
-	setting, err := h.svc.UpdateExtensionSetting(c.Request.Context(), plugindom.UpdateExtensionSettingInput{
+	setting, err := h.svc.UpdateExtensionSetting(r.Context(), plugindom.UpdateExtensionSettingInput{
 		PluginID:       req.PluginID,
 		ExtensionPoint: req.ExtensionPoint,
 		Settings:       req.Settings,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.PluginExtensionSettingFromEntity(setting))
+	presenter.OK(w, r, dto.PluginExtensionSettingFromEntity(setting))
 }
 
 // -------------------------------------------------------------------------
@@ -464,18 +481,18 @@ func (h *PluginHandler) UpdateExtensionSetting(c *gin.Context) {
 // ProxyRequest handles any request under
 // /api/v1/plugins/:pluginId/* and dispatches it to the
 // matching plugin's HandleRequest WASM export.
-func (h *PluginHandler) ProxyRequest(c *gin.Context) {
+func (h *PluginHandler) ProxyRequest(w http.ResponseWriter, r *http.Request) {
 	if h.runtime == nil {
-		presenter.Error(c, apierr.New(apierr.CodeInternalError, "plugin runtime not available"))
+		presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "plugin runtime not available"))
 		return
 	}
 
-	pluginID := c.Param("pluginId")
+	pluginID := chi.URLParam(r, "pluginId")
 
 	// Validate that the plugin exists and is enabled.
-	plugin, err := h.svc.ListPlugins(c.Request.Context())
+	plugin, err := h.svc.ListPlugins(r.Context())
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	var found *plugindom.Plugin
@@ -486,19 +503,21 @@ func (h *PluginHandler) ProxyRequest(c *gin.Context) {
 		}
 	}
 	if found == nil {
-		presenter.Error(c, apierr.New(apierr.CodePluginNotFound, "plugin not found or disabled"))
+		presenter.Error(w, r, apierr.New(apierr.CodePluginNotFound, "plugin not found or disabled"))
 		return
 	}
 
 	// The full sub-path after /plugins/:pluginId/ is captured by the wildcard param.
 	// Plugins may embed /projects/:projectId/ within this path at their own discretion.
-	subPath := c.Param("path")
+	subPath := chi.URLParam(r, "*")
 	if subPath == "" {
 		subPath = "/"
 	}
 
-	route, pathParams := matchPluginRoute(found.Manifest.Backend.Routes, c.Request.Method, subPath)
-	if !h.applyPluginRouteMiddlewares(c, route, pathParams) {
+	route, pathParams := matchPluginRoute(found.Manifest.Backend.Routes, r.Method, subPath)
+	var mwOK bool
+	r, mwOK = h.applyPluginRouteMiddlewares(w, r, route, pathParams)
+	if !mwOK {
 		return
 	}
 
@@ -508,7 +527,7 @@ func (h *PluginHandler) ProxyRequest(c *gin.Context) {
 	resolveProjectMember, projectParamName := projectMemberParam(route)
 
 	// Build caller identity from JWT claims.
-	claims := middleware.ClaimsFrom(c)
+	claims := middleware.ClaimsFrom(r)
 	callerID := ""
 	userIDStr := ""
 	callerRole := ""
@@ -524,27 +543,27 @@ func (h *PluginHandler) ProxyRequest(c *gin.Context) {
 		if resolveProjectMember {
 			if projectIDStr := pathParams[projectParamName]; projectIDStr != "" {
 				if h.memberRepo == nil {
-					presenter.Error(c, apierr.New(apierr.CodeInternalError, "plugin member resolver not available"))
+					presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "plugin member resolver not available"))
 					return
 				}
 				projectID, err := uuid.Parse(projectIDStr)
 				if err != nil {
-					presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid projectId in path"))
+					presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid projectId in path"))
 					return
 				}
 				userID, err := uuid.Parse(claims.Subject)
 				if err != nil {
-					presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
+					presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
 					return
 				}
-				member, err := h.memberRepo.FindMemberByUserProject(c.Request.Context(), userID, projectID)
+				member, err := h.memberRepo.FindMemberByUserProject(r.Context(), userID, projectID)
 				if err != nil {
 					// API-key-authenticated callers (e.g. the agent bot user) may hold
 					// SUPER_ADMIN global permissions without being a project member.
 					// The requirePermissions check above already passed, so proceed with
 					// an empty callerID rather than returning PROJECT_MEMBER_NOT_FOUND.
-					if !middleware.IsAPIKeyAuth(c) {
-						presenter.Error(c, err)
+					if !middleware.IsAPIKeyAuth(r) {
+						presenter.Error(w, r, err)
 						return
 					}
 				} else {
@@ -555,22 +574,22 @@ func (h *PluginHandler) ProxyRequest(c *gin.Context) {
 	}
 
 	// Read request body.
-	bodyBytes, err := io.ReadAll(c.Request.Body)
+	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "failed to read request body"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "failed to read request body"))
 		return
 	}
 
 	// Build flattened headers map (first value per header name).
-	headers := make(map[string]string, len(c.Request.Header))
-	for k, vs := range c.Request.Header {
+	headers := make(map[string]string, len(r.Header))
+	for k, vs := range r.Header {
 		if len(vs) > 0 {
 			headers[k] = vs[0]
 		}
 	}
 
 	req := &pluginrt.HTTPRequest{
-		Method:     c.Request.Method,
+		Method:     r.Method,
 		Path:       subPath,
 		ProjectID:  pathParams[projectParamName],
 		CallerID:   callerID,
@@ -581,17 +600,17 @@ func (h *PluginHandler) ProxyRequest(c *gin.Context) {
 	}
 
 	// Attach request to context for HTTP host functions.
-	reqCtx := pluginrt.WithPluginRequest(c.Request.Context(), req)
+	reqCtx := pluginrt.WithPluginRequest(r.Context(), req)
 
 	reqBytes, err := json.Marshal(req)
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeInternalError, "failed to serialise request"))
+		presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "failed to serialise request"))
 		return
 	}
 
 	respBytes, err := h.runtime.HandleRequest(reqCtx, pluginID, reqBytes)
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeInternalError, "plugin execution error: "+err.Error()))
+		presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "plugin execution error: "+err.Error()))
 		return
 	}
 
@@ -604,7 +623,9 @@ func (h *PluginHandler) ProxyRequest(c *gin.Context) {
 	}
 	if err := json.Unmarshal(respBytes, &pluginResp); err != nil {
 		// Fallback: send raw bytes as JSON.
-		c.Data(http.StatusOK, "application/json", respBytes)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(respBytes)
 		return
 	}
 
@@ -626,49 +647,57 @@ func (h *PluginHandler) ProxyRequest(c *gin.Context) {
 
 	for k, v := range pluginResp.Headers {
 		if !strings.EqualFold(k, "Content-Type") {
-			c.Header(k, v)
+			w.Header().Set(k, v)
 		}
 	}
 
-	c.Data(statusCode, contentType, pluginResp.Body)
+	w.Header().Set("Content-Type", contentType)
+	w.WriteHeader(statusCode)
+	_, _ = w.Write(pluginResp.Body)
 }
 
-func (h *PluginHandler) applyPluginRouteMiddlewares(c *gin.Context, route *plugindom.PluginRoute, pathParams map[string]string) bool {
+func (h *PluginHandler) applyPluginRouteMiddlewares(w http.ResponseWriter, r *http.Request, route *plugindom.PluginRoute, pathParams map[string]string) (*http.Request, bool) {
 	for _, mw := range h.routeMiddlewares(route) {
 		name := strings.ToLower(strings.TrimSpace(mw.Name))
 		switch name {
 		case "authn":
 			if h.tokenManager == nil {
-				presenter.Error(c, apierr.New(apierr.CodeInternalError, "plugin route auth middleware is not configured"))
-				return false
+				presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "plugin route auth middleware is not configured"))
+				return r, false
 			}
-			if !middleware.EnforceAuthn(c, h.tokenManager, h.apiKeyAuth) {
-				return false
+			var ok bool
+			r, ok = middleware.EnforceAuthn(w, r, h.tokenManager, h.apiKeyAuth)
+			if !ok {
+				return r, false
 			}
 		case "optionalauthn":
 			if h.tokenManager == nil {
-				presenter.Error(c, apierr.New(apierr.CodeInternalError, "plugin route auth middleware is not configured"))
-				return false
+				presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "plugin route auth middleware is not configured"))
+				return r, false
 			}
-			if !middleware.EnforceOptionalAuthn(c, h.tokenManager, h.apiKeyAuth) {
-				return false
+			var ok bool
+			r, ok = middleware.EnforceOptionalAuthn(w, r, h.tokenManager, h.apiKeyAuth)
+			if !ok {
+				return r, false
 			}
 		case "requirefreshpassword":
-			if !middleware.EnforceFreshPassword(c) {
-				return false
+			var ok bool
+			r, ok = middleware.EnforceFreshPassword(w, r)
+			if !ok {
+				return r, false
 			}
 		case "requirejwtauth":
-			if !middleware.EnforceJWTAuth(c) {
-				return false
+			if !middleware.EnforceJWTAuth(w, r) {
+				return r, false
 			}
 		case "requirepermissions":
 			if h.authorizer == nil {
-				presenter.Error(c, apierr.New(apierr.CodeInternalError, "plugin route authorization middleware is not configured"))
-				return false
+				presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "plugin route authorization middleware is not configured"))
+				return r, false
 			}
 			if len(mw.Permissions) == 0 {
-				presenter.Error(c, apierr.New(apierr.CodeInternalError, "plugin route requirePermissions requires at least one permission"))
-				return false
+				presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "plugin route requirePermissions requires at least one permission"))
+				return r, false
 			}
 			scopeResolver := middleware.GlobalScope()
 			scope := strings.ToLower(strings.TrimSpace(mw.Scope))
@@ -681,7 +710,7 @@ func (h *PluginHandler) applyPluginRouteMiddlewares(c *gin.Context, route *plugi
 					projectParam = "projectId"
 				}
 				pParam := projectParam
-				scopeResolver = func(_ *gin.Context) (*uuid.UUID, error) {
+				scopeResolver = func(_ *http.Request) (*uuid.UUID, error) {
 					v := pathParams[pParam]
 					if v == "" {
 						return nil, nil
@@ -693,24 +722,24 @@ func (h *PluginHandler) applyPluginRouteMiddlewares(c *gin.Context, route *plugi
 					return &id, nil
 				}
 			default:
-				presenter.Error(c, apierr.New(apierr.CodeInternalError, "plugin route requirePermissions has invalid scope"))
-				return false
+				presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "plugin route requirePermissions has invalid scope"))
+				return r, false
 			}
 
 			perms := make([]authz.Permission, 0, len(mw.Permissions))
 			for _, p := range mw.Permissions {
 				perms = append(perms, authz.Permission(p))
 			}
-			if !middleware.EnforcePermissions(c, h.authorizer, scopeResolver, perms...) {
-				return false
+			if !middleware.EnforcePermissions(w, r, h.authorizer, scopeResolver, perms...) {
+				return r, false
 			}
 		default:
-			presenter.Error(c, apierr.New(apierr.CodeInternalError, "plugin route uses unsupported middleware: "+mw.Name))
-			return false
+			presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "plugin route uses unsupported middleware: "+mw.Name))
+			return r, false
 		}
 	}
 
-	return true
+	return r, true
 }
 
 func (h *PluginHandler) routeMiddlewares(route *plugindom.PluginRoute) []plugindom.PluginRouteMiddleware {
@@ -882,8 +911,8 @@ func splitPathSegments(path string) []string {
 // Helpers
 // -------------------------------------------------------------------------
 
-func parsePluginID(c *gin.Context) (uuid.UUID, error) {
-	raw := c.Param("pluginId")
+func parsePluginID(r *http.Request) (uuid.UUID, error) {
+	raw := chi.URLParam(r, "pluginId")
 	id, err := uuid.Parse(raw)
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid pluginId: "+raw)

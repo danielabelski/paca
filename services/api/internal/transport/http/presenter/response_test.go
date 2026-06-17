@@ -1,6 +1,7 @@
 package presenter
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,15 +11,22 @@ import (
 	"github.com/Paca-AI/api/internal/apierr"
 	domainauth "github.com/Paca-AI/api/internal/domain/auth"
 	userdom "github.com/Paca-AI/api/internal/domain/user"
-	"github.com/gin-gonic/gin"
+	"github.com/Paca-AI/api/internal/transport/http/httpx"
 )
+
+func newTestRequest(requestID string) *http.Request {
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+	if requestID != "" {
+		r = r.WithContext(httpx.WithRequestID(r.Context(), requestID))
+	}
+	return r
+}
 
 func TestOK(t *testing.T) {
 	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Set("request_id", "req-1")
+	r := newTestRequest("req-1")
 
-	OK(c, gin.H{"x": 1})
+	OK(w, r, map[string]any{"x": 1})
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -38,9 +46,9 @@ func TestOK(t *testing.T) {
 
 func TestCreated(t *testing.T) {
 	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
+	r := newTestRequest("")
 
-	Created(c, gin.H{"created": true})
+	Created(w, r, map[string]any{"created": true})
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", w.Code)
@@ -49,9 +57,9 @@ func TestCreated(t *testing.T) {
 
 func TestError_DomainMapping(t *testing.T) {
 	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
+	r := newTestRequest("")
 
-	Error(c, userdom.ErrNotFound)
+	Error(w, r, userdom.ErrNotFound)
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", w.Code)
@@ -68,9 +76,9 @@ func TestError_DomainMapping(t *testing.T) {
 
 func TestError_APIErrorCodeMapping(t *testing.T) {
 	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
+	r := newTestRequest("")
 
-	Error(c, apierr.New(apierr.CodeBadRequest, "bad request body"))
+	Error(w, r, apierr.New(apierr.CodeBadRequest, "bad request body"))
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
@@ -90,9 +98,9 @@ func TestError_APIErrorCodeMapping(t *testing.T) {
 
 func TestError_InternalMessageIsSanitized(t *testing.T) {
 	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
+	r := newTestRequest("")
 
-	Error(c, errors.New("db exploded"))
+	Error(w, r, errors.New("db exploded"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", w.Code)

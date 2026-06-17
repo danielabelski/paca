@@ -4,13 +4,16 @@ import (
 	"context"
 	"strconv"
 
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	"github.com/Paca-AI/api/internal/apierr"
 	domainuser "github.com/Paca-AI/api/internal/domain/user"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // SessionInvalidator revokes an authentication session by family ID.
@@ -39,87 +42,87 @@ func NewUserHandler(svc domainuser.Service, authSvc ...SessionInvalidator) *User
 // --- Self-service routes ---------------------------------------------------
 
 // GetMe handles GET /users/me — returns the caller's own profile.
-func (h *UserHandler) GetMe(c *gin.Context) {
-	claims := middleware.ClaimsFrom(c)
+func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.ClaimsFrom(r)
 	if claims == nil {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return
 	}
 
 	id, err := uuid.Parse(claims.Subject)
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
 		return
 	}
 
-	u, err := h.svc.GetByID(c.Request.Context(), id)
+	u, err := h.svc.GetByID(r.Context(), id)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	presenter.OK(c, dto.UserFromEntity(u))
+	presenter.OK(w, r, dto.UserFromEntity(u))
 }
 
 // UpdateMe handles PATCH /users/me — lets users update their own profile.
-func (h *UserHandler) UpdateMe(c *gin.Context) {
-	claims := middleware.ClaimsFrom(c)
+func (h *UserHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.ClaimsFrom(r)
 	if claims == nil {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return
 	}
 
 	id, err := uuid.Parse(claims.Subject)
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
 		return
 	}
 
 	var req dto.UpdateProfileRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
-	u, err := h.svc.UpdateProfile(c.Request.Context(), id, domainuser.UpdateProfileInput{
+	u, err := h.svc.UpdateProfile(r.Context(), id, domainuser.UpdateProfileInput{
 		FullName: req.FullName,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	presenter.OK(c, dto.UserFromEntity(u))
+	presenter.OK(w, r, dto.UserFromEntity(u))
 }
 
 // GetMyGlobalPermissions handles GET /users/me/global-permissions.
-func (h *UserHandler) GetMyGlobalPermissions(c *gin.Context) {
-	claims := middleware.ClaimsFrom(c)
+func (h *UserHandler) GetMyGlobalPermissions(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.ClaimsFrom(r)
 	if claims == nil {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return
 	}
 
 	id, err := uuid.Parse(claims.Subject)
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
 		return
 	}
 
-	permissions, err := h.svc.ListGlobalPermissions(c.Request.Context(), id)
+	permissions, err := h.svc.ListGlobalPermissions(r.Context(), id)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	presenter.OK(c, gin.H{"permissions": permissions})
+	presenter.OK(w, r, map[string]any{"permissions": permissions})
 }
 
 // --- Admin user management routes ------------------------------------------
 
 // ListUsers handles GET /admin/users — returns a paginated list of all users.
-func (h *UserHandler) ListUsers(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
+	page, _ := strconv.Atoi(defaultQuery(r, "page", "1"))
+	pageSize, _ := strconv.Atoi(defaultQuery(r, "page_size", "20"))
 
 	// Normalize to match the service's clamping logic so response metadata
 	// reflects the actual query that was executed.
@@ -130,9 +133,9 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 		pageSize = 20
 	}
 
-	users, total, err := h.svc.List(c.Request.Context(), page, pageSize)
+	users, total, err := h.svc.List(r.Context(), page, pageSize)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
@@ -141,7 +144,7 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 		items = append(items, dto.UserFromEntity(u))
 	}
 
-	presenter.OK(c, dto.PagedUsersResponse{
+	presenter.OK(w, r, dto.PagedUsersResponse{
 		Items:    items,
 		Total:    total,
 		Page:     page,
@@ -150,30 +153,38 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 }
 
 // GetUserByID handles GET /admin/users/:userId.
-func (h *UserHandler) GetUserByID(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("userId"))
+func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "userId"))
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid user id"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid user id"))
 		return
 	}
 
-	u, err := h.svc.GetByID(c.Request.Context(), id)
+	u, err := h.svc.GetByID(r.Context(), id)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	presenter.OK(c, dto.UserFromEntity(u))
+	presenter.OK(w, r, dto.UserFromEntity(u))
 }
 
 // CreateUser handles POST /admin/users — admin-only user creation.
-func (h *UserHandler) CreateUser(c *gin.Context) {
+func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	var req dto.CreateUserRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if req.Username == "" || req.FullName == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "username and full_name are required"))
+		return
+	}
+	if len(req.Password) < 8 {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "password must be at least 8 characters"))
 		return
 	}
 
-	u, err := h.svc.Create(c.Request.Context(), domainuser.CreateInput{
+	u, err := h.svc.Create(r.Context(), domainuser.CreateInput{
 		Username:           req.Username,
 		Password:           req.Password,
 		FullName:           req.FullName,
@@ -181,108 +192,120 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		MustChangePassword: true,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	presenter.Created(c, dto.UserFromEntity(u))
+	presenter.Created(w, r, dto.UserFromEntity(u))
 }
 
 // AdminUpdateUser handles PATCH /admin/users/:userId — admin update of any user.
-func (h *UserHandler) AdminUpdateUser(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("userId"))
+func (h *UserHandler) AdminUpdateUser(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "userId"))
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid user id"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid user id"))
 		return
 	}
 
 	var req dto.AdminUpdateUserRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
-	u, err := h.svc.AdminUpdate(c.Request.Context(), id, domainuser.AdminUpdateInput{
+	u, err := h.svc.AdminUpdate(r.Context(), id, domainuser.AdminUpdateInput{
 		FullName: req.FullName,
 		Role:     req.Role,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	presenter.OK(c, dto.UserFromEntity(u))
+	presenter.OK(w, r, dto.UserFromEntity(u))
 }
 
 // DeleteUser handles DELETE /admin/users/:userId.
-func (h *UserHandler) DeleteUser(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("userId"))
+func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "userId"))
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid user id"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid user id"))
 		return
 	}
 
-	if err := h.svc.Delete(c.Request.Context(), id); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.Delete(r.Context(), id); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
 
-	presenter.NoContent(c)
+	presenter.NoContent(w)
 }
 
 // ResetPassword handles PATCH /admin/users/:userId/password — resets a user's password.
-func (h *UserHandler) ResetPassword(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("userId"))
+func (h *UserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "userId"))
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid user id"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid user id"))
 		return
 	}
 
 	var req dto.ResetPasswordRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if len(req.NewPassword) < 8 {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "new_password must be at least 8 characters"))
 		return
 	}
 
-	if err := h.svc.ResetPassword(c.Request.Context(), id, req.NewPassword); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.ResetPassword(r.Context(), id, req.NewPassword); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
 
-	presenter.NoContent(c)
+	presenter.NoContent(w)
 }
 
 // ChangeMyPassword handles PATCH /users/me/password — lets a user change their own password.
 // After a successful change the current session is revoked and the user must re-authenticate.
-func (h *UserHandler) ChangeMyPassword(c *gin.Context) {
-	claims := middleware.ClaimsFrom(c)
+func (h *UserHandler) ChangeMyPassword(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.ClaimsFrom(r)
 	if claims == nil {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return
 	}
 
 	id, err := uuid.Parse(claims.Subject)
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
 		return
 	}
 
 	var req dto.ChangeMyPasswordRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if req.CurrentPassword == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "current_password is required"))
+		return
+	}
+	if len(req.NewPassword) < 8 {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "new_password must be at least 8 characters"))
 		return
 	}
 
-	if err := h.svc.ChangeMyPassword(c.Request.Context(), id, req.CurrentPassword, req.NewPassword); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.ChangeMyPassword(r.Context(), id, req.CurrentPassword, req.NewPassword); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
 
 	// Revoke the current session so old tokens cannot be reused after the
 	// password change. The client must re-authenticate with the new password.
 	if h.authSvc != nil {
-		if err := h.authSvc.Logout(c.Request.Context(), claims.FamilyID); err != nil {
-			presenter.Error(c, err)
+		if err := h.authSvc.Logout(r.Context(), claims.FamilyID); err != nil {
+			presenter.Error(w, r, err)
 			return
 		}
 	}
 
-	presenter.NoContent(c)
+	presenter.NoContent(w)
 }

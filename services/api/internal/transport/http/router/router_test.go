@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+
 	"testing"
 	"time"
 
@@ -16,7 +17,6 @@ import (
 	"github.com/Paca-AI/api/internal/platform/authz"
 	jwttoken "github.com/Paca-AI/api/internal/platform/token"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
@@ -92,13 +92,12 @@ func (s *staticPermissionStore) ListProjectPermissions(context.Context, uuid.UUI
 	return nil, nil
 }
 
-func newTestRouter(t *testing.T) *gin.Engine {
+func newTestRouter(t *testing.T) http.Handler {
 	return newTestRouterWithStore(t, &allowAllPermissionStore{})
 }
 
-func newTestRouterWithStore(t *testing.T, store authz.PermissionStore) *gin.Engine {
+func newTestRouterWithStore(t *testing.T, store authz.PermissionStore) http.Handler {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 
 	deps := Deps{
 		TokenManager: jwttoken.New("test-secret", 15*time.Minute, 24*time.Hour),

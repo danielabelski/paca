@@ -8,6 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
+
 	"github.com/Paca-AI/api/internal/apierr"
 	sprintdom "github.com/Paca-AI/api/internal/domain/sprint"
 	taskdom "github.com/Paca-AI/api/internal/domain/task"
@@ -16,9 +22,6 @@ import (
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	"golang.org/x/sync/errgroup"
 )
 
 // TaskHandler handles task management endpoints.
@@ -53,38 +56,42 @@ func WithTaskPublisher(p *messaging.Publisher) TaskHandlerOption {
 // --- Task Types -------------------------------------------------------------
 
 // ListTaskTypes handles GET /projects/:projectId/task-types.
-func (h *TaskHandler) ListTaskTypes(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) ListTaskTypes(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	types, err := h.svc.ListTaskTypes(c.Request.Context(), projectID)
+	types, err := h.svc.ListTaskTypes(r.Context(), projectID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.TaskTypeResponse, 0, len(types))
 	for _, t := range types {
 		resp = append(resp, dto.TaskTypeFromEntity(t))
 	}
-	presenter.OK(c, gin.H{"items": resp})
+	presenter.OK(w, r, map[string]any{"items": resp})
 }
 
 // CreateTaskType handles POST /projects/:projectId/task-types.
-func (h *TaskHandler) CreateTaskType(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) CreateTaskType(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.CreateTaskTypeRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if req.Name == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "name is required"))
 		return
 	}
 
-	t, err := h.svc.CreateTaskType(c.Request.Context(), taskdom.CreateTaskTypeInput{
+	t, err := h.svc.CreateTaskType(r.Context(), taskdom.CreateTaskTypeInput{
 		ProjectID:   projectID,
 		Name:        req.Name,
 		Icon:        req.Icon,
@@ -92,117 +99,125 @@ func (h *TaskHandler) CreateTaskType(c *gin.Context) {
 		Description: req.Description,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.Created(c, dto.TaskTypeFromEntity(t))
+	presenter.Created(w, r, dto.TaskTypeFromEntity(t))
 }
 
 // UpdateTaskType handles PATCH /projects/:projectId/task-types/:typeId.
-func (h *TaskHandler) UpdateTaskType(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) UpdateTaskType(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	typeID, err := parseTaskTypeID(c)
+	typeID, err := parseTaskTypeID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.UpdateTaskTypeRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
-	t, err := h.svc.UpdateTaskType(c.Request.Context(), projectID, typeID, taskdom.UpdateTaskTypeInput{
+	t, err := h.svc.UpdateTaskType(r.Context(), projectID, typeID, taskdom.UpdateTaskTypeInput{
 		Name:        req.Name,
 		Icon:        req.Icon,
 		Color:       req.Color,
 		Description: req.Description,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.TaskTypeFromEntity(t))
+	presenter.OK(w, r, dto.TaskTypeFromEntity(t))
 }
 
 // DeleteTaskType handles DELETE /projects/:projectId/task-types/:typeId.
-func (h *TaskHandler) DeleteTaskType(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) DeleteTaskType(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	typeID, err := parseTaskTypeID(c)
+	typeID, err := parseTaskTypeID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	if err := h.svc.DeleteTaskType(c.Request.Context(), projectID, typeID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.DeleteTaskType(r.Context(), projectID, typeID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, gin.H{"message": "task type deleted"})
+	presenter.OK(w, r, map[string]any{"message": "task type deleted"})
 }
 
 // SetDefaultTaskType handles PUT /projects/:projectId/task-types/:typeId/set-default.
-func (h *TaskHandler) SetDefaultTaskType(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) SetDefaultTaskType(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	typeID, err := parseTaskTypeID(c)
+	typeID, err := parseTaskTypeID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	t, err := h.svc.SetDefaultTaskType(c.Request.Context(), projectID, typeID)
+	t, err := h.svc.SetDefaultTaskType(r.Context(), projectID, typeID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.TaskTypeFromEntity(t))
+	presenter.OK(w, r, dto.TaskTypeFromEntity(t))
 }
 
 // --- Task Statuses ----------------------------------------------------------
 
 // ListTaskStatuses handles GET /projects/:projectId/task-statuses.
-func (h *TaskHandler) ListTaskStatuses(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) ListTaskStatuses(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	statuses, err := h.svc.ListTaskStatuses(c.Request.Context(), projectID)
+	statuses, err := h.svc.ListTaskStatuses(r.Context(), projectID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.TaskStatusResponse, 0, len(statuses))
 	for _, s := range statuses {
 		resp = append(resp, dto.TaskStatusFromEntity(s))
 	}
-	presenter.OK(c, gin.H{"items": resp})
+	presenter.OK(w, r, map[string]any{"items": resp})
 }
 
 // CreateTaskStatus handles POST /projects/:projectId/task-statuses.
-func (h *TaskHandler) CreateTaskStatus(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) CreateTaskStatus(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.CreateTaskStatusRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if req.Name == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "name is required"))
+		return
+	}
+	if req.Category == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "category is required"))
 		return
 	}
 
-	s, err := h.svc.CreateTaskStatus(c.Request.Context(), taskdom.CreateTaskStatusInput{
+	s, err := h.svc.CreateTaskStatus(r.Context(), taskdom.CreateTaskStatusInput{
 		ProjectID: projectID,
 		Name:      req.Name,
 		Color:     req.Color,
@@ -210,80 +225,80 @@ func (h *TaskHandler) CreateTaskStatus(c *gin.Context) {
 		Category:  req.Category,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.Created(c, dto.TaskStatusFromEntity(s))
+	presenter.Created(w, r, dto.TaskStatusFromEntity(s))
 }
 
 // UpdateTaskStatus handles PATCH /projects/:projectId/task-statuses/:statusId.
-func (h *TaskHandler) UpdateTaskStatus(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) UpdateTaskStatus(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	statusID, err := parseTaskStatusID(c)
+	statusID, err := parseTaskStatusID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.UpdateTaskStatusRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
-	s, err := h.svc.UpdateTaskStatus(c.Request.Context(), projectID, statusID, taskdom.UpdateTaskStatusInput{
+	s, err := h.svc.UpdateTaskStatus(r.Context(), projectID, statusID, taskdom.UpdateTaskStatusInput{
 		Name:     req.Name,
 		Color:    req.Color,
 		Position: req.Position,
 		Category: req.Category,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.TaskStatusFromEntity(s))
+	presenter.OK(w, r, dto.TaskStatusFromEntity(s))
 }
 
 // DeleteTaskStatus handles DELETE /projects/:projectId/task-statuses/:statusId.
-func (h *TaskHandler) DeleteTaskStatus(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) DeleteTaskStatus(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	statusID, err := parseTaskStatusID(c)
+	statusID, err := parseTaskStatusID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	if err := h.svc.DeleteTaskStatus(c.Request.Context(), projectID, statusID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.DeleteTaskStatus(r.Context(), projectID, statusID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, gin.H{"message": "task status deleted"})
+	presenter.OK(w, r, map[string]any{"message": "task status deleted"})
 }
 
 // SetDefaultTaskStatus handles PUT /projects/:projectId/task-statuses/:statusId/set-default.
-func (h *TaskHandler) SetDefaultTaskStatus(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) SetDefaultTaskStatus(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	statusID, err := parseTaskStatusID(c)
+	statusID, err := parseTaskStatusID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	s, err := h.svc.SetDefaultTaskStatus(c.Request.Context(), projectID, statusID)
+	s, err := h.svc.SetDefaultTaskStatus(r.Context(), projectID, statusID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.TaskStatusFromEntity(s))
+	presenter.OK(w, r, dto.TaskStatusFromEntity(s))
 }
 
 // --- Tasks ------------------------------------------------------------------
@@ -324,112 +339,112 @@ func parseTaskSort(ctx context.Context, svc taskdom.Service, projectID uuid.UUID
 //   - assignee_id=<uuid> or assignee_ids=<uuid,uuid>
 //   - task_type_ids=<uuid,uuid>
 //   - parent_task_id=<uuid>
-func (h *TaskHandler) ListTasks(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	pageSize, _ := strconv.Atoi(defaultQuery(r, "page_size", "20"))
 	if pageSize < 1 || pageSize > 200 {
 		pageSize = 20
 	}
 	filter := taskdom.TaskFilter{}
 
-	if raw := c.Query("sprint_id"); raw != "" {
+	if raw := r.URL.Query().Get("sprint_id"); raw != "" {
 		if strings.EqualFold(strings.TrimSpace(raw), "null") {
 			filter.BacklogOnly = true
 		} else {
 			id, err := uuid.Parse(raw)
 			if err != nil {
-				presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid sprint_id"))
+				presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid sprint_id"))
 				return
 			}
 			filter.SprintID = &id
 		}
 	}
-	if ids, err := parseQueryUUIDs(c.Query("sprint_ids")); err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid sprint_ids"))
+	if ids, err := parseQueryUUIDs(r.URL.Query().Get("sprint_ids")); err != nil {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid sprint_ids"))
 		return
 	} else if len(ids) > 0 {
 		filter.SprintIDs = ids
 		filter.BacklogOnly = false
 		filter.SprintID = nil
 	}
-	if raw := c.Query("status_id"); raw != "" {
+	if raw := r.URL.Query().Get("status_id"); raw != "" {
 		id, err := uuid.Parse(raw)
 		if err != nil {
-			presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid status_id"))
+			presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid status_id"))
 			return
 		}
 		filter.StatusID = &id
 	}
-	if ids, err := parseQueryUUIDs(c.Query("status_ids")); err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid status_ids"))
+	if ids, err := parseQueryUUIDs(r.URL.Query().Get("status_ids")); err != nil {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid status_ids"))
 		return
 	} else if len(ids) > 0 {
 		filter.StatusIDs = ids
 	}
-	if raw := c.Query("assignee_id"); raw != "" {
+	if raw := r.URL.Query().Get("assignee_id"); raw != "" {
 		if strings.EqualFold(strings.TrimSpace(raw), "null") {
 			filter.AssigneeNull = true
 		} else {
 			id, err := uuid.Parse(raw)
 			if err != nil {
-				presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid assignee_id"))
+				presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid assignee_id"))
 				return
 			}
 			filter.AssigneeID = &id
 		}
 	}
-	if ids, err := parseQueryUUIDs(c.Query("assignee_ids")); err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid assignee_ids"))
+	if ids, err := parseQueryUUIDs(r.URL.Query().Get("assignee_ids")); err != nil {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid assignee_ids"))
 		return
 	} else if len(ids) > 0 {
 		filter.AssigneeIDs = ids
 	}
-	if ids, err := parseQueryUUIDs(c.Query("task_type_ids")); err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid task_type_ids"))
+	if ids, err := parseQueryUUIDs(r.URL.Query().Get("task_type_ids")); err != nil {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid task_type_ids"))
 		return
 	} else if len(ids) > 0 {
 		filter.TaskTypeIDs = ids
 	}
-	if raw := c.Query("task_type_id"); raw != "" {
+	if raw := r.URL.Query().Get("task_type_id"); raw != "" {
 		if strings.EqualFold(strings.TrimSpace(raw), "null") {
 			filter.TaskTypeNull = true
 		} else {
 			id, err := uuid.Parse(raw)
 			if err != nil {
-				presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid task_type_id"))
+				presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid task_type_id"))
 				return
 			}
 			filter.TaskTypeIDs = []uuid.UUID{id}
 		}
 	}
-	if raw := c.Query("parent_task_id"); raw != "" {
+	if raw := r.URL.Query().Get("parent_task_id"); raw != "" {
 		id, err := uuid.Parse(raw)
 		if err != nil {
-			presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid parent_task_id"))
+			presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid parent_task_id"))
 			return
 		}
 		filter.ParentTaskID = &id
 	}
-	if cursorRaw := c.Query("cursor"); cursorRaw != "" {
+	if cursorRaw := r.URL.Query().Get("cursor"); cursorRaw != "" {
 		filter.CursorAfter = &cursorRaw
 	}
-	sort := parseTaskSort(c.Request.Context(), h.svc, projectID, c.Query("sort_by"))
+	sort := parseTaskSort(r.Context(), h.svc, projectID, r.URL.Query().Get("sort_by"))
 
 	var posMap map[uuid.UUID]*sprintdom.ViewTaskPosition
-	if raw := c.Query("view_id"); raw != "" {
+	if raw := r.URL.Query().Get("view_id"); raw != "" {
 		viewID, err := uuid.Parse(raw)
 		if err != nil {
-			presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid view_id"))
+			presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid view_id"))
 			return
 		}
-		positions, err := h.viewSvc.ListTaskPositions(c.Request.Context(), projectID, viewID)
+		positions, err := h.viewSvc.ListTaskPositions(r.Context(), projectID, viewID)
 		if err != nil {
-			presenter.Error(c, err)
+			presenter.Error(w, r, err)
 			return
 		}
 		posMap = make(map[uuid.UUID]*sprintdom.ViewTaskPosition, len(positions))
@@ -450,7 +465,7 @@ func (h *TaskHandler) ListTasks(c *gin.Context) {
 	aggFilter.CursorAfter = nil
 	// Optionally sum a numeric field across all matching tasks.
 	// Returns null in the response when sum_field is absent or "count".
-	sumField := strings.TrimSpace(c.Query("sum_field"))
+	sumField := strings.TrimSpace(r.URL.Query().Get("sum_field"))
 
 	var (
 		tasks      []*taskdom.Task
@@ -458,7 +473,7 @@ func (h *TaskHandler) ListTasks(c *gin.Context) {
 		totalCount int64
 		fieldSumV  float64
 	)
-	g, gctx := errgroup.WithContext(c.Request.Context())
+	g, gctx := errgroup.WithContext(r.Context())
 	g.Go(func() error {
 		var err error
 		tasks, hasMore, err = h.svc.ListTasks(gctx, projectID, filter, pageSize, sort)
@@ -477,7 +492,7 @@ func (h *TaskHandler) ListTasks(c *gin.Context) {
 		})
 	}
 	if err := g.Wait(); err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
@@ -502,7 +517,7 @@ func (h *TaskHandler) ListTasks(c *gin.Context) {
 		s := taskdom.EncodeTaskCursor(last, sort)
 		nextCursor = &s
 	}
-	presenter.OK(c, gin.H{
+	presenter.OK(w, r, map[string]any{
 		"items":       resp,
 		"page_size":   pageSize,
 		"next_cursor": nextCursor,
@@ -512,60 +527,60 @@ func (h *TaskHandler) ListTasks(c *gin.Context) {
 }
 
 // GetTask handles GET /projects/:projectId/tasks/:taskId.
-func (h *TaskHandler) GetTask(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	taskID, err := parseTaskID(c)
+	taskID, err := parseTaskID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	t, err := h.svc.GetTask(c.Request.Context(), projectID, taskID)
+	t, err := h.svc.GetTask(r.Context(), projectID, taskID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.TaskFromEntity(t))
+	presenter.OK(w, r, dto.TaskFromEntity(t))
 }
 
 // GetTaskByNumber handles GET /projects/:projectId/tasks/by-number/:taskNumber.
 // It looks up a task by its project-scoped sequential number.
-func (h *TaskHandler) GetTaskByNumber(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) GetTaskByNumber(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	var taskNumber int64
-	if _, err := fmt.Sscanf(c.Param("taskNumber"), "%d", &taskNumber); err != nil || taskNumber < 1 {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid task number"))
+	if _, err := fmt.Sscanf(chi.URLParam(r, "taskNumber"), "%d", &taskNumber); err != nil || taskNumber < 1 {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid task number"))
 		return
 	}
-	t, err := h.svc.GetTaskByNumber(c.Request.Context(), projectID, taskNumber)
+	t, err := h.svc.GetTaskByNumber(r.Context(), projectID, taskNumber)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.TaskFromEntity(t))
+	presenter.OK(w, r, dto.TaskFromEntity(t))
 }
 
 // CreateTask handles POST /projects/:projectId/tasks.
-func (h *TaskHandler) CreateTask(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.CreateTaskRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
-	t, err := h.svc.CreateTask(c.Request.Context(), taskdom.CreateTaskInput{
+	t, err := h.svc.CreateTask(r.Context(), taskdom.CreateTaskInput{
 		ProjectID:    projectID,
 		TaskTypeID:   req.TaskTypeID,
 		StatusID:     req.StatusID,
@@ -583,19 +598,19 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 		Tags:         req.Tags,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	// Record creation activity (best-effort).
-	if actorID, ok := middleware.ActorIDFromContext(c.Request.Context()); ok {
-		agentID, _ := middleware.AgentIDFromContext(c.Request.Context())
+	if actorID, ok := middleware.ActorIDFromContext(r.Context()); ok {
+		agentID, _ := middleware.AgentIDFromContext(r.Context())
 		var agentIDPtr *uuid.UUID
 		if agentID != uuid.Nil {
 			agentIDPtr = &agentID
 		}
 		content, _ := json.Marshal(map[string]any{"title": t.Title})
-		_ = h.activitySvc.RecordActivity(c.Request.Context(), taskdom.RecordActivityInput{
+		_ = h.activitySvc.RecordActivity(r.Context(), taskdom.RecordActivityInput{
 			TaskID:       t.ID,
 			ProjectID:    projectID,
 			ActorID:      &actorID,
@@ -607,7 +622,7 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 		// Enqueue an assignment event so the NotificationConsumer can create
 		// the in-app notification asynchronously (best-effort).
 		if h.publisher != nil && req.AssigneeID != nil {
-			_ = h.publisher.Append(c.Request.Context(), events.StreamTaskAssignments, "task.assigned", map[string]any{
+			_ = h.publisher.Append(r.Context(), events.StreamTaskAssignments, "task.assigned", map[string]any{
 				"task_id":                t.ID,
 				"project_id":             projectID,
 				"new_assignee_member_id": req.AssigneeID.String(),
@@ -616,31 +631,31 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 		}
 	}
 
-	presenter.Created(c, dto.TaskFromEntity(t))
+	presenter.Created(w, r, dto.TaskFromEntity(t))
 }
 
 // UpdateTask handles PATCH /projects/:projectId/tasks/:taskId.
-func (h *TaskHandler) UpdateTask(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) UpdateTask(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	taskID, err := parseTaskID(c)
+	taskID, err := parseTaskID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.UpdateTaskRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
 	// Fetch old state before mutating so we can record before/after values.
-	oldTask, _ := h.svc.GetTask(c.Request.Context(), projectID, taskID)
+	oldTask, _ := h.svc.GetTask(r.Context(), projectID, taskID)
 
-	t, err := h.svc.UpdateTask(c.Request.Context(), projectID, taskID, taskdom.UpdateTaskInput{
+	t, err := h.svc.UpdateTask(r.Context(), projectID, taskID, taskdom.UpdateTaskInput{
 		TaskTypeID:   req.TaskTypeID.Ptr(),
 		StatusID:     req.StatusID.Ptr(),
 		SprintID:     req.SprintID.Ptr(),
@@ -657,21 +672,21 @@ func (h *TaskHandler) UpdateTask(c *gin.Context) {
 		Tags:         req.Tags,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	// Record update activity (best-effort).
-	if actorID, ok := middleware.ActorIDFromContext(c.Request.Context()); ok && oldTask != nil {
-		agentID, _ := middleware.AgentIDFromContext(c.Request.Context())
+	if actorID, ok := middleware.ActorIDFromContext(r.Context()); ok && oldTask != nil {
+		agentID, _ := middleware.AgentIDFromContext(r.Context())
 		var agentIDPtr *uuid.UUID
 		if agentID != uuid.Nil {
 			agentIDPtr = &agentID
 		}
-		changes := h.taskChangedFields(c.Request.Context(), oldTask, req)
+		changes := h.taskChangedFields(r.Context(), oldTask, req)
 		if len(changes) > 0 {
 			content, _ := json.Marshal(map[string]any{"changes": changes})
-			_ = h.activitySvc.RecordActivity(c.Request.Context(), taskdom.RecordActivityInput{
+			_ = h.activitySvc.RecordActivity(r.Context(), taskdom.RecordActivityInput{
 				TaskID:       taskID,
 				ProjectID:    projectID,
 				ActorID:      &actorID,
@@ -687,7 +702,7 @@ func (h *TaskHandler) UpdateTask(c *gin.Context) {
 			oldAssignee := uuidPtrToStr(oldTask.AssigneeID)
 			newAssignee := req.AssigneeID.Value.String()
 			if oldAssignee != newAssignee {
-				_ = h.publisher.Append(c.Request.Context(), events.StreamTaskAssignments, "task.assigned", map[string]any{
+				_ = h.publisher.Append(r.Context(), events.StreamTaskAssignments, "task.assigned", map[string]any{
 					"task_id":                taskID,
 					"project_id":             projectID,
 					"new_assignee_member_id": req.AssigneeID.Value.String(),
@@ -698,7 +713,7 @@ func (h *TaskHandler) UpdateTask(c *gin.Context) {
 		}
 	}
 
-	presenter.OK(c, dto.TaskFromEntity(t))
+	presenter.OK(w, r, dto.TaskFromEntity(t))
 }
 
 // taskChangedFields compares the old task snapshot against the patch request
@@ -857,30 +872,30 @@ func intPtrToStr(n *int) string {
 }
 
 // DeleteTask handles DELETE /projects/:projectId/tasks/:taskId.
-func (h *TaskHandler) DeleteTask(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) DeleteTask(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	taskID, err := parseTaskID(c)
+	taskID, err := parseTaskID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	if err := h.svc.DeleteTask(c.Request.Context(), projectID, taskID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.DeleteTask(r.Context(), projectID, taskID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
 
 	// Record deletion activity (best-effort).
-	if actorID, ok := middleware.ActorIDFromContext(c.Request.Context()); ok {
-		agentID, _ := middleware.AgentIDFromContext(c.Request.Context())
+	if actorID, ok := middleware.ActorIDFromContext(r.Context()); ok {
+		agentID, _ := middleware.AgentIDFromContext(r.Context())
 		var agentIDPtr *uuid.UUID
 		if agentID != uuid.Nil {
 			agentIDPtr = &agentID
 		}
-		_ = h.activitySvc.RecordActivity(c.Request.Context(), taskdom.RecordActivityInput{
+		_ = h.activitySvc.RecordActivity(r.Context(), taskdom.RecordActivityInput{
 			TaskID:       taskID,
 			ProjectID:    projectID,
 			ActorID:      &actorID,
@@ -890,29 +905,29 @@ func (h *TaskHandler) DeleteTask(c *gin.Context) {
 		})
 	}
 
-	presenter.OK(c, gin.H{"message": "task deleted"})
+	presenter.OK(w, r, map[string]any{"message": "task deleted"})
 }
 
 // --- helpers ----------------------------------------------------------------
 
-func parseTaskTypeID(c *gin.Context) (uuid.UUID, error) {
-	id, err := uuid.Parse(c.Param("typeId"))
+func parseTaskTypeID(r *http.Request) (uuid.UUID, error) {
+	id, err := uuid.Parse(chi.URLParam(r, "typeId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid task type id")
 	}
 	return id, nil
 }
 
-func parseTaskStatusID(c *gin.Context) (uuid.UUID, error) {
-	id, err := uuid.Parse(c.Param("statusId"))
+func parseTaskStatusID(r *http.Request) (uuid.UUID, error) {
+	id, err := uuid.Parse(chi.URLParam(r, "statusId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid task status id")
 	}
 	return id, nil
 }
 
-func parseTaskID(c *gin.Context) (uuid.UUID, error) {
-	id, err := uuid.Parse(c.Param("taskId"))
+func parseTaskID(r *http.Request) (uuid.UUID, error) {
+	id, err := uuid.Parse(chi.URLParam(r, "taskId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid task id")
 	}
@@ -942,58 +957,66 @@ func parseQueryUUIDs(raw string) ([]uuid.UUID, error) {
 // --- Custom Field Definitions -----------------------------------------------
 
 // ListCustomFieldDefinitions handles GET /projects/:projectId/custom-fields.
-func (h *TaskHandler) ListCustomFieldDefinitions(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) ListCustomFieldDefinitions(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	fields, err := h.svc.ListCustomFieldDefinitions(c.Request.Context(), projectID)
+	fields, err := h.svc.ListCustomFieldDefinitions(r.Context(), projectID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.CustomFieldDefinitionResponse, 0, len(fields))
 	for _, f := range fields {
 		resp = append(resp, dto.CustomFieldDefinitionFromEntity(f))
 	}
-	presenter.OK(c, gin.H{"items": resp})
+	presenter.OK(w, r, map[string]any{"items": resp})
 }
 
 // GetCustomFieldDefinition handles GET /projects/:projectId/custom-fields/:fieldId.
-func (h *TaskHandler) GetCustomFieldDefinition(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) GetCustomFieldDefinition(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	fieldID, err := parseCustomFieldID(c)
+	fieldID, err := parseCustomFieldID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	f, err := h.svc.GetCustomFieldDefinition(c.Request.Context(), projectID, fieldID)
+	f, err := h.svc.GetCustomFieldDefinition(r.Context(), projectID, fieldID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.CustomFieldDefinitionFromEntity(f))
+	presenter.OK(w, r, dto.CustomFieldDefinitionFromEntity(f))
 }
 
 // CreateCustomFieldDefinition handles POST /projects/:projectId/custom-fields.
-func (h *TaskHandler) CreateCustomFieldDefinition(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) CreateCustomFieldDefinition(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.CreateCustomFieldDefinitionRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if req.FieldKey == "" || req.DisplayName == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "field_key and display_name are required"))
+		return
+	}
+	if req.FieldType == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "field_type is required"))
 		return
 	}
 
-	f, err := h.svc.CreateCustomFieldDefinition(c.Request.Context(), taskdom.CreateCustomFieldDefinitionInput{
+	f, err := h.svc.CreateCustomFieldDefinition(r.Context(), taskdom.CreateCustomFieldDefinitionInput{
 		ProjectID:   projectID,
 		FieldKey:    req.FieldKey,
 		DisplayName: req.DisplayName,
@@ -1002,64 +1025,64 @@ func (h *TaskHandler) CreateCustomFieldDefinition(c *gin.Context) {
 		IsRequired:  req.IsRequired,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.Created(c, dto.CustomFieldDefinitionFromEntity(f))
+	presenter.Created(w, r, dto.CustomFieldDefinitionFromEntity(f))
 }
 
 // UpdateCustomFieldDefinition handles PATCH /projects/:projectId/custom-fields/:fieldId.
-func (h *TaskHandler) UpdateCustomFieldDefinition(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) UpdateCustomFieldDefinition(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	fieldID, err := parseCustomFieldID(c)
+	fieldID, err := parseCustomFieldID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.UpdateCustomFieldDefinitionRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
-	f, err := h.svc.UpdateCustomFieldDefinition(c.Request.Context(), projectID, fieldID, taskdom.UpdateCustomFieldDefinitionInput{
+	f, err := h.svc.UpdateCustomFieldDefinition(r.Context(), projectID, fieldID, taskdom.UpdateCustomFieldDefinitionInput{
 		DisplayName: req.DisplayName,
 		FieldType:   req.FieldType,
 		Options:     req.Options,
 		IsRequired:  req.IsRequired,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.CustomFieldDefinitionFromEntity(f))
+	presenter.OK(w, r, dto.CustomFieldDefinitionFromEntity(f))
 }
 
 // DeleteCustomFieldDefinition handles DELETE /projects/:projectId/custom-fields/:fieldId.
-func (h *TaskHandler) DeleteCustomFieldDefinition(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) DeleteCustomFieldDefinition(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	fieldID, err := parseCustomFieldID(c)
+	fieldID, err := parseCustomFieldID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	if err := h.svc.DeleteCustomFieldDefinition(c.Request.Context(), projectID, fieldID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.DeleteCustomFieldDefinition(r.Context(), projectID, fieldID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, gin.H{"message": "custom field deleted"})
+	presenter.OK(w, r, map[string]any{"message": "custom field deleted"})
 }
 
-func parseCustomFieldID(c *gin.Context) (uuid.UUID, error) {
-	id, err := uuid.Parse(c.Param("fieldId"))
+func parseCustomFieldID(r *http.Request) (uuid.UUID, error) {
+	id, err := uuid.Parse(chi.URLParam(r, "fieldId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid custom field id")
 	}
@@ -1069,8 +1092,8 @@ func parseCustomFieldID(c *gin.Context) (uuid.UUID, error) {
 // --- Activities / Comments --------------------------------------------------
 
 // parseCommentID parses the :commentId path parameter.
-func parseCommentID(c *gin.Context) (uuid.UUID, error) {
-	id, err := uuid.Parse(c.Param("commentId"))
+func parseCommentID(r *http.Request) (uuid.UUID, error) {
+	id, err := uuid.Parse(chi.URLParam(r, "commentId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid comment id")
 	}
@@ -1078,56 +1101,60 @@ func parseCommentID(c *gin.Context) (uuid.UUID, error) {
 }
 
 // ListTaskActivities handles GET /projects/:projectId/tasks/:taskId/activities.
-func (h *TaskHandler) ListTaskActivities(c *gin.Context) {
-	taskID, err := parseTaskID(c)
+func (h *TaskHandler) ListTaskActivities(w http.ResponseWriter, r *http.Request) {
+	taskID, err := parseTaskID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	activities, err := h.activitySvc.ListActivities(c.Request.Context(), taskID)
+	activities, err := h.activitySvc.ListActivities(r.Context(), taskID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.ActivityResponse, 0, len(activities))
 	for _, a := range activities {
 		resp = append(resp, dto.ActivityFromEntity(a))
 	}
-	presenter.OK(c, gin.H{"items": resp})
+	presenter.OK(w, r, map[string]any{"items": resp})
 }
 
 // AddComment handles POST /projects/:projectId/tasks/:taskId/activities/comments.
-func (h *TaskHandler) AddComment(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) AddComment(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	taskID, err := parseTaskID(c)
+	taskID, err := parseTaskID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	actorID, ok := middleware.ActorIDFromContext(c.Request.Context())
+	actorID, ok := middleware.ActorIDFromContext(r.Context())
 	if !ok {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return
 	}
 
 	var req dto.AddCommentRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if len(req.Content) == 0 {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "content is required"))
 		return
 	}
 
-	agentID, _ := middleware.AgentIDFromContext(c.Request.Context())
+	agentID, _ := middleware.AgentIDFromContext(r.Context())
 	var agentIDPtr *uuid.UUID
 	if agentID != uuid.Nil {
 		agentIDPtr = &agentID
 	}
 
-	a, err := h.activitySvc.AddComment(c.Request.Context(), taskdom.AddCommentInput{
+	a, err := h.activitySvc.AddComment(r.Context(), taskdom.AddCommentInput{
 		TaskID:    taskID,
 		ProjectID: projectID,
 		ActorID:   actorID,
@@ -1135,80 +1162,84 @@ func (h *TaskHandler) AddComment(c *gin.Context) {
 		Content:   req.Content,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.Created(c, dto.ActivityFromEntity(a))
+	presenter.Created(w, r, dto.ActivityFromEntity(a))
 }
 
 // UpdateComment handles PATCH /projects/:projectId/tasks/:taskId/activities/comments/:commentId.
-func (h *TaskHandler) UpdateComment(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) UpdateComment(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	commentID, err := parseCommentID(c)
+	commentID, err := parseCommentID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	actorID, ok := middleware.ActorIDFromContext(c.Request.Context())
+	actorID, ok := middleware.ActorIDFromContext(r.Context())
 	if !ok {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return
 	}
 
 	var req dto.UpdateCommentRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if len(req.Content) == 0 {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "content is required"))
 		return
 	}
 
-	agentID, _ := middleware.AgentIDFromContext(c.Request.Context())
+	agentID, _ := middleware.AgentIDFromContext(r.Context())
 	var agentIDPtr *uuid.UUID
 	if agentID != uuid.Nil {
 		agentIDPtr = &agentID
 	}
 
-	a, err := h.activitySvc.UpdateComment(c.Request.Context(), commentID, projectID, actorID, agentIDPtr, req.Content)
+	a, err := h.activitySvc.UpdateComment(r.Context(), commentID, projectID, actorID, agentIDPtr, req.Content)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.ActivityFromEntity(a))
+	presenter.OK(w, r, dto.ActivityFromEntity(a))
 }
 
 // DeleteComment handles DELETE /projects/:projectId/tasks/:taskId/activities/comments/:commentId.
-func (h *TaskHandler) DeleteComment(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *TaskHandler) DeleteComment(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	commentID, err := parseCommentID(c)
+	commentID, err := parseCommentID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	actorID, ok := middleware.ActorIDFromContext(c.Request.Context())
+	actorID, ok := middleware.ActorIDFromContext(r.Context())
 	if !ok {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return
 	}
 
-	agentID, _ := middleware.AgentIDFromContext(c.Request.Context())
+	agentID, _ := middleware.AgentIDFromContext(r.Context())
 	var agentIDPtr *uuid.UUID
 	if agentID != uuid.Nil {
 		agentIDPtr = &agentID
 	}
 
-	if err := h.activitySvc.DeleteComment(c.Request.Context(), commentID, projectID, actorID, agentIDPtr); err != nil {
-		presenter.Error(c, err)
+	if err := h.activitySvc.DeleteComment(r.Context(), commentID, projectID, actorID, agentIDPtr); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.NoContent(c)
+	presenter.NoContent(w)
 }

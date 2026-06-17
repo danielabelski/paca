@@ -17,8 +17,8 @@ import (
 	taskdom "github.com/Paca-AI/api/internal/domain/task"
 	"github.com/Paca-AI/api/internal/platform/authz"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
-	"github.com/Paca-AI/api/internal/transport/http/middleware"
-	"github.com/gin-gonic/gin"
+	httpmw "github.com/Paca-AI/api/internal/transport/http/middleware"
+	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
@@ -182,9 +182,9 @@ var _ projectdom.Service = (*mockProjectSvc)(nil)
 // router helper
 // ---------------------------------------------------------------------------
 
-// adminClaimsMiddleware injects a synthetic ADMIN claims into the gin context so
+// adminClaimsMiddleware injects a synthetic ADMIN claims into the request context so
 // unit tests can exercise the handler without a real JWT stack.
-func adminClaimsMiddleware() gin.HandlerFunc {
+func adminClaimsMiddleware() func(http.Handler) http.Handler {
 	claims := &domainauth.Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: uuid.New().String(),
@@ -192,35 +192,37 @@ func adminClaimsMiddleware() gin.HandlerFunc {
 		Role: "ADMIN",
 		Kind: "access",
 	}
-	return func(c *gin.Context) {
-		c.Set(middleware.ClaimsContextKey(), claims)
-		c.Next()
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := context.WithValue(r.Context(), httpmw.ClaimsContextKey(), claims)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
 	}
 }
 
-func newProjectRouter(svc projectdom.Service) *gin.Engine {
+func newProjectRouter(svc projectdom.Service) chi.Router {
 	// Use a real Authorizer with nil store — legacy ADMIN role grants everything
 	// without any database calls.
 	authorizer := authz.NewAuthorizer(nil)
-	r := gin.New()
+	r := chi.NewRouter()
 	r.Use(adminClaimsMiddleware())
 	h := handler.NewProjectHandler(svc, authorizer)
 	// Admin project CRUD
-	r.GET("/admin/projects", h.ListProjects)
-	r.POST("/admin/projects", h.CreateProject)
-	r.GET("/admin/projects/:projectId", h.GetProject)
-	r.PATCH("/admin/projects/:projectId", h.UpdateProject)
-	r.DELETE("/admin/projects/:projectId", h.DeleteProject)
+	r.Get("/admin/projects", h.ListProjects)
+	r.Post("/admin/projects", h.CreateProject)
+	r.Get("/admin/projects/{projectId}", h.GetProject)
+	r.Patch("/admin/projects/{projectId}", h.UpdateProject)
+	r.Delete("/admin/projects/{projectId}", h.DeleteProject)
 	// Project member routes
-	r.GET("/projects/:projectId/members", h.ListMembers)
-	r.POST("/projects/:projectId/members", h.AddMember)
-	r.PATCH("/projects/:projectId/members/:memberId", h.UpdateMemberRole)
-	r.DELETE("/projects/:projectId/members/:memberId", h.RemoveMember)
+	r.Get("/projects/{projectId}/members", h.ListMembers)
+	r.Post("/projects/{projectId}/members", h.AddMember)
+	r.Patch("/projects/{projectId}/members/{memberId}", h.UpdateMemberRole)
+	r.Delete("/projects/{projectId}/members/{memberId}", h.RemoveMember)
 	// Project role routes
-	r.GET("/projects/:projectId/roles", h.ListRoles)
-	r.POST("/projects/:projectId/roles", h.CreateRole)
-	r.PATCH("/projects/:projectId/roles/:roleId", h.UpdateRole)
-	r.DELETE("/projects/:projectId/roles/:roleId", h.DeleteRole)
+	r.Get("/projects/{projectId}/roles", h.ListRoles)
+	r.Post("/projects/{projectId}/roles", h.CreateRole)
+	r.Patch("/projects/{projectId}/roles/{roleId}", h.UpdateRole)
+	r.Delete("/projects/{projectId}/roles/{roleId}", h.DeleteRole)
 	return r
 }
 
@@ -331,10 +333,10 @@ func TestCreateProject_SeedsDefaultViews(t *testing.T) {
 	}
 
 	authorizer := authz.NewAuthorizer(nil)
-	r := gin.New()
+	r := chi.NewRouter()
 	r.Use(adminClaimsMiddleware())
 	h := handler.NewProjectHandler(projectSvc, authorizer, handler.WithProjectDefaultViews(viewSvc, taskTypeSvc))
-	r.POST("/admin/projects", h.CreateProject)
+	r.Post("/admin/projects", h.CreateProject)
 
 	w := do(t, r, http.MethodPost, "/admin/projects", jsonBody(t, map[string]any{"name": "alpha"}))
 	if w.Code != http.StatusCreated {
@@ -1012,5 +1014,39 @@ func TestRemoveMember_MemberNotFound(t *testing.T) {
 	}
 	if code := errorCode(t, w); code != "PROJECT_MEMBER_NOT_FOUND" {
 		t.Fatalf("unexpected error_code: %s", code)
+	}
+}
+
+func TestAddMember_MissingUserID_Returns400(t *testing.T) {
+	projID := uuid.New()
+	r := newProjectRouter(&mockProjectSvc{})
+
+	w := do(t, r, http.MethodPost, fmt.Sprintf("/projects/%s/members", projID),
+		jsonBody(t, map[string]any{"project_role_id": uuid.New()}))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing user_id, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAddMember_MissingProjectRoleID_Returns400(t *testing.T) {
+	projID := uuid.New()
+	r := newProjectRouter(&mockProjectSvc{})
+
+	w := do(t, r, http.MethodPost, fmt.Sprintf("/projects/%s/members", projID),
+		jsonBody(t, map[string]any{"user_id": uuid.New()}))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing project_role_id, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateMemberRole_MissingProjectRoleID_Returns400(t *testing.T) {
+	projID := uuid.New()
+	memberID := uuid.New()
+	r := newProjectRouter(&mockProjectSvc{})
+
+	w := do(t, r, http.MethodPatch, fmt.Sprintf("/projects/%s/members/%s", projID, memberID),
+		jsonBody(t, map[string]any{}))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing project_role_id, got %d: %s", w.Code, w.Body.String())
 	}
 }

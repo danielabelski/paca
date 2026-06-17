@@ -1,13 +1,16 @@
 package handler
 
 import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	"github.com/Paca-AI/api/internal/apierr"
 	notificationdom "github.com/Paca-AI/api/internal/domain/notification"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 const defaultNotificationLimit = 50
@@ -25,22 +28,22 @@ func NewNotificationHandler(svc notificationdom.Service) *NotificationHandler {
 // List handles GET /users/me/notifications.
 // Returns the most recent notifications for the authenticated user together
 // with the current unread count.
-func (h *NotificationHandler) List(c *gin.Context) {
-	userID, ok := middleware.ActorIDFromContext(c.Request.Context())
+func (h *NotificationHandler) List(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.ActorIDFromContext(r.Context())
 	if !ok {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return
 	}
 
-	notifications, err := h.svc.ListNotifications(c.Request.Context(), userID, defaultNotificationLimit)
+	notifications, err := h.svc.ListNotifications(r.Context(), userID, defaultNotificationLimit)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	unreadCount, err := h.svc.UnreadCount(c.Request.Context(), userID)
+	unreadCount, err := h.svc.UnreadCount(r.Context(), userID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
@@ -49,46 +52,46 @@ func (h *NotificationHandler) List(c *gin.Context) {
 		items = append(items, dto.NotificationFromEntity(n))
 	}
 
-	presenter.OK(c, dto.NotificationListResponse{
+	presenter.OK(w, r, dto.NotificationListResponse{
 		Items:       items,
 		UnreadCount: unreadCount,
 	})
 }
 
 // MarkAsRead handles PATCH /users/me/notifications/:notificationId/read.
-func (h *NotificationHandler) MarkAsRead(c *gin.Context) {
-	userID, ok := middleware.ActorIDFromContext(c.Request.Context())
+func (h *NotificationHandler) MarkAsRead(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.ActorIDFromContext(r.Context())
 	if !ok {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return
 	}
 
-	notificationID, err := uuid.Parse(c.Param("notificationId"))
+	notificationID, err := uuid.Parse(chi.URLParam(r, "notificationId"))
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid notification id"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid notification id"))
 		return
 	}
 
-	if err := h.svc.MarkAsRead(c.Request.Context(), notificationID, userID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.MarkAsRead(r.Context(), notificationID, userID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
 
-	presenter.NoContent(c)
+	presenter.NoContent(w)
 }
 
 // MarkAllAsRead handles POST /users/me/notifications/read-all.
-func (h *NotificationHandler) MarkAllAsRead(c *gin.Context) {
-	userID, ok := middleware.ActorIDFromContext(c.Request.Context())
+func (h *NotificationHandler) MarkAllAsRead(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.ActorIDFromContext(r.Context())
 	if !ok {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return
 	}
 
-	if err := h.svc.MarkAllAsRead(c.Request.Context(), userID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.MarkAllAsRead(r.Context(), userID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
 
-	presenter.NoContent(c)
+	presenter.NoContent(w)
 }

@@ -1,13 +1,16 @@
 package handler
 
 import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	"github.com/Paca-AI/api/internal/apierr"
 	globalroledom "github.com/Paca-AI/api/internal/domain/globalrole"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // GlobalRoleHandler handles super-admin global-role endpoints.
@@ -21,92 +24,100 @@ func NewGlobalRoleHandler(svc globalroledom.Service) *GlobalRoleHandler {
 }
 
 // List handles GET /admin/global-roles.
-func (h *GlobalRoleHandler) List(c *gin.Context) {
-	roles, err := h.svc.List(c.Request.Context())
+func (h *GlobalRoleHandler) List(w http.ResponseWriter, r *http.Request) {
+	roles, err := h.svc.List(r.Context())
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.GlobalRoleResponse, 0, len(roles))
 	for _, role := range roles {
 		resp = append(resp, dto.GlobalRoleFromEntity(role))
 	}
-	presenter.OK(c, resp)
+	presenter.OK(w, r, resp)
 }
 
 // Create handles POST /admin/global-roles.
-func (h *GlobalRoleHandler) Create(c *gin.Context) {
+func (h *GlobalRoleHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req dto.CreateGlobalRoleRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if req.Name == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "name is required"))
 		return
 	}
 
-	role, err := h.svc.Create(c.Request.Context(), globalroledom.CreateInput{
+	role, err := h.svc.Create(r.Context(), globalroledom.CreateInput{
 		Name:        req.Name,
 		Permissions: req.Permissions,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.Created(c, dto.GlobalRoleFromEntity(role))
+	presenter.Created(w, r, dto.GlobalRoleFromEntity(role))
 }
 
 // Update handles PATCH /admin/global-roles/:roleId.
-func (h *GlobalRoleHandler) Update(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("roleId"))
+func (h *GlobalRoleHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "roleId"))
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid role id"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid role id"))
 		return
 	}
 
 	var req dto.UpdateGlobalRoleRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if req.Name == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "name is required"))
 		return
 	}
 
-	role, err := h.svc.Update(c.Request.Context(), id, globalroledom.UpdateInput{
+	role, err := h.svc.Update(r.Context(), id, globalroledom.UpdateInput{
 		Name:        req.Name,
 		Permissions: req.Permissions,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.GlobalRoleFromEntity(role))
+	presenter.OK(w, r, dto.GlobalRoleFromEntity(role))
 }
 
 // Delete handles DELETE /admin/global-roles/:roleId.
-func (h *GlobalRoleHandler) Delete(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("roleId"))
+func (h *GlobalRoleHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "roleId"))
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid role id"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid role id"))
 		return
 	}
 
-	if err := h.svc.Delete(c.Request.Context(), id); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.Delete(r.Context(), id); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, gin.H{"message": "global role deleted"})
+	presenter.OK(w, r, map[string]any{"message": "global role deleted"})
 }
 
 // ReplaceUserRoles handles PUT /admin/users/:userId/global-roles.
-func (h *GlobalRoleHandler) ReplaceUserRoles(c *gin.Context) {
-	userID, err := uuid.Parse(c.Param("userId"))
+func (h *GlobalRoleHandler) ReplaceUserRoles(w http.ResponseWriter, r *http.Request) {
+	userID, err := uuid.Parse(chi.URLParam(r, "userId"))
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid user id"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid user id"))
 		return
 	}
 
 	var req dto.ReplaceUserGlobalRolesRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
-	roles, err := h.svc.ReplaceUserRoles(c.Request.Context(), userID, req.RoleIDs)
+	roles, err := h.svc.ReplaceUserRoles(r.Context(), userID, req.RoleIDs)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
@@ -114,5 +125,5 @@ func (h *GlobalRoleHandler) ReplaceUserRoles(c *gin.Context) {
 	for _, role := range roles {
 		resp = append(resp, dto.GlobalRoleFromEntity(role))
 	}
-	presenter.OK(c, gin.H{"user_id": userID, "roles": resp})
+	presenter.OK(w, r, map[string]any{"user_id": userID, "roles": resp})
 }

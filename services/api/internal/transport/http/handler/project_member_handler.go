@@ -1,125 +1,140 @@
 package handler
 
 import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	"github.com/Paca-AI/api/internal/apierr"
 	projectdom "github.com/Paca-AI/api/internal/domain/project"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // ListMembers handles GET /projects/:projectId/members.
-func (h *ProjectHandler) ListMembers(c *gin.Context) {
-	id, err := parseProjectID(c)
+func (h *ProjectHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
+	id, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	members, err := h.svc.ListMembers(c.Request.Context(), id)
+	members, err := h.svc.ListMembers(r.Context(), id)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.ProjectMemberResponse, 0, len(members))
 	for _, m := range members {
 		resp = append(resp, dto.ProjectMemberFromEntity(m))
 	}
-	presenter.OK(c, resp)
+	presenter.OK(w, r, resp)
 }
 
 // AddMember handles POST /projects/:projectId/members.
-func (h *ProjectHandler) AddMember(c *gin.Context) {
-	id, err := parseProjectID(c)
+func (h *ProjectHandler) AddMember(w http.ResponseWriter, r *http.Request) {
+	id, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.AddProjectMemberRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if req.UserID == uuid.Nil {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "user_id is required"))
+		return
+	}
+	if req.ProjectRoleID == uuid.Nil {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "project_role_id is required"))
 		return
 	}
 
-	m, err := h.svc.AddMember(c.Request.Context(), id, projectdom.AddMemberInput{
+	m, err := h.svc.AddMember(r.Context(), id, projectdom.AddMemberInput{
 		UserID:        req.UserID,
 		ProjectRoleID: req.ProjectRoleID,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.Created(c, dto.ProjectMemberFromEntity(m))
+	presenter.Created(w, r, dto.ProjectMemberFromEntity(m))
 }
 
 // UpdateMemberRole handles PATCH /projects/:projectId/members/:memberId.
-func (h *ProjectHandler) UpdateMemberRole(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *ProjectHandler) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	memberID, err := uuid.Parse(c.Param("memberId"))
+	memberID, err := uuid.Parse(chi.URLParam(r, "memberId"))
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid member id"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid member id"))
 		return
 	}
 
 	var req dto.UpdateProjectMemberRoleRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if req.ProjectRoleID == uuid.Nil {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "project_role_id is required"))
 		return
 	}
 
-	m, err := h.svc.UpdateMemberRoleByMemberID(c.Request.Context(), projectID, memberID, projectdom.UpdateMemberRoleInput{
+	m, err := h.svc.UpdateMemberRoleByMemberID(r.Context(), projectID, memberID, projectdom.UpdateMemberRoleInput{
 		ProjectRoleID: req.ProjectRoleID,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.ProjectMemberFromEntity(m))
+	presenter.OK(w, r, dto.ProjectMemberFromEntity(m))
 }
 
 // RemoveMember handles DELETE /projects/:projectId/members/:memberId.
-func (h *ProjectHandler) RemoveMember(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *ProjectHandler) RemoveMember(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	memberID, err := uuid.Parse(c.Param("memberId"))
+	memberID, err := uuid.Parse(chi.URLParam(r, "memberId"))
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid member id"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid member id"))
 		return
 	}
-	if err := h.svc.RemoveMemberByMemberID(c.Request.Context(), projectID, memberID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.RemoveMemberByMemberID(r.Context(), projectID, memberID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, gin.H{"message": "member removed"})
+	presenter.OK(w, r, map[string]any{"message": "member removed"})
 }
 
 // GetMyProjectPermissions handles GET /projects/:projectId/members/me/permissions.
 // It returns the permission map of the authenticated user's project role.
 // Any authenticated project member can call this endpoint regardless of which
 // permissions their role grants — the lookup is always scoped to themselves.
-func (h *ProjectHandler) GetMyProjectPermissions(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *ProjectHandler) GetMyProjectPermissions(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	claims := middleware.ClaimsFrom(c)
+	claims := middleware.ClaimsFrom(r)
 	if claims == nil {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return
 	}
 
 	userID, err := uuid.Parse(claims.Subject)
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
 		return
 	}
 
@@ -131,11 +146,11 @@ func (h *ProjectHandler) GetMyProjectPermissions(c *gin.Context) {
 		}
 	}
 
-	perms, err := h.svc.GetMyProjectPermissions(c.Request.Context(), projectID, userID, agentID)
+	perms, err := h.svc.GetMyProjectPermissions(r.Context(), projectID, userID, agentID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	presenter.OK(c, gin.H{"permissions": perms})
+	presenter.OK(w, r, map[string]any{"permissions": perms})
 }

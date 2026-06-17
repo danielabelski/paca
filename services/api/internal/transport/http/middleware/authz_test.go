@@ -8,7 +8,7 @@ import (
 
 	domainauth "github.com/Paca-AI/api/internal/domain/auth"
 	"github.com/Paca-AI/api/internal/platform/authz"
-	"github.com/gin-gonic/gin"
+	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
@@ -26,25 +26,26 @@ func (s *mockPermissionStore) ListProjectPermissions(context.Context, uuid.UUID,
 	return s.projectPerms, nil
 }
 
-func withClaims(role string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Set(claimsKey, &domainauth.Claims{
-			RegisteredClaims: jwt.RegisteredClaims{Subject: uuid.NewString()},
-			Role:             role,
-			Kind:             "access",
+func withClaims(role string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := context.WithValue(r.Context(), claimsContextKey{}, &domainauth.Claims{
+				RegisteredClaims: jwt.RegisteredClaims{Subject: uuid.NewString()},
+				Role:             role,
+				Kind:             "access",
+			})
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
-		c.Next()
 	}
 }
 
 func TestRequirePermissions_Unauthenticated(t *testing.T) {
-	r := gin.New()
-	r.GET("/admin", RequirePermissions(authz.NewAuthorizer(nil), GlobalScope(), authz.PermissionUsersDelete), func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
+	r := chi.NewRouter()
+	r.With(RequirePermissions(authz.NewAuthorizer(nil), GlobalScope(), authz.PermissionUsersDelete)).
+		Get("/admin", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/admin", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusUnauthorized {
@@ -53,16 +54,13 @@ func TestRequirePermissions_Unauthenticated(t *testing.T) {
 }
 
 func TestRequirePermissions_Forbidden(t *testing.T) {
-	r := gin.New()
-	r.GET(
-		"/admin",
-		withClaims("USER"),
-		RequirePermissions(authz.NewAuthorizer(nil), GlobalScope(), authz.PermissionUsersDelete),
-		func(c *gin.Context) { c.Status(http.StatusOK) },
-	)
+	r := chi.NewRouter()
+	r.With(withClaims("USER"),
+		RequirePermissions(authz.NewAuthorizer(nil), GlobalScope(), authz.PermissionUsersDelete)).
+		Get("/admin", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/admin", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusForbidden {
@@ -71,17 +69,14 @@ func TestRequirePermissions_Forbidden(t *testing.T) {
 }
 
 func TestRequirePermissions_AllowedByStore(t *testing.T) {
-	r := gin.New()
 	store := &mockPermissionStore{globalPerms: []authz.Permission{authz.PermissionUsersDelete}}
-	r.GET(
-		"/admin",
-		withClaims("USER"),
-		RequirePermissions(authz.NewAuthorizer(store), GlobalScope(), authz.PermissionUsersDelete),
-		func(c *gin.Context) { c.Status(http.StatusOK) },
-	)
+	r := chi.NewRouter()
+	r.With(withClaims("USER"),
+		RequirePermissions(authz.NewAuthorizer(store), GlobalScope(), authz.PermissionUsersDelete)).
+		Get("/admin", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/admin", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -90,17 +85,14 @@ func TestRequirePermissions_AllowedByStore(t *testing.T) {
 }
 
 func TestRequirePermissions_ProjectScope(t *testing.T) {
-	r := gin.New()
 	store := &mockPermissionStore{projectPerms: []authz.Permission{authz.PermissionTasksWrite}}
-	r.GET(
-		"/projects/:projectId/tasks",
-		withClaims("USER"),
-		RequirePermissions(authz.NewAuthorizer(store), ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-		func(c *gin.Context) { c.Status(http.StatusOK) },
-	)
+	r := chi.NewRouter()
+	r.With(withClaims("USER"),
+		RequirePermissions(authz.NewAuthorizer(store), ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+		Get("/projects/{projectId}/tasks", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -113,16 +105,13 @@ func TestRequirePermissions_ProjectScope(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestRequireAnyPermissions_Unauthenticated(t *testing.T) {
-	r := gin.New()
-	r.GET("/resource",
-		RequireAnyPermissions(authz.NewAuthorizer(nil),
-			PermissionGroup{Scope: GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
-		),
-		func(c *gin.Context) { c.Status(http.StatusOK) },
-	)
+	r := chi.NewRouter()
+	r.With(RequireAnyPermissions(authz.NewAuthorizer(nil),
+		PermissionGroup{Scope: GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+	)).Get("/resource", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/resource", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/resource", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusUnauthorized {
@@ -131,20 +120,16 @@ func TestRequireAnyPermissions_Unauthenticated(t *testing.T) {
 }
 
 func TestRequireAnyPermissions_Forbidden(t *testing.T) {
-	// User has neither global projects.read nor project-scoped members.read.
-	r := gin.New()
 	store := &mockPermissionStore{globalPerms: []authz.Permission{authz.PermissionUsersRead}}
-	r.GET("/projects/:projectId/members",
-		withClaims("USER"),
+	r := chi.NewRouter()
+	r.With(withClaims("USER"),
 		RequireAnyPermissions(authz.NewAuthorizer(store),
 			PermissionGroup{Scope: GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionProjectMembersRead}},
-		),
-		func(c *gin.Context) { c.Status(http.StatusOK) },
-	)
+		)).Get("/projects/{projectId}/members", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/projects/"+uuid.NewString()+"/members", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/"+uuid.NewString()+"/members", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusForbidden {
@@ -153,20 +138,16 @@ func TestRequireAnyPermissions_Forbidden(t *testing.T) {
 }
 
 func TestRequireAnyPermissions_AllowedByFirstGroup_GlobalProjectsRead(t *testing.T) {
-	// User has global projects.read → should be allowed even without project-scoped members.read.
-	r := gin.New()
 	store := &mockPermissionStore{globalPerms: []authz.Permission{authz.PermissionProjectsRead}}
-	r.GET("/projects/:projectId/members",
-		withClaims("USER"),
+	r := chi.NewRouter()
+	r.With(withClaims("USER"),
 		RequireAnyPermissions(authz.NewAuthorizer(store),
 			PermissionGroup{Scope: GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionProjectMembersRead}},
-		),
-		func(c *gin.Context) { c.Status(http.StatusOK) },
-	)
+		)).Get("/projects/{projectId}/members", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/projects/"+uuid.NewString()+"/members", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/"+uuid.NewString()+"/members", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -175,20 +156,16 @@ func TestRequireAnyPermissions_AllowedByFirstGroup_GlobalProjectsRead(t *testing
 }
 
 func TestRequireAnyPermissions_AllowedBySecondGroup_ProjectScopedRead(t *testing.T) {
-	// User does NOT have global projects.read but does have project-scoped members.read.
-	r := gin.New()
 	store := &mockPermissionStore{projectPerms: []authz.Permission{authz.PermissionProjectMembersRead}}
-	r.GET("/projects/:projectId/members",
-		withClaims("USER"),
+	r := chi.NewRouter()
+	r.With(withClaims("USER"),
 		RequireAnyPermissions(authz.NewAuthorizer(store),
 			PermissionGroup{Scope: GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionProjectMembersRead}},
-		),
-		func(c *gin.Context) { c.Status(http.StatusOK) },
-	)
+		)).Get("/projects/{projectId}/members", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/projects/"+uuid.NewString()+"/members", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/"+uuid.NewString()+"/members", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -197,20 +174,16 @@ func TestRequireAnyPermissions_AllowedBySecondGroup_ProjectScopedRead(t *testing
 }
 
 func TestRequireAnyPermissions_AllowedByWildcard_GlobalProjectsAll(t *testing.T) {
-	// User has global projects.* → satisfies projects.read via wildcard expansion.
-	r := gin.New()
 	store := &mockPermissionStore{globalPerms: []authz.Permission{authz.PermissionProjectsAll}}
-	r.GET("/projects/:projectId/members",
-		withClaims("USER"),
+	r := chi.NewRouter()
+	r.With(withClaims("USER"),
 		RequireAnyPermissions(authz.NewAuthorizer(store),
 			PermissionGroup{Scope: GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionProjectMembersRead}},
-		),
-		func(c *gin.Context) { c.Status(http.StatusOK) },
-	)
+		)).Get("/projects/{projectId}/members", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/projects/"+uuid.NewString()+"/members", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/"+uuid.NewString()+"/members", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -219,20 +192,15 @@ func TestRequireAnyPermissions_AllowedByWildcard_GlobalProjectsAll(t *testing.T)
 }
 
 func TestRequireAnyPermissions_InvalidProjectID_Returns400(t *testing.T) {
-	// A request with an invalid (non-UUID) projectId should return 400, not 403.
-	// The project-scoped group's resolver fails; no global-scope group is present.
-	r := gin.New()
 	store := &mockPermissionStore{}
-	r.GET("/projects/:projectId/members",
-		withClaims("USER"),
+	r := chi.NewRouter()
+	r.With(withClaims("USER"),
 		RequireAnyPermissions(authz.NewAuthorizer(store),
 			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionProjectMembersRead}},
-		),
-		func(c *gin.Context) { c.Status(http.StatusOK) },
-	)
+		)).Get("/projects/{projectId}/members", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/projects/not-a-uuid/members", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/not-a-uuid/members", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
@@ -241,21 +209,16 @@ func TestRequireAnyPermissions_InvalidProjectID_Returns400(t *testing.T) {
 }
 
 func TestRequireAnyPermissions_InvalidProjectID_GlobalGroupSucceeds(t *testing.T) {
-	// Even when the project-scoped group's resolver fails (bad UUID), a preceding
-	// global-scope group that satisfies the permission check should allow access.
-	r := gin.New()
 	store := &mockPermissionStore{globalPerms: []authz.Permission{authz.PermissionProjectsRead}}
-	r.GET("/projects/:projectId/members",
-		withClaims("USER"),
+	r := chi.NewRouter()
+	r.With(withClaims("USER"),
 		RequireAnyPermissions(authz.NewAuthorizer(store),
 			PermissionGroup{Scope: GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionProjectMembersRead}},
-		),
-		func(c *gin.Context) { c.Status(http.StatusOK) },
-	)
+		)).Get("/projects/{projectId}/members", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/projects/not-a-uuid/members", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/not-a-uuid/members", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -277,18 +240,14 @@ func (m *mockVisibilityChecker) IsProjectPublic(_ context.Context, _ uuid.UUID) 
 }
 
 func TestRequirePublicProjectOrPermissions_AnonymousPublicProject_Allows(t *testing.T) {
-	// No claims (anonymous), checker says project is public → 200.
 	checker := &mockVisibilityChecker{isPublic: true}
-	r := gin.New()
-	r.GET("/projects/:projectId/tasks",
-		RequirePublicProjectOrPermissions(checker, authz.NewAuthorizer(nil),
-			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-		),
-		func(c *gin.Context) { c.Status(http.StatusOK) },
-	)
+	r := chi.NewRouter()
+	r.With(RequirePublicProjectOrPermissions(checker, authz.NewAuthorizer(nil),
+		PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
+	)).Get("/projects/{projectId}/tasks", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -297,18 +256,14 @@ func TestRequirePublicProjectOrPermissions_AnonymousPublicProject_Allows(t *test
 }
 
 func TestRequirePublicProjectOrPermissions_AnonymousPrivateProject_Returns401(t *testing.T) {
-	// No claims, checker says project is private → 401.
 	checker := &mockVisibilityChecker{isPublic: false}
-	r := gin.New()
-	r.GET("/projects/:projectId/tasks",
-		RequirePublicProjectOrPermissions(checker, authz.NewAuthorizer(nil),
-			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-		),
-		func(c *gin.Context) { c.Status(http.StatusOK) },
-	)
+	r := chi.NewRouter()
+	r.With(RequirePublicProjectOrPermissions(checker, authz.NewAuthorizer(nil),
+		PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
+	)).Get("/projects/{projectId}/tasks", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusUnauthorized {
@@ -317,18 +272,14 @@ func TestRequirePublicProjectOrPermissions_AnonymousPrivateProject_Returns401(t 
 }
 
 func TestRequirePublicProjectOrPermissions_AnonymousInvalidProjectID_Returns400(t *testing.T) {
-	// No claims, invalid project UUID → 400.
 	checker := &mockVisibilityChecker{isPublic: false}
-	r := gin.New()
-	r.GET("/projects/:projectId/tasks",
-		RequirePublicProjectOrPermissions(checker, authz.NewAuthorizer(nil),
-			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-		),
-		func(c *gin.Context) { c.Status(http.StatusOK) },
-	)
+	r := chi.NewRouter()
+	r.With(RequirePublicProjectOrPermissions(checker, authz.NewAuthorizer(nil),
+		PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
+	)).Get("/projects/{projectId}/tasks", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/projects/not-a-uuid/tasks", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/not-a-uuid/tasks", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
@@ -337,20 +288,16 @@ func TestRequirePublicProjectOrPermissions_AnonymousInvalidProjectID_Returns400(
 }
 
 func TestRequirePublicProjectOrPermissions_AuthenticatedWithPermission_Allows(t *testing.T) {
-	// Authenticated user with sufficient permission → 200.
 	store := &mockPermissionStore{projectPerms: []authz.Permission{authz.PermissionTasksRead}}
 	checker := &mockVisibilityChecker{isPublic: false}
-	r := gin.New()
-	r.GET("/projects/:projectId/tasks",
-		withClaims("USER"),
+	r := chi.NewRouter()
+	r.With(withClaims("USER"),
 		RequirePublicProjectOrPermissions(checker, authz.NewAuthorizer(store),
 			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-		),
-		func(c *gin.Context) { c.Status(http.StatusOK) },
-	)
+		)).Get("/projects/{projectId}/tasks", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -359,20 +306,16 @@ func TestRequirePublicProjectOrPermissions_AuthenticatedWithPermission_Allows(t 
 }
 
 func TestRequirePublicProjectOrPermissions_AuthenticatedWithoutPermission_Returns403(t *testing.T) {
-	// Authenticated user without permission, private project → 403.
 	store := &mockPermissionStore{}
 	checker := &mockVisibilityChecker{isPublic: false}
-	r := gin.New()
-	r.GET("/projects/:projectId/tasks",
-		withClaims("USER"),
+	r := chi.NewRouter()
+	r.With(withClaims("USER"),
 		RequirePublicProjectOrPermissions(checker, authz.NewAuthorizer(store),
 			PermissionGroup{Scope: ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-		),
-		func(c *gin.Context) { c.Status(http.StatusOK) },
-	)
+		)).Get("/projects/{projectId}/tasks", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/"+uuid.NewString()+"/tasks", nil)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusForbidden {

@@ -3,26 +3,45 @@ package postgres
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
 	globalroledom "github.com/Paca-AI/api/internal/domain/globalrole"
 	userdom "github.com/Paca-AI/api/internal/domain/user"
 	"github.com/google/uuid"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
+	"github.com/jmoiron/sqlx"
+	_ "github.com/mattn/go-sqlite3"
 )
 
-func openGlobalRoleRepoTestDB(t *testing.T) *gorm.DB {
+func openGlobalRoleRepoTestDB(t *testing.T) *sqlx.DB {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "global-role-repo-test.db")
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	db, err := sqlx.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&userRecord{}, &globalRoleRecord{}); err != nil {
-		t.Fatalf("auto migrate: %v", err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	schema := `
+		CREATE TABLE global_roles (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			permissions BLOB NOT NULL,
+			created_at DATETIME,
+			updated_at DATETIME
+		);
+		CREATE TABLE users (
+			id TEXT PRIMARY KEY,
+			username TEXT NOT NULL,
+			password_hash TEXT NOT NULL,
+			full_name TEXT NOT NULL,
+			role_id TEXT NOT NULL,
+			must_change_password INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME,
+			updated_at DATETIME,
+			deleted_at DATETIME
+		);`
+	if _, err := db.ExecContext(context.Background(), schema); err != nil {
+		t.Fatalf("create schema: %v", err)
 	}
 	return db
 }
@@ -67,6 +86,7 @@ func TestGlobalRoleRepository_ReplaceUserRoles(t *testing.T) {
 	repo := NewGlobalRoleRepository(db)
 	ctx := context.Background()
 
+	now := time.Now()
 	userID := uuid.New()
 	roleA := testGlobalRole(uuid.New(), "SUPER_ADMIN")
 	roleB := testGlobalRole(uuid.New(), "AUDITOR")
@@ -78,19 +98,10 @@ func TestGlobalRoleRepository_ReplaceUserRoles(t *testing.T) {
 	}
 
 	// Seed user with roleA as initial role_id (SQLite ignores FK constraints).
-	user := &userdom.User{
-		ID:           userID,
-		Username:     "alice",
-		PasswordHash: "hash",
-		FullName:     "Alice",
-		RoleID:       roleA.ID,
-		Role:         userdom.RoleAdmin,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-	}
-	if err := db.Create(entityToRecord(user)).Error; err != nil {
-		t.Fatalf("seed user: %v", err)
-	}
+	db.MustExec(
+		`INSERT INTO users (id, username, password_hash, full_name, role_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		userID.String(), "alice", "hash", "Alice", roleA.ID.String(), now, now,
+	)
 
 	// With single-role schema, exactly one role ID is required.
 	if err := repo.ReplaceUserRoles(ctx, userID, []uuid.UUID{roleB.ID}); err != nil {

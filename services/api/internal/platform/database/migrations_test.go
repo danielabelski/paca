@@ -1,22 +1,23 @@
 package database
 
 import (
+	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
+	_ "github.com/mattn/go-sqlite3"
 )
 
-func openSQLite(t *testing.T) *gorm.DB {
+func openSQLite(t *testing.T) *sql.DB {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "migrations-test.db")
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
+	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
 
@@ -35,8 +36,8 @@ func TestRunMigrations_Success(t *testing.T) {
 		t.Fatalf("RunMigrations returned error: %v", err)
 	}
 
-	var count int64
-	if err := db.Table("users").Count(&count).Error; err != nil {
+	var count int
+	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM users").Scan(&count); err != nil {
 		t.Fatalf("count users: %v", err)
 	}
 	if count != 1 {

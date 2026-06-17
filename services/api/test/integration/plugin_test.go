@@ -21,7 +21,6 @@ import (
 	usersvc "github.com/Paca-AI/api/internal/service/user"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
 	"github.com/Paca-AI/api/internal/transport/http/router"
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
@@ -193,7 +192,6 @@ type pluginTestEnv struct {
 
 func newPluginTestEnv(t *testing.T, adminPerms bool) *pluginTestEnv {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 
 	repo := newFakeIntegPluginRepo()
 	svc := pluginsvc.New(repo)

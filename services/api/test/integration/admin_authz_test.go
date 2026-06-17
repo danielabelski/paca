@@ -17,7 +17,6 @@ import (
 	usersvc "github.com/Paca-AI/api/internal/service/user"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
 	"github.com/Paca-AI/api/internal/transport/http/router"
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
@@ -59,8 +58,7 @@ func (s *fakeGlobalRoleService) ReplaceUserRoles(context.Context, uuid.UUID, []u
 	return []*globalroledom.GlobalRole{}, nil
 }
 
-func buildAdminTestRouter(perms []authz.Permission) *gin.Engine {
-	gin.SetMode(gin.TestMode)
+func buildAdminTestRouter(perms []authz.Permission) http.Handler {
 	tm := jwttoken.New(testSecret, 15*time.Minute, 168*time.Hour)
 	store := &fakeRefreshStore{}
 	userRepo := newFakeUserRepo()

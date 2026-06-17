@@ -41,10 +41,9 @@ import (
 	usersvc "github.com/Paca-AI/api/internal/service/user"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
 	"github.com/Paca-AI/api/internal/transport/http/router"
-	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
-	"gorm.io/gorm"
 )
 
 const (
@@ -86,7 +85,7 @@ type e2eEnv struct {
 	attachmentSvc  *attachmentsvc.Service
 	apiKeyRepo     *pgRepo.APIKeyRepository
 	apiKeySvc      *apikeysvc.Service
-	db             *gorm.DB // raw connection for per-test service wiring
+	db             *sqlx.DB // raw connection for per-test service wiring
 }
 
 func newE2EEnv(t *testing.T) *e2eEnv {
@@ -104,25 +103,22 @@ func newE2EEnv(t *testing.T) *e2eEnv {
 	seq := testDBSeq.Add(1)
 	testDBName := fmt.Sprintf("e2e_%04d", seq)
 	adminLog := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	adminGORM, adminErr := database.Open(database.Config{DSN: sharedPGDSN}, adminLog)
+	adminDB, adminErr := database.Open(database.Config{DSN: sharedPGDSN}, adminLog)
 	if adminErr != nil {
 		t.Fatalf("open admin db for test isolation: %v", adminErr)
 	}
-	if createErr := adminGORM.Exec(fmt.Sprintf(`CREATE DATABASE %q`, testDBName)).Error; createErr != nil {
-		if rawDB, _ := adminGORM.DB(); rawDB != nil {
-			_ = rawDB.Close()
-		}
+	if _, createErr := adminDB.ExecContext(ctx, fmt.Sprintf(`CREATE DATABASE %q`, testDBName)); createErr != nil {
+		_ = adminDB.Close()
 		t.Fatalf("create per-test database %q: %v", testDBName, createErr)
 	}
 	t.Cleanup(func() {
-		_ = adminGORM.Exec(
-			"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = ? AND pid <> pg_backend_pid()",
+		bgCtx := context.Background()
+		_, _ = adminDB.ExecContext(bgCtx,
+			"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
 			testDBName,
-		).Error
-		_ = adminGORM.Exec(fmt.Sprintf(`DROP DATABASE IF EXISTS %q`, testDBName)).Error
-		if rawDB, _ := adminGORM.DB(); rawDB != nil {
-			_ = rawDB.Close()
-		}
+		)
+		_, _ = adminDB.ExecContext(bgCtx, fmt.Sprintf(`DROP DATABASE IF EXISTS %q`, testDBName))
+		_ = adminDB.Close()
 	})
 	pgDSN := strings.Replace(sharedPGDSN, "/testdb?", "/"+testDBName+"?", 1)
 
@@ -150,14 +146,11 @@ func newE2EEnv(t *testing.T) *e2eEnv {
 			t.Fatalf("open database: %v", err)
 		}
 	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("get underlying sql.DB: %v", err)
-	}
+	sqlDB := db.DB
 
 	_, thisFile, _, _ := runtime.Caller(0)
 	migrationsDir := filepath.Join(filepath.Dir(thisFile), "..", "..", "migrations")
-	if err := database.RunMigrations(db, migrationsDir); err != nil {
+	if err := database.RunMigrations(sqlDB, migrationsDir); err != nil {
 		t.Fatalf("run migrations: %v", err)
 	}
 
@@ -282,8 +275,6 @@ func newE2EEnv(t *testing.T) *e2eEnv {
 // E2E suite rather than once per test function. This keeps total container
 // startup time proportional to O(1) instead of O(N tests).
 func TestMain(m *testing.M) {
-	gin.SetMode(gin.TestMode) // suppress per-route debug output across the full suite
-
 	if os.Getenv("PACA_E2E") != "1" {
 		// Guard not set – individual tests will self-skip; just run them.
 		os.Exit(m.Run())

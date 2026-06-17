@@ -1,5 +1,4 @@
-// Package router wires global middleware and all route groups onto a
-// *gin.Engine.
+// Package router wires global middleware and all route groups onto a chi.Router.
 package router
 
 import (
@@ -10,8 +9,10 @@ import (
 	"github.com/Paca-AI/api/internal/platform/authz"
 	jwttoken "github.com/Paca-AI/api/internal/platform/token"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
+	"github.com/Paca-AI/api/internal/transport/http/httpx"
 	httpmw "github.com/Paca-AI/api/internal/transport/http/middleware"
-	"github.com/gin-gonic/gin"
+	"github.com/go-chi/chi/v5"
+	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 )
 
@@ -40,814 +41,546 @@ type Deps struct {
 	Log                  *slog.Logger
 }
 
-// New builds and returns a configured *gin.Engine.
-func New(deps Deps) *gin.Engine {
-	r := gin.New()
+// New builds and returns a configured http.Handler.
+func New(deps Deps) http.Handler {
+	r := chi.NewRouter()
 
 	// Global middleware
 	r.Use(requestIDMiddleware())
 	r.Use(loggerMiddleware(deps.Log))
-	r.Use(gin.Recovery())
+	r.Use(chimw.Recoverer)
 	r.Use(corsMiddleware())
 
-	api := r.Group("/api")
+	r.Route("/api", func(r chi.Router) {
+		// Public routes
+		r.Get("/healthz", deps.Health.Check)
 
-	// Public routes
-	api.GET("/healthz", deps.Health.Check)
+		r.Route("/v1", func(r chi.Router) {
+			// Auth
+			r.Route("/auth", func(r chi.Router) {
+				r.Post("/login", deps.Auth.Login)
+				r.Post("/refresh", deps.Auth.Refresh)
+				r.With(httpmw.Authn(deps.TokenManager)).Post("/logout", deps.Auth.Logout)
+			})
 
-	v1 := api.Group("/v1")
-	{
-		auth := v1.Group("/auth")
-		{
-			auth.POST("/login", deps.Auth.Login)
-			auth.POST("/refresh", deps.Auth.Refresh)
-			auth.POST("/logout", httpmw.Authn(deps.TokenManager), deps.Auth.Logout)
-		}
+			// Users
+			r.Route("/users", func(r chi.Router) {
+				r.Use(httpmw.Authn(deps.TokenManager, deps.APIKeyAuth))
+				// Password change allowed even with MustChangePassword=true.
+				r.With(httpmw.RequireJWTAuth()).Patch("/me/password", deps.User.ChangeMyPassword)
 
-		users := v1.Group("/users")
-		users.Use(httpmw.Authn(deps.TokenManager, deps.APIKeyAuth))
-		{
-			// Password change is allowed even when MustChangePassword=true so
-			// that users can fulfil the forced-change requirement.
-			users.PATCH("/me/password", httpmw.RequireJWTAuth(), deps.User.ChangeMyPassword)
+				// All other self-service routes require a fresh password.
+				r.Group(func(r chi.Router) {
+					r.Use(httpmw.RequireFreshPassword())
+					r.Get("/me", deps.User.GetMe)
+					r.Patch("/me", deps.User.UpdateMe)
+					r.Get("/me/global-permissions", deps.User.GetMyGlobalPermissions)
 
-			// All other self-service routes require a fresh (non-forced) password.
-			me := users.Group("")
-			me.Use(httpmw.RequireFreshPassword())
-			{
-				me.GET("/me", deps.User.GetMe)
-				me.PATCH("/me", deps.User.UpdateMe)
-				me.GET("/me/global-permissions", deps.User.GetMyGlobalPermissions)
+					// API key management — JWT/cookie auth only.
+					if deps.APIKey != nil {
+						r.Group(func(r chi.Router) {
+							r.Use(httpmw.RequireJWTAuth())
+							r.Get("/me/api-keys", deps.APIKey.List)
+							r.Post("/me/api-keys", deps.APIKey.Create)
+							r.Delete("/me/api-keys/{keyId}", deps.APIKey.Revoke)
+						})
+					}
 
-				// API key management -- requires JWT/cookie session auth; API key
-				// credentials are explicitly rejected to prevent privilege escalation
-				// via a leaked API key.
-				if deps.APIKey != nil {
-					apiKeys := me.Group("")
-					apiKeys.Use(httpmw.RequireJWTAuth())
-					apiKeys.GET("/me/api-keys", deps.APIKey.List)
-					apiKeys.POST("/me/api-keys", deps.APIKey.Create)
-					apiKeys.DELETE("/me/api-keys/:keyId", deps.APIKey.Revoke)
-				}
+					// Notification routes
+					if deps.Notification != nil {
+						r.Get("/me/notifications", deps.Notification.List)
+						r.Patch("/me/notifications/{notificationId}/read", deps.Notification.MarkAsRead)
+						r.Post("/me/notifications/read-all", deps.Notification.MarkAllAsRead)
+					}
+				})
+			})
 
-				// Notification routes
-				if deps.Notification != nil {
-					me.GET("/me/notifications", deps.Notification.List)
-					me.PATCH("/me/notifications/:notificationId/read", deps.Notification.MarkAsRead)
-					me.POST("/me/notifications/read-all", deps.Notification.MarkAllAsRead)
-				}
+			// Admin
+			r.Route("/admin", func(r chi.Router) {
+				r.Use(httpmw.Authn(deps.TokenManager, deps.APIKeyAuth))
+				r.Use(httpmw.RequireFreshPassword())
+
+				// User management
+				r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionUsersRead)).
+					Get("/users", deps.User.ListUsers)
+				r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionUsersWrite)).
+					Post("/users", deps.User.CreateUser)
+				r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionUsersRead)).
+					Get("/users/{userId}", deps.User.GetUserByID)
+				r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionUsersWrite)).
+					Patch("/users/{userId}", deps.User.AdminUpdateUser)
+				r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionUsersWrite)).
+					Patch("/users/{userId}/password", deps.User.ResetPassword)
+				r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionUsersDelete)).
+					Delete("/users/{userId}", deps.User.DeleteUser)
+
+				// Global role management
+				r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionGlobalRolesRead)).
+					Get("/global-roles", deps.GlobalRole.List)
+				r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionGlobalRolesWrite)).
+					Post("/global-roles", deps.GlobalRole.Create)
+				r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionGlobalRolesWrite)).
+					Patch("/global-roles/{roleId}", deps.GlobalRole.Update)
+				r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionGlobalRolesWrite)).
+					Delete("/global-roles/{roleId}", deps.GlobalRole.Delete)
+				r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionGlobalRolesAssign)).
+					Put("/users/{userId}/global-roles", deps.GlobalRole.ReplaceUserRoles)
+			})
+
+			// Projects — collection routes
+			r.Route("/projects", func(r chi.Router) {
+				r.Use(httpmw.Authn(deps.TokenManager, deps.APIKeyAuth))
+				r.Use(httpmw.RequireFreshPassword())
+				r.Get("/", deps.Project.ListProjects)
+				r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionProjectsCreate)).
+					Post("/", deps.Project.CreateProject)
+			})
+
+			// LLM models — accessible to any authenticated user
+			if deps.Agent != nil {
+				r.Route("/agents", func(r chi.Router) {
+					r.Use(httpmw.Authn(deps.TokenManager, deps.APIKeyAuth))
+					r.Use(httpmw.RequireFreshPassword())
+					r.Get("/llm-models", deps.Agent.GetLLMModels)
+					r.Get("/skill-templates", deps.Agent.ListSkillTemplates)
+				})
 			}
-		}
 
-		admin := v1.Group("/admin")
-		admin.Use(httpmw.Authn(deps.TokenManager, deps.APIKeyAuth))
-		admin.Use(httpmw.RequireFreshPassword())
-		{
-			// User management — requires users.* permissions
-			admin.GET("/users",
-				httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionUsersRead),
-				deps.User.ListUsers,
-			)
-			admin.POST("/users",
-				httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionUsersWrite),
-				deps.User.CreateUser,
-			)
-			admin.GET("/users/:userId",
-				httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionUsersRead),
-				deps.User.GetUserByID,
-			)
-			admin.PATCH("/users/:userId",
-				httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionUsersWrite),
-				deps.User.AdminUpdateUser,
-			)
-			admin.PATCH("/users/:userId/password",
-				httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionUsersWrite),
-				deps.User.ResetPassword,
-			)
-			admin.DELETE("/users/:userId",
-				httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionUsersDelete),
-				deps.User.DeleteUser,
-			)
+			// Single-project routes — optional auth for public project support
+			r.Route("/projects/{projectId}", func(r chi.Router) {
+				r.Use(httpmw.OptionalAuthn(deps.TokenManager, deps.APIKeyAuth))
+				r.Use(httpmw.RequireFreshPassword())
 
-			// Global role management — requires global_roles.* permissions
-			admin.GET("/global-roles",
-				httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionGlobalRolesRead),
-				deps.GlobalRole.List,
-			)
-			admin.POST("/global-roles",
-				httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionGlobalRolesWrite),
-				deps.GlobalRole.Create,
-			)
-			admin.PATCH("/global-roles/:roleId",
-				httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionGlobalRolesWrite),
-				deps.GlobalRole.Update,
-			)
-			admin.DELETE("/global-roles/:roleId",
-				httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionGlobalRolesWrite),
-				deps.GlobalRole.Delete,
-			)
-			admin.PUT("/users/:userId/global-roles",
-				httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionGlobalRolesAssign),
-				deps.GlobalRole.ReplaceUserRoles,
-			)
-		}
-
-		// Project routes — list/create are collection-level; all other actions are
-		// project-scoped and accessible to members with appropriate roles.
-		// Collection routes require authentication; per-project read routes also
-		// allow anonymous access when the project has is_public = true.
-		projects := v1.Group("/projects")
-		projects.Use(httpmw.Authn(deps.TokenManager, deps.APIKeyAuth))
-		projects.Use(httpmw.RequireFreshPassword())
-		{
-			// Collection routes
-			// ListProjects self-selects: global projects.read → all projects,
-			// otherwise → only the caller's accessible projects.
-			projects.GET("", deps.Project.ListProjects)
-			projects.POST("",
-				httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionProjectsCreate),
-				deps.Project.CreateProject,
-			)
-		}
-
-		// LLM models — returns verified provider/model list from the ai-agent service.
-		// Accessible to any authenticated user; no project scope required.
-		if deps.Agent != nil {
-			agentsGlobal := v1.Group("/agents")
-			agentsGlobal.Use(httpmw.Authn(deps.TokenManager, deps.APIKeyAuth))
-			agentsGlobal.Use(httpmw.RequireFreshPassword())
-			{
-				agentsGlobal.GET("/llm-models", deps.Agent.GetLLMModels)
-				agentsGlobal.GET("/skill-templates", deps.Agent.ListSkillTemplates)
-			}
-		}
-
-		// Single-project routes — use optional auth so anonymous users can access
-		// public projects (is_public = true) without credentials.
-		project := v1.Group("/projects/:projectId")
-		project.Use(httpmw.OptionalAuthn(deps.TokenManager, deps.APIKeyAuth))
-		project.Use(httpmw.RequireFreshPassword())
-		{
-			project.GET("",
-				// Allow: global projects.read OR project-scoped projects.read OR public project.
-				httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+				r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 					httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 					httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
-				),
-				deps.Project.GetProject,
-			)
-			project.PATCH("",
-				httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionProjectsWrite),
-				deps.Project.UpdateProject,
-			)
-			project.DELETE("",
-				httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionProjectsDelete),
-				deps.Project.DeleteProject,
-			)
+				)).Get("/", deps.Project.GetProject)
+				r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionProjectsWrite)).
+					Patch("/", deps.Project.UpdateProject)
+				r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionProjectsDelete)).
+					Delete("/", deps.Project.DeleteProject)
 
-			members := project.Group("/members")
-			{
-				members.GET("",
-					httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+				// Members
+				r.Route("/members", func(r chi.Router) {
+					r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 						httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 						httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionProjectMembersRead}},
-					),
-					deps.Project.ListMembers,
-				)
-				members.POST("",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionProjectMembersWrite),
-					deps.Project.AddMember,
-				)
-				// Static sub-path must come before /:memberId to avoid the param swallowing it.
-				members.GET("/me/permissions", deps.Project.GetMyProjectPermissions)
-				members.PATCH("/:memberId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionProjectMembersWrite),
-					deps.Project.UpdateMemberRole,
-				)
-				members.DELETE("/:memberId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionProjectMembersWrite),
-					deps.Project.RemoveMember,
-				)
-			}
+					)).Get("/", deps.Project.ListMembers)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionProjectMembersWrite)).
+						Post("/", deps.Project.AddMember)
+					r.Get("/me/permissions", deps.Project.GetMyProjectPermissions)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionProjectMembersWrite)).
+						Patch("/{memberId}", deps.Project.UpdateMemberRole)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionProjectMembersWrite)).
+						Delete("/{memberId}", deps.Project.RemoveMember)
+				})
 
-			roles := project.Group("/roles")
-			{
-				roles.GET("",
-					httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+				// Roles
+				r.Route("/roles", func(r chi.Router) {
+					r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 						httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 						httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionProjectRolesRead}},
-					),
-					deps.Project.ListRoles,
-				)
-				roles.POST("",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionProjectRolesWrite),
-					deps.Project.CreateRole,
-				)
-				roles.PATCH("/:roleId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionProjectRolesWrite),
-					deps.Project.UpdateRole,
-				)
-				roles.DELETE("/:roleId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionProjectRolesWrite),
-					deps.Project.DeleteRole,
-				)
-			}
+					)).Get("/", deps.Project.ListRoles)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionProjectRolesWrite)).
+						Post("/", deps.Project.CreateRole)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionProjectRolesWrite)).
+						Patch("/{roleId}", deps.Project.UpdateRole)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionProjectRolesWrite)).
+						Delete("/{roleId}", deps.Project.DeleteRole)
+				})
 
-			// Task types — project-scoped configuration
-			taskTypes := project.Group("/task-types")
-			{
-				taskTypes.GET("",
-					httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+				// Task types
+				r.Route("/task-types", func(r chi.Router) {
+					r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 						httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 						httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-					),
-					deps.Task.ListTaskTypes,
-				)
-				taskTypes.POST("",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-					deps.Task.CreateTaskType,
-				)
-				taskTypes.PATCH("/:typeId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-					deps.Task.UpdateTaskType,
-				)
-				taskTypes.DELETE("/:typeId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-					deps.Task.DeleteTaskType,
-				)
-				taskTypes.PUT("/:typeId/set-default",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-					deps.Task.SetDefaultTaskType,
-				)
-			}
+					)).Get("/", deps.Task.ListTaskTypes)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+						Post("/", deps.Task.CreateTaskType)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+						Patch("/{typeId}", deps.Task.UpdateTaskType)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+						Delete("/{typeId}", deps.Task.DeleteTaskType)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+						Put("/{typeId}/set-default", deps.Task.SetDefaultTaskType)
+				})
 
-			// Task statuses — project-scoped workflow configuration
-			taskStatuses := project.Group("/task-statuses")
-			{
-				taskStatuses.GET("",
-					httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+				// Task statuses
+				r.Route("/task-statuses", func(r chi.Router) {
+					r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 						httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 						httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-					),
-					deps.Task.ListTaskStatuses,
-				)
-				taskStatuses.POST("",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-					deps.Task.CreateTaskStatus,
-				)
-				taskStatuses.PATCH("/:statusId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-					deps.Task.UpdateTaskStatus,
-				)
-				taskStatuses.DELETE("/:statusId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-					deps.Task.DeleteTaskStatus,
-				)
-				taskStatuses.PUT("/:statusId/set-default",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-					deps.Task.SetDefaultTaskStatus,
-				)
-			}
+					)).Get("/", deps.Task.ListTaskStatuses)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+						Post("/", deps.Task.CreateTaskStatus)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+						Patch("/{statusId}", deps.Task.UpdateTaskStatus)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+						Delete("/{statusId}", deps.Task.DeleteTaskStatus)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+						Put("/{statusId}/set-default", deps.Task.SetDefaultTaskStatus)
+				})
 
-			// Sprints
-			sprints := project.Group("/sprints")
-			{
-				sprints.GET("",
-					httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+				// Sprints
+				r.Route("/sprints", func(r chi.Router) {
+					r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 						httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 						httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionSprintsRead}},
-					),
-					deps.Sprint.ListSprints,
-				)
-				sprints.POST("",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
-					deps.Sprint.CreateSprint,
-				)
-				sprints.GET("/:sprintId",
-					httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+					)).Get("/", deps.Sprint.ListSprints)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite)).
+						Post("/", deps.Sprint.CreateSprint)
+					r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 						httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 						httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionSprintsRead}},
-					),
-					deps.Sprint.GetSprint,
-				)
-				sprints.PATCH("/:sprintId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
-					deps.Sprint.UpdateSprint,
-				)
-				sprints.DELETE("/:sprintId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
-					deps.Sprint.DeleteSprint,
-				)
-				sprints.POST("/:sprintId/complete",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
-					deps.Sprint.CompleteSprint,
-				)
-			}
+					)).Get("/{sprintId}", deps.Sprint.GetSprint)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite)).
+						Patch("/{sprintId}", deps.Sprint.UpdateSprint)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite)).
+						Delete("/{sprintId}", deps.Sprint.DeleteSprint)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite)).
+						Post("/{sprintId}/complete", deps.Sprint.CompleteSprint)
+				})
 
-			// Views — unified endpoint for sprint, backlog, and timeline views.
-			// Use ?context=sprint|backlog|timeline; sprint context also requires ?sprint_id=<uuid>.
-			views := project.Group("/views")
-			{
-				views.GET("",
-					httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+				// Views
+				r.Route("/views", func(r chi.Router) {
+					r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 						httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 						httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionSprintsRead}},
-					),
-					deps.View.ListViews,
-				)
-				views.POST("",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
-					deps.View.CreateView,
-				)
-				// Static /positions must be registered before /:viewId.
-				views.PUT("/positions",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
-					deps.View.ReorderViews,
-				)
-				views.GET("/:viewId",
-					httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+					)).Get("/", deps.View.ListViews)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite)).
+						Post("/", deps.View.CreateView)
+					// Static /positions must be registered before /{viewId}.
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite)).
+						Put("/positions", deps.View.ReorderViews)
+					r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 						httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 						httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionSprintsRead}},
-					),
-					deps.View.GetView,
-				)
-				views.PATCH("/:viewId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
-					deps.View.UpdateView,
-				)
-				views.DELETE("/:viewId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite),
-					deps.View.DeleteView,
-				)
-				views.GET("/:viewId/task-positions",
-					httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+					)).Get("/{viewId}", deps.View.GetView)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite)).
+						Patch("/{viewId}", deps.View.UpdateView)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionSprintsWrite)).
+						Delete("/{viewId}", deps.View.DeleteView)
+					r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 						httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 						httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-					),
-					deps.View.ListTaskPositions,
-				)
-				views.PUT("/:viewId/task-positions",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-					deps.View.BulkMoveTasks,
-				)
-				views.PUT("/:viewId/task-positions/:taskId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-					deps.View.MoveTask,
-				)
-			}
+					)).Get("/{viewId}/task-positions", deps.View.ListTaskPositions)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+						Put("/{viewId}/task-positions", deps.View.BulkMoveTasks)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+						Put("/{viewId}/task-positions/{taskId}", deps.View.MoveTask)
+				})
 
-			// Tasks — core work items
-			tasks := project.Group("/tasks")
-			{
-				tasks.GET("",
-					httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+				// Tasks
+				r.Route("/tasks", func(r chi.Router) {
+					r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 						httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 						httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-					),
-					deps.Task.ListTasks,
-				)
-				tasks.POST("",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-					deps.Task.CreateTask,
-				)
-				tasks.GET("/by-number/:taskNumber",
-					httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+					)).Get("/", deps.Task.ListTasks)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+						Post("/", deps.Task.CreateTask)
+					r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 						httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 						httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-					),
-					deps.Task.GetTaskByNumber,
-				)
-				tasks.GET("/:taskId",
-					httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+					)).Get("/by-number/{taskNumber}", deps.Task.GetTaskByNumber)
+					r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 						httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 						httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-					),
-					deps.Task.GetTask,
-				)
-				tasks.PATCH("/:taskId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-					deps.Task.UpdateTask,
-				)
-				tasks.DELETE("/:taskId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-					deps.Task.DeleteTask,
-				)
+					)).Get("/{taskId}", deps.Task.GetTask)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+						Patch("/{taskId}", deps.Task.UpdateTask)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+						Delete("/{taskId}", deps.Task.DeleteTask)
 
-				if deps.Agent != nil {
-					tasks.POST("/:taskId/write-with-ai",
-						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-						deps.Agent.WriteTaskDescriptionWithAI,
-					)
-				}
-
-				// Activities — task activity log and user comments
-				activities := tasks.Group("/:taskId/activities")
-				{
-					activities.GET("",
-						httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
-							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
-							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-						),
-						deps.Task.ListTaskActivities,
-					)
-					// Comments are a sub-resource of activities
-					comments := activities.Group("/comments")
-					{
-						comments.POST("",
-							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-							deps.Task.AddComment,
-						)
-						comments.PATCH("/:commentId",
-							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-							deps.Task.UpdateComment,
-						)
-						comments.DELETE("/:commentId",
-							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-							deps.Task.DeleteComment,
-						)
+					if deps.Agent != nil {
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+							Post("/{taskId}/write-with-ai", deps.Agent.WriteTaskDescriptionWithAI)
 					}
-				}
 
-				// Attachments — files uploaded and linked to a task
-				attachments := tasks.Group("/:taskId/attachments")
-				{
-					attachments.GET("",
-						httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+					// Activities
+					r.Route("/{taskId}/activities", func(r chi.Router) {
+						r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-						),
-						deps.Attachment.ListTaskAttachments,
-					)
-					attachments.POST("/initiate-upload",
-						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-						deps.Attachment.InitiateUpload,
-					)
-					attachments.POST("/complete-upload",
-						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-						deps.Attachment.CompleteUpload,
-					)
-					attachments.GET("/:attachmentId/download-url",
-						httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+						)).Get("/", deps.Task.ListTaskActivities)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+							Post("/comments", deps.Task.AddComment)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+							Patch("/comments/{commentId}", deps.Task.UpdateComment)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+							Delete("/comments/{commentId}", deps.Task.DeleteComment)
+					})
+
+					// Attachments
+					r.Route("/{taskId}/attachments", func(r chi.Router) {
+						r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-						),
-						deps.Attachment.GetDownloadURL,
-					)
-					attachments.DELETE("/:attachmentId",
-						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-						deps.Attachment.DeleteTaskAttachment,
-					)
-				}
-			}
+						)).Get("/", deps.Attachment.ListTaskAttachments)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+							Post("/initiate-upload", deps.Attachment.InitiateUpload)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+							Post("/complete-upload", deps.Attachment.CompleteUpload)
+						r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
+						)).Get("/{attachmentId}/download-url", deps.Attachment.GetDownloadURL)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+							Delete("/{attachmentId}", deps.Attachment.DeleteTaskAttachment)
+					})
+				})
 
-			// Custom field definitions — project-level schema
-			customFields := project.Group("/custom-fields")
-			{
-				customFields.GET("",
-					httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+				// Custom field definitions
+				r.Route("/custom-fields", func(r chi.Router) {
+					r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 						httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 						httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-					),
-					deps.Task.ListCustomFieldDefinitions,
-				)
-				customFields.POST("",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-					deps.Task.CreateCustomFieldDefinition,
-				)
-				customFields.GET("/:fieldId",
-					httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+					)).Get("/", deps.Task.ListCustomFieldDefinitions)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+						Post("/", deps.Task.CreateCustomFieldDefinition)
+					r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 						httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 						httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionTasksRead}},
-					),
-					deps.Task.GetCustomFieldDefinition,
-				)
-				customFields.PATCH("/:fieldId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-					deps.Task.UpdateCustomFieldDefinition,
-				)
-				customFields.DELETE("/:fieldId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite),
-					deps.Task.DeleteCustomFieldDefinition,
-				)
-			}
+					)).Get("/{fieldId}", deps.Task.GetCustomFieldDefinition)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+						Patch("/{fieldId}", deps.Task.UpdateCustomFieldDefinition)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionTasksWrite)).
+						Delete("/{fieldId}", deps.Task.DeleteCustomFieldDefinition)
+				})
 
-			// Documentation — project documents with folder hierarchy, snapshots, and activity
-			docs := project.Group("/docs")
-			{
-				// Folders
-				folders := docs.Group("/folders")
-				{
-					folders.GET("",
-						httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+				// Documentation
+				r.Route("/docs", func(r chi.Router) {
+					// Folders
+					r.Route("/folders", func(r chi.Router) {
+						r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionDocsRead}},
-						),
-						deps.Document.ListFolders,
-					)
-					folders.POST("",
-						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite),
-						deps.Document.CreateFolder,
-					)
-					folders.PATCH("/:folderId",
-						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite),
-						deps.Document.UpdateFolder,
-					)
-					folders.DELETE("/:folderId",
-						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite),
-						deps.Document.DeleteFolder,
-					)
-				}
+						)).Get("/", deps.Document.ListFolders)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite)).
+							Post("/", deps.Document.CreateFolder)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite)).
+							Patch("/{folderId}", deps.Document.UpdateFolder)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite)).
+							Delete("/{folderId}", deps.Document.DeleteFolder)
+					})
 
-				// Documents — collection
-				docs.GET("",
-					httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+					// Documents — collection
+					r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 						httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 						httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionDocsRead}},
-					),
-					deps.Document.ListDocuments,
-				)
-				docs.POST("",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite),
-					deps.Document.CreateDocument,
-				)
+					)).Get("/", deps.Document.ListDocuments)
+					r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite)).
+						Post("/", deps.Document.CreateDocument)
 
-				// Documents — single item
-				doc := docs.Group("/:docId")
-				{
-					doc.GET("",
-						httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+					// Documents — single item
+					r.Route("/{docId}", func(r chi.Router) {
+						r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionDocsRead}},
-						),
-						deps.Document.GetDocument,
-					)
-					doc.PATCH("",
-						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite),
-						deps.Document.UpdateDocument,
-					)
-					doc.DELETE("",
-						httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite),
-						deps.Document.DeleteDocument,
-					)
+						)).Get("/", deps.Document.GetDocument)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite)).
+							Patch("/", deps.Document.UpdateDocument)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite)).
+							Delete("/", deps.Document.DeleteDocument)
 
-					// Snapshots — version history
-					snapshots := doc.Group("/snapshots")
-					{
-						snapshots.GET("",
-							httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+						// Snapshots
+						r.Route("/snapshots", func(r chi.Router) {
+							r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 								httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 								httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionDocsRead}},
-							),
-							deps.Document.ListSnapshots,
-						)
-						snapshots.GET("/:snapshotId",
-							httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+							)).Get("/", deps.Document.ListSnapshots)
+							r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 								httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 								httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionDocsRead}},
-							),
-							deps.Document.GetSnapshot,
-						)
-					}
+							)).Get("/{snapshotId}", deps.Document.GetSnapshot)
+						})
 
-					// Activity log and comments
-					doc.GET("/activities",
-						httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+						// Activity log
+						r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
 							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
 							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionDocsRead}},
-						),
-						deps.Document.ListActivities,
-					)
-					comments := doc.Group("/comments")
-					{
-						comments.POST("",
-							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite),
-							deps.Document.AddComment,
-						)
-						comments.PATCH("/:commentId",
-							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite),
-							deps.Document.UpdateComment,
-						)
-						comments.DELETE("/:commentId",
-							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite),
-							deps.Document.DeleteComment,
-						)
-					}
+						)).Get("/activities", deps.Document.ListActivities)
 
-					// Doc file uploads — stored directly in the files table (no join table)
-					docFiles := doc.Group("/files")
-					{
-						docFiles.POST("/initiate-upload",
-							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite),
-							deps.DocFile.InitiateDocUpload,
-						)
-						docFiles.POST("/complete-upload",
-							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite),
-							deps.DocFile.CompleteDocUpload,
-						)
-						docFiles.GET("/:fileId/download-url",
-							httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
-								httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
-								httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionDocsRead}},
-							),
-							deps.DocFile.GetDocFileDownloadURL,
-						)
-						docFiles.DELETE("/:fileId",
-							httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite),
-							deps.DocFile.DeleteDocFile,
-						)
-					}
+						// Comments
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite)).
+							Post("/comments", deps.Document.AddComment)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite)).
+							Patch("/comments/{commentId}", deps.Document.UpdateComment)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite)).
+							Delete("/comments/{commentId}", deps.Document.DeleteComment)
+
+						// Doc file uploads
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite)).
+							Post("/files/initiate-upload", deps.DocFile.InitiateDocUpload)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite)).
+							Post("/files/complete-upload", deps.DocFile.CompleteDocUpload)
+						r.With(httpmw.RequirePublicProjectOrPermissions(deps.ProjectVisibilitySvc, deps.Authorizer,
+							httpmw.PermissionGroup{Scope: httpmw.GlobalScope(), Permissions: []authz.Permission{authz.PermissionProjectsRead}},
+							httpmw.PermissionGroup{Scope: httpmw.ProjectScopeFromParam("projectId"), Permissions: []authz.Permission{authz.PermissionDocsRead}},
+						)).Get("/files/{fileId}/download-url", deps.DocFile.GetDocFileDownloadURL)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionDocsWrite)).
+							Delete("/files/{fileId}", deps.DocFile.DeleteDocFile)
+					})
+				})
+
+				// Agents
+				if deps.Agent != nil {
+					r.Route("/agents", func(r chi.Router) {
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead)).
+							Get("/", deps.Agent.ListAgents)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite)).
+							Post("/", deps.Agent.CreateAgent)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead)).
+							Get("/{agentId}", deps.Agent.GetAgent)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite)).
+							Patch("/{agentId}", deps.Agent.UpdateAgent)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite)).
+							Delete("/{agentId}", deps.Agent.DeleteAgent)
+
+						// MCP servers
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead)).
+							Get("/{agentId}/mcp-servers", deps.Agent.ListMCPServers)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite)).
+							Post("/{agentId}/mcp-servers", deps.Agent.AddMCPServer)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite)).
+							Patch("/{agentId}/mcp-servers/{serverId}", deps.Agent.UpdateMCPServer)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite)).
+							Delete("/{agentId}/mcp-servers/{serverId}", deps.Agent.DeleteMCPServer)
+
+						// Skills
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead)).
+							Get("/{agentId}/skills", deps.Agent.ListSkills)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite)).
+							Post("/{agentId}/skills", deps.Agent.AddSkill)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite)).
+							Patch("/{agentId}/skills/{skillId}", deps.Agent.UpdateSkill)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite)).
+							Delete("/{agentId}/skills/{skillId}", deps.Agent.DeleteSkill)
+
+						// Chat sessions
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead)).
+							Get("/{agentId}/chat-sessions", deps.Agent.ListChatSessions)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead)).
+							Post("/{agentId}/chat-sessions", deps.Agent.StartChatSession)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead)).
+							Post("/{agentId}/chat-sessions/{sessionId}/messages", deps.Agent.SendChatMessage)
+					})
 				}
+
+				// Conversations
+				if deps.Conversation != nil {
+					r.Route("/conversations", func(r chi.Router) {
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead)).
+							Get("/", deps.Conversation.ListConversations)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead)).
+							Get("/{conversationId}", deps.Conversation.GetConversation)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead)).
+							Get("/{conversationId}/events", deps.Conversation.ListConversationEvents)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite)).
+							Post("/{conversationId}/stop", deps.Conversation.StopConversation)
+						r.With(httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead)).
+							Post("/{conversationId}/messages", deps.Conversation.SendConversationMessage)
+					})
+				}
+			})
+
+			// Plugin routes
+			if deps.Plugin != nil {
+				// Public listing — optional auth
+				r.Group(func(r chi.Router) {
+					r.Use(httpmw.OptionalAuthn(deps.TokenManager, deps.APIKeyAuth))
+					r.Use(httpmw.RequireFreshPassword())
+					r.Get("/plugins", deps.Plugin.ListPlugins)
+				})
+
+				// Plugin proxy — no authentication enforced at router level;
+				// per-route middleware policy is applied inside ProxyRequest.
+				r.Handle("/plugins/{pluginId}/*", http.HandlerFunc(deps.Plugin.ProxyRequest))
+
+				// Admin plugin management
+				r.Route("/admin/plugins", func(r chi.Router) {
+					r.Use(httpmw.Authn(deps.TokenManager, deps.APIKeyAuth))
+					r.Use(httpmw.RequireFreshPassword())
+					r.Use(httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionUsersWrite))
+					r.Get("/marketplace", deps.Plugin.ListMarketplacePlugins)
+					r.Post("/marketplace/install", deps.Plugin.InstallMarketplacePlugin)
+					r.Post("/", deps.Plugin.InstallPlugin)
+					r.Patch("/{pluginId}", deps.Plugin.UpdatePlugin)
+					r.Post("/{pluginId}/upgrade", deps.Plugin.UpgradeMarketplacePlugin)
+					r.Delete("/{pluginId}", deps.Plugin.DeletePlugin)
+				})
+
+				// Admin extension settings
+				r.Route("/admin/plugin-extension-settings", func(r chi.Router) {
+					r.Use(httpmw.Authn(deps.TokenManager, deps.APIKeyAuth))
+					r.Use(httpmw.RequireFreshPassword())
+					r.Use(httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionUsersWrite))
+					r.Patch("/", deps.Plugin.UpdateExtensionSetting)
+				})
 			}
-
-		}
-
-		// Agent routes — AI agent management and conversations
-		if deps.Agent != nil {
-			agents := project.Group("/agents")
-			{
-				agents.GET("",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead),
-					deps.Agent.ListAgents,
-				)
-				agents.POST("",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite),
-					deps.Agent.CreateAgent,
-				)
-				agents.GET("/:agentId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead),
-					deps.Agent.GetAgent,
-				)
-				agents.PATCH("/:agentId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite),
-					deps.Agent.UpdateAgent,
-				)
-				agents.DELETE("/:agentId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite),
-					deps.Agent.DeleteAgent,
-				)
-
-				// MCP servers
-				agents.GET("/:agentId/mcp-servers",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead),
-					deps.Agent.ListMCPServers,
-				)
-				agents.POST("/:agentId/mcp-servers",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite),
-					deps.Agent.AddMCPServer,
-				)
-				agents.PATCH("/:agentId/mcp-servers/:serverId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite),
-					deps.Agent.UpdateMCPServer,
-				)
-				agents.DELETE("/:agentId/mcp-servers/:serverId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite),
-					deps.Agent.DeleteMCPServer,
-				)
-
-				// Skills
-				agents.GET("/:agentId/skills",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead),
-					deps.Agent.ListSkills,
-				)
-				agents.POST("/:agentId/skills",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite),
-					deps.Agent.AddSkill,
-				)
-				agents.PATCH("/:agentId/skills/:skillId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite),
-					deps.Agent.UpdateSkill,
-				)
-				agents.DELETE("/:agentId/skills/:skillId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite),
-					deps.Agent.DeleteSkill,
-				)
-
-				// Chat sessions
-				agents.GET("/:agentId/chat-sessions",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead),
-					deps.Agent.ListChatSessions,
-				)
-				agents.POST("/:agentId/chat-sessions",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead),
-					deps.Agent.StartChatSession,
-				)
-				agents.POST("/:agentId/chat-sessions/:sessionId/messages",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead),
-					deps.Agent.SendChatMessage,
-				)
-			}
-		}
-
-		if deps.Conversation != nil {
-			conversations := project.Group("/conversations")
-			{
-				conversations.GET("",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead),
-					deps.Conversation.ListConversations,
-				)
-				conversations.GET("/:conversationId",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead),
-					deps.Conversation.GetConversation,
-				)
-				conversations.GET("/:conversationId/events",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead),
-					deps.Conversation.ListConversationEvents,
-				)
-				conversations.POST("/:conversationId/stop",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsWrite),
-					deps.Conversation.StopConversation,
-				)
-				conversations.POST("/:conversationId/messages",
-					httpmw.RequirePermissions(deps.Authorizer, httpmw.ProjectScopeFromParam("projectId"), authz.PermissionAgentsRead),
-					deps.Conversation.SendConversationMessage,
-				)
-			}
-		}
-
-		// Plugin routes — management (admin), extension settings (admin), and proxy (per-plugin).
-		if deps.Plugin != nil {
-			// Public listing: any authenticated user can see installed plugins, anonymous users can also access.
-			pluginList := v1.Group("/plugins")
-			pluginList.Use(httpmw.OptionalAuthn(deps.TokenManager, deps.APIKeyAuth))
-			pluginList.Use(httpmw.RequireFreshPassword())
-			pluginList.GET("", deps.Plugin.ListPlugins)
-
-			// Plugin proxy routes — forward requests to plugin WASM handlers.
-			// The full sub-path (including any /projects/:projectId/ segment) is
-			// captured by the wildcard and matched against the plugin's own route
-			// manifest. Route-level authn/authz is enforced by the plugin proxy
-			// handler based on the per-route middleware declarations in the manifest.
-			v1.Any("/plugins/:pluginId/*path", deps.Plugin.ProxyRequest)
-
-			// Admin plugin management — requires global users.write permission
-			// (no dedicated plugin permission exists yet).
-			adminPlugins := v1.Group("/admin/plugins")
-			adminPlugins.Use(httpmw.Authn(deps.TokenManager, deps.APIKeyAuth))
-			adminPlugins.Use(httpmw.RequireFreshPassword())
-			adminPlugins.Use(httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionUsersWrite))
-			{
-				adminPlugins.GET("/marketplace", deps.Plugin.ListMarketplacePlugins)
-				adminPlugins.POST("/marketplace/install", deps.Plugin.InstallMarketplacePlugin)
-				adminPlugins.POST("", deps.Plugin.InstallPlugin)
-				adminPlugins.PATCH("/:pluginId", deps.Plugin.UpdatePlugin)
-				adminPlugins.POST("/:pluginId/upgrade", deps.Plugin.UpgradeMarketplacePlugin)
-				adminPlugins.DELETE("/:pluginId", deps.Plugin.DeletePlugin)
-			}
-
-			// Admin extension settings — system-wide ordering/visibility, super admin only.
-			adminExtSettings := v1.Group("/admin/plugin-extension-settings")
-			adminExtSettings.Use(httpmw.Authn(deps.TokenManager, deps.APIKeyAuth))
-			adminExtSettings.Use(httpmw.RequireFreshPassword())
-			adminExtSettings.Use(httpmw.RequirePermissions(deps.Authorizer, httpmw.GlobalScope(), authz.PermissionUsersWrite))
-			{
-				adminExtSettings.PATCH("", deps.Plugin.UpdateExtensionSetting)
-			}
-		}
-	}
+		})
+	})
 
 	return r
 }
 
+// statusRecorder wraps http.ResponseWriter to capture the response status code.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (sr *statusRecorder) WriteHeader(code int) {
+	sr.status = code
+	sr.ResponseWriter.WriteHeader(code)
+}
+
 // requestIDMiddleware attaches a UUID request ID to every request context and
 // response header.
-func requestIDMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.GetHeader("X-Request-ID")
-		if id == "" {
-			id = uuid.NewString()
-		}
-		c.Set("request_id", id)
-		c.Header("X-Request-ID", id)
-		c.Next()
+func requestIDMiddleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			id := r.Header.Get("X-Request-ID")
+			if id == "" {
+				id = uuid.NewString()
+			}
+			ctx := httpx.WithRequestID(r.Context(), id)
+			w.Header().Set("X-Request-ID", id)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
 	}
 }
 
 // loggerMiddleware logs method, path, status, and latency via slog.
-func loggerMiddleware(log *slog.Logger) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		start := time.Now()
-		c.Next()
-		log.Info("http",
-			"method", c.Request.Method,
-			"path", c.Request.URL.Path,
-			"status", c.Writer.Status(),
-			"latency_ms", time.Since(start).Milliseconds(),
-			"request_id", c.GetString("request_id"),
-		)
+func loggerMiddleware(log *slog.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			sr := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+			next.ServeHTTP(sr, r)
+			log.Info("http",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", sr.status,
+				"latency_ms", time.Since(start).Milliseconds(),
+				"request_id", httpx.RequestIDFromContext(r.Context()),
+			)
+		})
 	}
 }
 
 // corsMiddleware sets permissive CORS headers (tighten in production).
-func corsMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-ID")
+func corsMiddleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-ID")
 
-		if c.Request.Method == http.MethodOptions {
-			c.AbortWithStatus(http.StatusNoContent)
-			return
-		}
-		c.Next()
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
 	}
 }

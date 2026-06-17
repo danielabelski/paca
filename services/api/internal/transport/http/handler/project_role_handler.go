@@ -1,102 +1,109 @@
 package handler
 
 import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	"github.com/Paca-AI/api/internal/apierr"
 	projectdom "github.com/Paca-AI/api/internal/domain/project"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // ListRoles handles GET /projects/:projectId/roles.
-func (h *ProjectHandler) ListRoles(c *gin.Context) {
-	id, err := parseProjectID(c)
+func (h *ProjectHandler) ListRoles(w http.ResponseWriter, r *http.Request) {
+	id, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	roles, err := h.svc.ListRoles(c.Request.Context(), id)
+	roles, err := h.svc.ListRoles(r.Context(), id)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.ProjectRoleResponse, 0, len(roles))
 	for _, r := range roles {
 		resp = append(resp, dto.ProjectRoleFromEntity(r))
 	}
-	presenter.OK(c, resp)
+	presenter.OK(w, r, resp)
 }
 
 // CreateRole handles POST /projects/:projectId/roles.
-func (h *ProjectHandler) CreateRole(c *gin.Context) {
-	id, err := parseProjectID(c)
+func (h *ProjectHandler) CreateRole(w http.ResponseWriter, r *http.Request) {
+	id, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.CreateProjectRoleRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if req.RoleName == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "role_name is required"))
 		return
 	}
 
-	role, err := h.svc.CreateRole(c.Request.Context(), id, projectdom.CreateRoleInput{
+	role, err := h.svc.CreateRole(r.Context(), id, projectdom.CreateRoleInput{
 		RoleName:    req.RoleName,
 		Permissions: req.Permissions,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.Created(c, dto.ProjectRoleFromEntity(role))
+	presenter.Created(w, r, dto.ProjectRoleFromEntity(role))
 }
 
 // UpdateRole handles PATCH /projects/:projectId/roles/:roleId.
-func (h *ProjectHandler) UpdateRole(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *ProjectHandler) UpdateRole(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	roleID, err := uuid.Parse(c.Param("roleId"))
+	roleID, err := uuid.Parse(chi.URLParam(r, "roleId"))
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid role id"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid role id"))
 		return
 	}
 
 	var req dto.UpdateProjectRoleRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
-	role, err := h.svc.UpdateRole(c.Request.Context(), projectID, roleID, projectdom.UpdateRoleInput{
+	role, err := h.svc.UpdateRole(r.Context(), projectID, roleID, projectdom.UpdateRoleInput{
 		RoleName:    req.RoleName,
 		Permissions: req.Permissions,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.ProjectRoleFromEntity(role))
+	presenter.OK(w, r, dto.ProjectRoleFromEntity(role))
 }
 
 // DeleteRole handles DELETE /projects/:projectId/roles/:roleId.
-func (h *ProjectHandler) DeleteRole(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *ProjectHandler) DeleteRole(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	roleID, err := uuid.Parse(c.Param("roleId"))
+	roleID, err := uuid.Parse(chi.URLParam(r, "roleId"))
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid role id"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid role id"))
 		return
 	}
-	if err := h.svc.DeleteRole(c.Request.Context(), projectID, roleID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.DeleteRole(r.Context(), projectID, roleID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, gin.H{"message": "project role deleted"})
+	presenter.OK(w, r, map[string]any{"message": "project role deleted"})
 }

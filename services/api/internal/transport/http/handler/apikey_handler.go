@@ -1,13 +1,16 @@
 package handler
 
 import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	"github.com/Paca-AI/api/internal/apierr"
 	apikeydom "github.com/Paca-AI/api/internal/domain/apikey"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // APIKeyHandler handles API key management endpoints.
@@ -21,15 +24,15 @@ func NewAPIKeyHandler(svc apikeydom.Service) *APIKeyHandler {
 }
 
 // List handles GET /users/me/api-keys.
-func (h *APIKeyHandler) List(c *gin.Context) {
-	userID, ok := resolveCallerID(c)
+func (h *APIKeyHandler) List(w http.ResponseWriter, r *http.Request) {
+	userID, ok := resolveCallerID(w, r)
 	if !ok {
 		return
 	}
 
-	keys, err := h.svc.List(c.Request.Context(), userID)
+	keys, err := h.svc.List(r.Context(), userID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
@@ -37,18 +40,18 @@ func (h *APIKeyHandler) List(c *gin.Context) {
 	for _, k := range keys {
 		resp = append(resp, dto.APIKeyFromEntity(k))
 	}
-	presenter.OK(c, resp)
+	presenter.OK(w, r, resp)
 }
 
 // Create handles POST /users/me/api-keys.
-func (h *APIKeyHandler) Create(c *gin.Context) {
-	userID, ok := resolveCallerID(c)
+func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
+	userID, ok := resolveCallerID(w, r)
 	if !ok {
 		return
 	}
 
 	var req dto.CreateAPIKeyRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
@@ -58,9 +61,9 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 		ExpiresAt: req.ExpiresAt,
 	}
 
-	key, rawKey, err := h.svc.Create(c.Request.Context(), in)
+	key, rawKey, err := h.svc.Create(r.Context(), in)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
@@ -68,40 +71,40 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 		APIKeyResponse: dto.APIKeyFromEntity(key),
 		Key:            rawKey,
 	}
-	presenter.Created(c, resp)
+	presenter.Created(w, r, resp)
 }
 
 // Revoke handles DELETE /users/me/api-keys/:keyId.
-func (h *APIKeyHandler) Revoke(c *gin.Context) {
-	userID, ok := resolveCallerID(c)
+func (h *APIKeyHandler) Revoke(w http.ResponseWriter, r *http.Request) {
+	userID, ok := resolveCallerID(w, r)
 	if !ok {
 		return
 	}
 
-	keyID, err := uuid.Parse(c.Param("keyId"))
+	keyID, err := uuid.Parse(chi.URLParam(r, "keyId"))
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid key ID"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid key ID"))
 		return
 	}
 
-	if err := h.svc.Revoke(c.Request.Context(), userID, keyID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.Revoke(r.Context(), userID, keyID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
 
-	presenter.NoContent(c)
+	presenter.NoContent(w)
 }
 
 // resolveCallerID extracts the authenticated user's ID from JWT claims.
-func resolveCallerID(c *gin.Context) (uuid.UUID, bool) {
-	claims := middleware.ClaimsFrom(c)
+func resolveCallerID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	claims := middleware.ClaimsFrom(r)
 	if claims == nil {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return uuid.Nil, false
 	}
 	id, err := uuid.Parse(claims.Subject)
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
 		return uuid.Nil, false
 	}
 	return id, true

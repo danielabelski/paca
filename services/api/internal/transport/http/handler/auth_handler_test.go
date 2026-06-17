@@ -12,11 +12,10 @@ import (
 
 	domainauth "github.com/Paca-AI/api/internal/domain/auth"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
-	"github.com/gin-gonic/gin"
+	httpmw "github.com/Paca-AI/api/internal/transport/http/middleware"
+	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
 )
-
-func init() { gin.SetMode(gin.TestMode) }
 
 // testCookieConfig is an insecure config suitable for unit tests.
 var testCookieConfig = handler.CookieConfig{
@@ -73,7 +72,7 @@ func jsonBody(t *testing.T, v any) *bytes.Buffer {
 }
 
 // do sends method+path to engine with an optional JSON body and returns the recorder.
-func do(t *testing.T, engine *gin.Engine, method, path string, body *bytes.Buffer) *httptest.ResponseRecorder {
+func do(t *testing.T, engine http.Handler, method, path string, body *bytes.Buffer) *httptest.ResponseRecorder {
 	t.Helper()
 	var req *http.Request
 	if body != nil {
@@ -88,7 +87,7 @@ func do(t *testing.T, engine *gin.Engine, method, path string, body *bytes.Buffe
 }
 
 // doWithCookie is like do but also attaches an extra cookie to the request.
-func doWithCookie(t *testing.T, engine *gin.Engine, method, path string, body *bytes.Buffer, cookieName, cookieValue string) *httptest.ResponseRecorder {
+func doWithCookie(t *testing.T, engine http.Handler, method, path string, body *bytes.Buffer, cookieName, cookieValue string) *httptest.ResponseRecorder {
 	t.Helper()
 	var req *http.Request
 	if body != nil {
@@ -103,11 +102,13 @@ func doWithCookie(t *testing.T, engine *gin.Engine, method, path string, body *b
 	return w
 }
 
-// injectClaims returns a Gin middleware that sets the given claims into the context.
-func injectClaims(claims *domainauth.Claims) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Set("claims", claims)
-		c.Next()
+// injectClaims returns a middleware that sets the given claims into the request context.
+func injectClaims(claims *domainauth.Claims) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := context.WithValue(r.Context(), httpmw.ClaimsContextKey(), claims)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
 	}
 }
 
@@ -143,8 +144,8 @@ func errorCode(t *testing.T, w *httptest.ResponseRecorder) string {
 // ---------------------------------------------------------------------------
 
 func TestHealth_OK(t *testing.T) {
-	r := gin.New()
-	r.GET("/healthz", handler.NewHealthHandler().Check)
+	r := chi.NewRouter()
+	r.Get("/healthz", handler.NewHealthHandler().Check)
 
 	w := do(t, r, http.MethodGet, "/healthz", nil)
 	if w.Code != http.StatusOK {
@@ -162,8 +163,8 @@ func TestLogin_Success(t *testing.T) {
 			return &domainauth.TokenPair{AccessToken: "at", RefreshToken: "rt", RefreshTTL: 7 * 24 * time.Hour}, nil
 		},
 	}
-	r := gin.New()
-	r.POST("/auth/login", handler.NewAuthHandler(svc, testCookieConfig).Login)
+	r := chi.NewRouter()
+	r.Post("/auth/login", handler.NewAuthHandler(svc, testCookieConfig).Login)
 
 	w := do(t, r, http.MethodPost, "/auth/login",
 		jsonBody(t, map[string]string{"username": "alice", "password": "secret12"}))
@@ -187,8 +188,8 @@ func TestLogin_Success(t *testing.T) {
 }
 
 func TestLogin_BadJSON(t *testing.T) {
-	r := gin.New()
-	r.POST("/auth/login", handler.NewAuthHandler(&mockAuthSvc{}, testCookieConfig).Login)
+	r := chi.NewRouter()
+	r.Post("/auth/login", handler.NewAuthHandler(&mockAuthSvc{}, testCookieConfig).Login)
 
 	w := do(t, r, http.MethodPost, "/auth/login", bytes.NewBufferString("not-json"))
 	if w.Code == http.StatusOK {
@@ -197,8 +198,8 @@ func TestLogin_BadJSON(t *testing.T) {
 }
 
 func TestLogin_MissingFields(t *testing.T) {
-	r := gin.New()
-	r.POST("/auth/login", handler.NewAuthHandler(&mockAuthSvc{}, testCookieConfig).Login)
+	r := chi.NewRouter()
+	r.Post("/auth/login", handler.NewAuthHandler(&mockAuthSvc{}, testCookieConfig).Login)
 
 	// username missing
 	w := do(t, r, http.MethodPost, "/auth/login",
@@ -208,14 +209,25 @@ func TestLogin_MissingFields(t *testing.T) {
 	}
 }
 
+func TestLogin_EmptyUsername_Returns400(t *testing.T) {
+	r := chi.NewRouter()
+	r.Post("/auth/login", handler.NewAuthHandler(&mockAuthSvc{}, testCookieConfig).Login)
+
+	w := do(t, r, http.MethodPost, "/auth/login",
+		jsonBody(t, map[string]string{"username": "", "password": "secret12"}))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty username, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestLogin_InvalidCreds(t *testing.T) {
 	svc := &mockAuthSvc{
 		login: func(_ context.Context, _, _ string, _ bool) (*domainauth.TokenPair, error) {
 			return nil, domainauth.ErrInvalidCredentials
 		},
 	}
-	r := gin.New()
-	r.POST("/auth/login", handler.NewAuthHandler(svc, testCookieConfig).Login)
+	r := chi.NewRouter()
+	r.Post("/auth/login", handler.NewAuthHandler(svc, testCookieConfig).Login)
 
 	w := do(t, r, http.MethodPost, "/auth/login",
 		jsonBody(t, map[string]string{"username": "alice", "password": "wrongpass"}))
@@ -237,8 +249,8 @@ func TestRefresh_Success(t *testing.T) {
 			return &domainauth.TokenPair{AccessToken: "new-at", RefreshToken: "new-rt", RefreshTTL: 7 * 24 * time.Hour}, nil
 		},
 	}
-	r := gin.New()
-	r.POST("/auth/refresh", handler.NewAuthHandler(svc, testCookieConfig).Refresh)
+	r := chi.NewRouter()
+	r.Post("/auth/refresh", handler.NewAuthHandler(svc, testCookieConfig).Refresh)
 
 	w := doWithCookie(t, r, http.MethodPost, "/auth/refresh", nil, "refresh_token", "old-rt")
 	if w.Code != http.StatusOK {
@@ -247,8 +259,8 @@ func TestRefresh_Success(t *testing.T) {
 }
 
 func TestRefresh_MissingCookie(t *testing.T) {
-	r := gin.New()
-	r.POST("/auth/refresh", handler.NewAuthHandler(&mockAuthSvc{}, testCookieConfig).Refresh)
+	r := chi.NewRouter()
+	r.Post("/auth/refresh", handler.NewAuthHandler(&mockAuthSvc{}, testCookieConfig).Refresh)
 
 	// No cookie — expect 401 with AUTH_MISSING_TOKEN.
 	w := do(t, r, http.MethodPost, "/auth/refresh", nil)
@@ -266,8 +278,8 @@ func TestRefresh_InvalidToken(t *testing.T) {
 			return nil, domainauth.ErrTokenInvalid
 		},
 	}
-	r := gin.New()
-	r.POST("/auth/refresh", handler.NewAuthHandler(svc, testCookieConfig).Refresh)
+	r := chi.NewRouter()
+	r.Post("/auth/refresh", handler.NewAuthHandler(svc, testCookieConfig).Refresh)
 
 	w := doWithCookie(t, r, http.MethodPost, "/auth/refresh", nil, "refresh_token", "bad")
 	if w.Code != http.StatusUnauthorized {
@@ -290,9 +302,9 @@ func TestLogout_Success(t *testing.T) {
 			return nil
 		},
 	}
-	r := gin.New()
+	r := chi.NewRouter()
 	claims := testClaims("uid-1", "alice", "USER")
-	r.POST("/auth/logout", injectClaims(claims), handler.NewAuthHandler(svc, testCookieConfig).Logout)
+	r.With(injectClaims(claims)).Post("/auth/logout", handler.NewAuthHandler(svc, testCookieConfig).Logout)
 
 	w := do(t, r, http.MethodPost, "/auth/logout", nil)
 	if w.Code != http.StatusOK {
@@ -310,9 +322,9 @@ func TestLogout_Success(t *testing.T) {
 }
 
 func TestLogout_NoClaims(t *testing.T) {
-	r := gin.New()
+	r := chi.NewRouter()
 	// No claims-injecting middleware — claims will be nil.
-	r.POST("/auth/logout", handler.NewAuthHandler(&mockAuthSvc{}, testCookieConfig).Logout)
+	r.Post("/auth/logout", handler.NewAuthHandler(&mockAuthSvc{}, testCookieConfig).Logout)
 
 	w := do(t, r, http.MethodPost, "/auth/logout", nil)
 	if w.Code != http.StatusUnauthorized {
@@ -335,8 +347,8 @@ func TestLogin_RememberMe_True_ForwardedToService(t *testing.T) {
 			return &domainauth.TokenPair{AccessToken: "at", RefreshToken: "rt", RefreshTTL: 7 * 24 * time.Hour}, nil
 		},
 	}
-	r := gin.New()
-	r.POST("/auth/login", handler.NewAuthHandler(svc, testCookieConfig).Login)
+	r := chi.NewRouter()
+	r.Post("/auth/login", handler.NewAuthHandler(svc, testCookieConfig).Login)
 
 	w := do(t, r, http.MethodPost, "/auth/login",
 		jsonBody(t, map[string]any{"username": "alice", "password": "secret12", "remember_me": true}))
@@ -356,8 +368,8 @@ func TestLogin_RememberMe_False_ForwardedToService(t *testing.T) {
 			return &domainauth.TokenPair{AccessToken: "at", RefreshToken: "rt", RefreshTTL: 24 * time.Hour}, nil
 		},
 	}
-	r := gin.New()
-	r.POST("/auth/login", handler.NewAuthHandler(svc, testCookieConfig).Login)
+	r := chi.NewRouter()
+	r.Post("/auth/login", handler.NewAuthHandler(svc, testCookieConfig).Login)
 
 	// Omitting remember_me defaults to false.
 	w := do(t, r, http.MethodPost, "/auth/login",
@@ -377,8 +389,8 @@ func TestLogin_RememberMe_True_LongCookieMaxAge(t *testing.T) {
 			return &domainauth.TokenPair{AccessToken: "at", RefreshToken: "rt", RefreshTTL: wantTTL}, nil
 		},
 	}
-	r := gin.New()
-	r.POST("/auth/login", handler.NewAuthHandler(svc, testCookieConfig).Login)
+	r := chi.NewRouter()
+	r.Post("/auth/login", handler.NewAuthHandler(svc, testCookieConfig).Login)
 
 	w := do(t, r, http.MethodPost, "/auth/login",
 		jsonBody(t, map[string]any{"username": "alice", "password": "secret12", "remember_me": true}))
@@ -405,8 +417,8 @@ func TestLogin_RememberMe_False_ShortCookieMaxAge(t *testing.T) {
 			return &domainauth.TokenPair{AccessToken: "at", RefreshToken: "rt", RefreshTTL: wantTTL}, nil
 		},
 	}
-	r := gin.New()
-	r.POST("/auth/login", handler.NewAuthHandler(svc, testCookieConfig).Login)
+	r := chi.NewRouter()
+	r.Post("/auth/login", handler.NewAuthHandler(svc, testCookieConfig).Login)
 
 	w := do(t, r, http.MethodPost, "/auth/login",
 		jsonBody(t, map[string]any{"username": "alice", "password": "secret12", "remember_me": false}))
@@ -433,8 +445,8 @@ func TestRefresh_CookieMaxAge_ReflectsServiceTTL(t *testing.T) {
 			return &domainauth.TokenPair{AccessToken: "new-at", RefreshToken: "new-rt", RefreshTTL: wantTTL}, nil
 		},
 	}
-	r := gin.New()
-	r.POST("/auth/refresh", handler.NewAuthHandler(svc, testCookieConfig).Refresh)
+	r := chi.NewRouter()
+	r.Post("/auth/refresh", handler.NewAuthHandler(svc, testCookieConfig).Refresh)
 
 	w := doWithCookie(t, r, http.MethodPost, "/auth/refresh", nil, "refresh_token", "old-rt")
 	if w.Code != http.StatusOK {

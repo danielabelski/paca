@@ -1,7 +1,11 @@
 package handler
 
 import (
+	"net/http"
 	"strconv"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/Paca-AI/api/internal/apierr"
 	projectdom "github.com/Paca-AI/api/internal/domain/project"
@@ -10,8 +14,6 @@ import (
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // ProjectHandler handles project management endpoints.
@@ -47,9 +49,9 @@ func NewProjectHandler(svc projectdom.Service, authorizer *authz.Authorizer, opt
 // ListProjects handles GET /projects.
 // Users with the global projects.read permission receive all projects.
 // All other authenticated users receive only the projects they are a member of.
-func (h *ProjectHandler) ListProjects(c *gin.Context) {
-	claims := middleware.ClaimsFrom(c)
-	page, pageSize := pagingParams(c)
+func (h *ProjectHandler) ListProjects(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.ClaimsFrom(r)
+	page, pageSize := pagingParams(r)
 
 	var (
 		projects []*projectdom.Project
@@ -59,25 +61,25 @@ func (h *ProjectHandler) ListProjects(c *gin.Context) {
 
 	userID, parseErr := uuid.Parse(claims.Subject)
 	if parseErr != nil {
-		presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
 		return
 	}
 
 	hasGlobalRead, authzErr := h.authorizer.HasPermissions(
-		c.Request.Context(), userID, nil, claims.Role, authz.PermissionProjectsRead,
+		r.Context(), userID, nil, claims.Role, authz.PermissionProjectsRead,
 	)
 	if authzErr != nil {
-		presenter.Error(c, authzErr)
+		presenter.Error(w, r, authzErr)
 		return
 	}
 
 	if hasGlobalRead {
-		projects, total, err = h.svc.List(c.Request.Context(), page, pageSize)
+		projects, total, err = h.svc.List(r.Context(), page, pageSize)
 	} else {
-		projects, total, err = h.svc.ListAccessible(c.Request.Context(), userID, page, pageSize)
+		projects, total, err = h.svc.ListAccessible(r.Context(), userID, page, pageSize)
 	}
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
@@ -85,32 +87,36 @@ func (h *ProjectHandler) ListProjects(c *gin.Context) {
 	for _, p := range projects {
 		resp = append(resp, dto.ProjectFromEntity(p))
 	}
-	presenter.OK(c, gin.H{"items": resp, "total": total, "page": page, "page_size": pageSize})
+	presenter.OK(w, r, map[string]any{"items": resp, "total": total, "page": page, "page_size": pageSize})
 }
 
 // GetProject handles GET /projects/:projectId.
-func (h *ProjectHandler) GetProject(c *gin.Context) {
-	id, err := parseProjectID(c)
+func (h *ProjectHandler) GetProject(w http.ResponseWriter, r *http.Request) {
+	id, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	p, err := h.svc.GetByID(c.Request.Context(), id)
+	p, err := h.svc.GetByID(r.Context(), id)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.ProjectFromEntity(p))
+	presenter.OK(w, r, dto.ProjectFromEntity(p))
 }
 
 // CreateProject handles POST /projects.
-func (h *ProjectHandler) CreateProject(c *gin.Context) {
+func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 	var req dto.CreateProjectRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if req.Name == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "name is required"))
 		return
 	}
 
-	claims := middleware.ClaimsFrom(c)
+	claims := middleware.ClaimsFrom(r)
 	var createdBy *uuid.UUID
 	if claims != nil {
 		if uid, err := uuid.Parse(claims.Subject); err == nil {
@@ -118,7 +124,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		}
 	}
 
-	p, err := h.svc.Create(c.Request.Context(), projectdom.CreateProjectInput{
+	p, err := h.svc.Create(r.Context(), projectdom.CreateProjectInput{
 		Name:         req.Name,
 		Description:  req.Description,
 		TaskIDPrefix: req.TaskIDPrefix,
@@ -127,39 +133,34 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		CreatedBy:    createdBy,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	if h.viewSvc != nil {
-		taskTypes, loadErr := loadTaskTypes(c.Request.Context(), h.taskTypeSvc, p.ID)
-		if loadErr != nil {
-			c.Error(loadErr) //nolint:errcheck
-		}
+		taskTypes, _ := loadTaskTypes(r.Context(), h.taskTypeSvc, p.ID)
 		for _, input := range defaultProjectViewInputs(p.ID, taskTypes) {
-			if _, seedErr := h.viewSvc.CreateView(c.Request.Context(), input); seedErr != nil {
-				c.Error(seedErr) //nolint:errcheck
-			}
+			_, _ = h.viewSvc.CreateView(r.Context(), input)
 		}
 	}
 
-	presenter.Created(c, dto.ProjectFromEntity(p))
+	presenter.Created(w, r, dto.ProjectFromEntity(p))
 }
 
 // UpdateProject handles PATCH /projects/:projectId.
-func (h *ProjectHandler) UpdateProject(c *gin.Context) {
-	id, err := parseProjectID(c)
+func (h *ProjectHandler) UpdateProject(w http.ResponseWriter, r *http.Request) {
+	id, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.UpdateProjectRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
-	p, err := h.svc.Update(c.Request.Context(), id, projectdom.UpdateProjectInput{
+	p, err := h.svc.Update(r.Context(), id, projectdom.UpdateProjectInput{
 		Name:         req.Name,
 		Description:  req.Description,
 		TaskIDPrefix: req.TaskIDPrefix,
@@ -167,39 +168,39 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 		Settings:     req.Settings,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.ProjectFromEntity(p))
+	presenter.OK(w, r, dto.ProjectFromEntity(p))
 }
 
 // DeleteProject handles DELETE /projects/:projectId.
-func (h *ProjectHandler) DeleteProject(c *gin.Context) {
-	id, err := parseProjectID(c)
+func (h *ProjectHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
+	id, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	if err := h.svc.Delete(c.Request.Context(), id); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.Delete(r.Context(), id); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, gin.H{"message": "project deleted"})
+	presenter.OK(w, r, map[string]any{"message": "project deleted"})
 }
 
 // --- helpers ----------------------------------------------------------------
 
-func parseProjectID(c *gin.Context) (uuid.UUID, error) {
-	id, err := uuid.Parse(c.Param("projectId"))
+func parseProjectID(r *http.Request) (uuid.UUID, error) {
+	id, err := uuid.Parse(chi.URLParam(r, "projectId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid project id")
 	}
 	return id, nil
 }
 
-func pagingParams(c *gin.Context) (page, pageSize int) {
-	page, _ = strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ = strconv.Atoi(c.DefaultQuery("page_size", "20"))
+func pagingParams(r *http.Request) (page, pageSize int) {
+	page, _ = strconv.Atoi(defaultQuery(r, "page", "1"))
+	pageSize, _ = strconv.Atoi(defaultQuery(r, "page_size", "20"))
 	if page < 1 {
 		page = 1
 	}

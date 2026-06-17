@@ -10,11 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	sprintdom "github.com/Paca-AI/api/internal/domain/sprint"
 	taskdom "github.com/Paca-AI/api/internal/domain/task"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // ---------------------------------------------------------------------------
@@ -127,7 +128,6 @@ func (f *fakeViewSvcH) ReorderProjectViews(_ context.Context, _ uuid.UUID, _ spr
 // ---------------------------------------------------------------------------
 
 func TestCreateSprint_SeedsDefaultViews(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	sprintSvc := &fakeSprintSvcH{}
 	viewSvc := &fakeViewSvcH{}
@@ -140,8 +140,8 @@ func TestCreateSprint_SeedsDefaultViews(t *testing.T) {
 
 	h := handler.NewSprintHandler(sprintSvc, viewSvc, handler.WithSprintDefaultTaskTypes(taskTypeSvc))
 
-	r := gin.New()
-	r.POST("/projects/:projectId/sprints", h.CreateSprint)
+	r := chi.NewRouter()
+	r.Post("/projects/{projectId}/sprints", h.CreateSprint)
 
 	body, _ := json.Marshal(map[string]any{"name": "Sprint 1"})
 	projectID := uuid.New()
@@ -231,7 +231,6 @@ func TestCreateSprint_SeedsDefaultViews(t *testing.T) {
 }
 
 func TestCompleteSprint_OK(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	sprintSvc := &fakeSprintSvcH{}
 	viewSvc := &fakeViewSvcH{}
@@ -247,8 +246,8 @@ func TestCompleteSprint_OK(t *testing.T) {
 	sprintSvc.created = append(sprintSvc.created, activeSprint)
 
 	h := handler.NewSprintHandler(sprintSvc, viewSvc)
-	r := gin.New()
-	r.POST("/projects/:projectId/sprints/:sprintId/complete", h.CompleteSprint)
+	r := chi.NewRouter()
+	r.Post("/projects/{projectId}/sprints/{sprintId}/complete", h.CompleteSprint)
 
 	body, _ := json.Marshal(map[string]any{})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
@@ -276,14 +275,13 @@ func TestCompleteSprint_OK(t *testing.T) {
 }
 
 func TestCompleteSprint_NotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	sprintSvc := &fakeSprintSvcH{}
 	viewSvc := &fakeViewSvcH{}
 	h := handler.NewSprintHandler(sprintSvc, viewSvc)
 
-	r := gin.New()
-	r.POST("/projects/:projectId/sprints/:sprintId/complete", h.CompleteSprint)
+	r := chi.NewRouter()
+	r.Post("/projects/{projectId}/sprints/{sprintId}/complete", h.CompleteSprint)
 
 	body, _ := json.Marshal(map[string]any{})
 	projectID := uuid.New()
@@ -296,5 +294,76 @@ func TestCompleteSprint_NotFound(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateSprint_EmptyName_Returns400(t *testing.T) {
+	sprintSvc := &fakeSprintSvcH{}
+	viewSvc := &fakeViewSvcH{}
+	h := handler.NewSprintHandler(sprintSvc, viewSvc)
+
+	r := chi.NewRouter()
+	r.Post("/projects/{projectId}/sprints", h.CreateSprint)
+
+	body, _ := json.Marshal(map[string]any{"name": ""})
+	projectID := uuid.New()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/projects/"+projectID.String()+"/sprints", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty sprint name, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func newViewRouter(svc sprintdom.ViewService) chi.Router {
+	h := handler.NewViewHandler(svc)
+	r := chi.NewRouter()
+	r.Route("/projects/{projectId}", func(r chi.Router) {
+		r.Get("/views", h.ListViews)
+		r.Post("/views", h.CreateView)
+		r.Put("/views/positions", h.ReorderViews)
+		r.Get("/views/{viewId}", h.GetView)
+		r.Patch("/views/{viewId}", h.UpdateView)
+		r.Delete("/views/{viewId}", h.DeleteView)
+	})
+	return r
+}
+
+func TestCreateView_EmptyName_Returns400(t *testing.T) {
+	r := newViewRouter(&fakeViewSvcH{})
+	projectID := uuid.New()
+	sprintID := uuid.New()
+
+	body, _ := json.Marshal(map[string]any{"name": ""})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/projects/"+projectID.String()+"/views?context=sprint&sprint_id="+sprintID.String(),
+		bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty view name, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestReorderViews_EmptyViewIDs_Returns400(t *testing.T) {
+	r := newViewRouter(&fakeViewSvcH{})
+	projectID := uuid.New()
+	sprintID := uuid.New()
+
+	body, _ := json.Marshal(map[string]any{"view_ids": []string{}})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+		"/projects/"+projectID.String()+"/views/positions?context=sprint&sprint_id="+sprintID.String(),
+		bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty view_ids, got %d: %s", w.Code, w.Body.String())
 	}
 }

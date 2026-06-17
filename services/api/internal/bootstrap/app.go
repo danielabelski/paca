@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"time"
 
+	"database/sql"
+
 	"github.com/Paca-AI/api/internal/config"
 	globalroledom "github.com/Paca-AI/api/internal/domain/globalrole"
 	userdom "github.com/Paca-AI/api/internal/domain/user"
@@ -41,10 +43,9 @@ import (
 	"github.com/Paca-AI/api/internal/transport/http/router"
 	"github.com/Paca-AI/api/internal/worker"
 	"github.com/Paca-AI/api/migrations"
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 )
 
 // agentBotUserID is the fixed UUID of the built-in agent bot user seeded on
@@ -65,10 +66,6 @@ type App struct {
 // New builds all dependencies and returns a ready-to-run App.
 func New(cfg *config.Config) (*App, error) {
 	log := logger.New(cfg.Env)
-
-	if cfg.Env == "production" {
-		gin.SetMode(gin.ReleaseMode)
-	}
 
 	// --- Platform -----------------------------------------------------------
 	db, err := database.Open(database.Config{
@@ -108,7 +105,7 @@ func New(cfg *config.Config) (*App, error) {
 	// --- Schema migration ---------------------------------------------------
 	// All statements use CREATE TABLE IF NOT EXISTS / INSERT … ON CONFLICT so
 	// they are idempotent and safe to re-run on every startup.
-	if err := database.RunMigrationsFS(db, migrations.FS); err != nil {
+	if err := database.RunMigrationsFS(db.DB, migrations.FS); err != nil {
 		return nil, fmt.Errorf("bootstrap: auto-migrate: %w", err)
 	}
 	log.Info("schema migrations applied")
@@ -191,12 +188,8 @@ func New(cfg *config.Config) (*App, error) {
 	}
 
 	// --- Plugin infrastructure ----------------------------------------------
-	// Get the underlying *sql.DB for plugin-scoped operations (migration runner
-	// and DB host function bridge both need raw database/sql, not GORM).
-	sqlDB, err := db.DB()
-	if err != nil {
-		return nil, fmt.Errorf("bootstrap: plugin: get sql.DB: %w", err)
-	}
+	// sqlx.DB embeds *sql.DB; plugin infrastructure uses the raw driver interface.
+	sqlDB := db.DB
 
 	pluginStore, err := pluginrt.NewStore(context.Background(), pluginrt.StoreConfig{
 		Store:    cfg.Plugins.Store,
@@ -301,19 +294,6 @@ func New(cfg *config.Config) (*App, error) {
 
 	return &App{server: srv, publisher: publisher, activityConsumer: activityConsumer, docActivityConsumer: docActivityConsumer, notificationConsumer: notificationConsumer, log: log}, nil
 }
-
-// projectRoleModel is the GORM model used by seedDefaultProjectRoleTemplates
-// to upsert canonical project-role permission sets on startup.
-type projectRoleModel struct {
-	ID          string  `gorm:"primarykey;type:uuid"`
-	ProjectID   *string `gorm:"type:uuid;column:project_id;index"`
-	RoleName    string  `gorm:"column:role_name;not null"`
-	Permissions []byte  `gorm:"type:jsonb;not null"`
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-}
-
-func (projectRoleModel) TableName() string { return "project_roles" }
 
 // Run starts the activity consumers and the HTTP server.
 // It returns when the server stops.
@@ -454,7 +434,7 @@ func (l *projectTaskLookup) FindTaskByProjectPrefixAndNumber(ctx context.Context
 
 func seedDefaultRoles(
 	ctx context.Context,
-	db *gorm.DB,
+	db *sqlx.DB,
 	userRepo userdom.Repository,
 	globalRoleRepo *pgRepo.GlobalRoleRepository,
 	adminUsername string,
@@ -526,41 +506,40 @@ func seedDefaultRoles(
 	return nil
 }
 
-func seedDefaultProjectRoleTemplates(ctx context.Context, db *gorm.DB) error {
+func seedDefaultProjectRoleTemplates(ctx context.Context, db *sqlx.DB) error {
 	for _, def := range authz.DefaultProjectRoles() {
 		permissionsRaw, err := json.Marshal(permissionMap(def.Permissions))
 		if err != nil {
 			return fmt.Errorf("seed project roles: marshal %s permissions: %w", def.Name, err)
 		}
 
-		var existing projectRoleModel
-		find := db.WithContext(ctx).
-			Where("project_id IS NULL AND role_name = ?", def.Name).
-			First(&existing)
+		var existingID string
+		err = db.QueryRowContext(ctx,
+			`SELECT id FROM project_roles WHERE project_id IS NULL AND role_name = $1`,
+			def.Name,
+		).Scan(&existingID)
 
-		if errors.Is(find.Error, gorm.ErrRecordNotFound) {
+		if errors.Is(err, sql.ErrNoRows) {
 			now := time.Now()
-			projectRoleID := uuid.NewString()
-			if err := db.WithContext(ctx).Create(&projectRoleModel{
-				ID:          projectRoleID,
-				ProjectID:   nil,
-				RoleName:    def.Name,
-				Permissions: permissionsRaw,
-				CreatedAt:   now,
-				UpdatedAt:   now,
-			}).Error; err != nil {
+			_, err = db.ExecContext(ctx,
+				`INSERT INTO project_roles (id, project_id, role_name, permissions, created_at, updated_at)
+				 VALUES ($1, NULL, $2, $3, $4, $5)`,
+				uuid.NewString(), def.Name, permissionsRaw, now, now,
+			)
+			if err != nil {
 				return fmt.Errorf("seed project roles: create template %s: %w", def.Name, err)
 			}
 			continue
 		}
-		if find.Error != nil {
-			return fmt.Errorf("seed project roles: find template %s: %w", def.Name, find.Error)
+		if err != nil {
+			return fmt.Errorf("seed project roles: find template %s: %w", def.Name, err)
 		}
 
-		if err := db.WithContext(ctx).
-			Model(&projectRoleModel{}).
-			Where("id = ?", existing.ID).
-			Updates(map[string]any{"permissions": permissionsRaw, "updated_at": time.Now()}).Error; err != nil {
+		_, err = db.ExecContext(ctx,
+			`UPDATE project_roles SET permissions = $1, updated_at = $2 WHERE id = $3`,
+			permissionsRaw, time.Now(), existingID,
+		)
+		if err != nil {
 			return fmt.Errorf("seed project roles: update template %s: %w", def.Name, err)
 		}
 	}

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
@@ -33,9 +32,8 @@ import (
 // buildCachedTaskRouter builds an httptest-compatible gin.Engine wired with
 // a CachedTaskService backed by an in-memory (miniredis) cache store.  The
 // miniredis instance is automatically stopped when t ends.
-func buildCachedTaskRouter(t *testing.T, taskRepo *fakeTaskRepo, store *projectPermStore) (*gin.Engine, *cache.Store) {
+func buildCachedTaskRouter(t *testing.T, taskRepo *fakeTaskRepo, store *projectPermStore) (http.Handler, *cache.Store) {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 
 	// Stand up miniredis and build a cache.Store.
 	mr := miniredis.RunT(t)

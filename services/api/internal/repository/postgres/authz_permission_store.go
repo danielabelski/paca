@@ -8,30 +8,29 @@ import (
 
 	"github.com/Paca-AI/api/internal/platform/authz"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
+	"github.com/jmoiron/sqlx"
 )
 
 // AuthzPermissionStore resolves effective permissions from persisted roles.
 type AuthzPermissionStore struct {
-	db *gorm.DB
+	db *sqlx.DB
 }
 
 // NewAuthzPermissionStore returns a new permission store.
-func NewAuthzPermissionStore(db *gorm.DB) *AuthzPermissionStore {
+func NewAuthzPermissionStore(db *sqlx.DB) *AuthzPermissionStore {
 	return &AuthzPermissionStore{db: db}
 }
 
 // ListGlobalPermissions returns permissions granted by the user's global role (via users.role_id).
 func (s *AuthzPermissionStore) ListGlobalPermissions(ctx context.Context, userID uuid.UUID) ([]authz.Permission, error) {
 	var rows []struct {
-		Permissions []byte
+		Permissions []byte `db:"permissions"`
 	}
-	err := s.db.WithContext(ctx).
-		Table("global_roles gr").
-		Select("gr.permissions").
-		Joins("JOIN users u ON u.role_id = gr.id").
-		Where("u.id = ? AND u.deleted_at IS NULL", userID.String()).
-		Scan(&rows).Error
+	err := s.db.SelectContext(ctx, &rows, `
+		SELECT gr.permissions
+		FROM global_roles gr
+		JOIN users u ON u.role_id = gr.id
+		WHERE u.id = $1 AND u.deleted_at IS NULL`, userID.String())
 	if err != nil {
 		return nil, fmt.Errorf("authz store: list global permissions: %w", err)
 	}
@@ -43,14 +42,13 @@ func (s *AuthzPermissionStore) ListGlobalPermissions(ctx context.Context, userID
 // the provided project.
 func (s *AuthzPermissionStore) ListProjectPermissions(ctx context.Context, userID, projectID uuid.UUID) ([]authz.Permission, error) {
 	var rows []struct {
-		Permissions []byte
+		Permissions []byte `db:"permissions"`
 	}
-	err := s.db.WithContext(ctx).
-		Table("project_roles pr").
-		Select("pr.permissions").
-		Joins("JOIN project_members pm ON pm.project_role_id = pr.id").
-		Where("pm.user_id = ? AND pm.project_id = ?", userID.String(), projectID.String()).
-		Scan(&rows).Error
+	err := s.db.SelectContext(ctx, &rows, `
+		SELECT pr.permissions
+		FROM project_roles pr
+		JOIN project_members pm ON pm.project_role_id = pr.id
+		WHERE pm.user_id = $1 AND pm.project_id = $2`, userID.String(), projectID.String())
 	if err != nil {
 		return nil, fmt.Errorf("authz store: list project permissions: %w", err)
 	}
@@ -58,7 +56,9 @@ func (s *AuthzPermissionStore) ListProjectPermissions(ctx context.Context, userI
 	return collectPermissions(rows), nil
 }
 
-func collectPermissions(rows []struct{ Permissions []byte }) []authz.Permission {
+func collectPermissions(rows []struct {
+	Permissions []byte `db:"permissions"`
+}) []authz.Permission {
 	seen := map[authz.Permission]struct{}{}
 	out := make([]authz.Permission, 0)
 	for _, row := range rows {

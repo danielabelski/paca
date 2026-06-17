@@ -24,7 +24,6 @@ import (
 	usersvc "github.com/Paca-AI/api/internal/service/user"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
 	"github.com/Paca-AI/api/internal/transport/http/router"
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
@@ -37,8 +36,7 @@ const testAgentAPIKey = "paca_test_agent_key_1234567890abcdef1234567890abcdef123
 const testAgentBotUserID = "00000000-0000-0000-0000-000000000001"
 
 // buildAgentKeyRouter creates a test router with agent API key authentication configured
-func buildAgentKeyRouter(taskRepo *fakeTaskRepo, apiKeyRepo *fakeAPIKeyRepo, store *projectPermStore, activityRepos ...*fakeTaskActivityRepo) *gin.Engine {
-	gin.SetMode(gin.TestMode)
+func buildAgentKeyRouter(taskRepo *fakeTaskRepo, apiKeyRepo *fakeAPIKeyRepo, store *projectPermStore, activityRepos ...*fakeTaskActivityRepo) http.Handler {
 	tm := jwttoken.New(testSecret, 15*time.Minute, 168*time.Hour)
 	refreshStore := &fakeRefreshStore{}
 	userRepo := newFakeUserRepo()

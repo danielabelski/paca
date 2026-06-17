@@ -2,53 +2,48 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"time"
 
 	taskdom "github.com/Paca-AI/api/internal/domain/task"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
+	"github.com/jmoiron/sqlx"
 )
 
-// --- GORM model -------------------------------------------------------------
+// --- sqlx model -------------------------------------------------------------
 
 type taskActivityRecord struct {
-	ID           string          `gorm:"primarykey;type:uuid"`
-	TaskID       string          `gorm:"type:uuid;not null;column:task_id"`
-	ActorID      *string         `gorm:"type:uuid;column:actor_id"`
-	ActivityType string          `gorm:"not null;column:activity_type"`
-	Content      json.RawMessage `gorm:"type:jsonb;not null;column:content"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	DeletedAt    gorm.DeletedAt `gorm:"column:deleted_at"`
+	ID           string          `db:"id"`
+	TaskID       string          `db:"task_id"`
+	ActorID      *string         `db:"actor_id"`
+	ActivityType string          `db:"activity_type"`
+	Content      json.RawMessage `db:"content"`
+	CreatedAt    time.Time       `db:"created_at"`
+	UpdatedAt    time.Time       `db:"updated_at"`
+	DeletedAt    *time.Time      `db:"deleted_at"`
 
-	// Joined from the project_members + users tables (populated by explicit SELECT with JOIN).
-	ActorFullName *string `gorm:"->;column:actor_full_name"`
-	ActorUsername *string `gorm:"->;column:actor_username"`
+	// Joined from the project_members + users tables.
+	ActorFullName *string `db:"actor_full_name"`
+	ActorUsername *string `db:"actor_username"`
 }
-
-func (taskActivityRecord) TableName() string { return "task_activities" }
 
 // --- Repository struct -------------------------------------------------------
 
-// TaskActivityRepository is the GORM implementation of taskdom.ActivityRepository.
+// TaskActivityRepository is the sqlx implementation of taskdom.ActivityRepository.
 type TaskActivityRepository struct {
-	db *gorm.DB
+	db *sqlx.DB
 }
 
 // NewTaskActivityRepository returns a new TaskActivityRepository backed by db.
-func NewTaskActivityRepository(db *gorm.DB) *TaskActivityRepository {
+func NewTaskActivityRepository(db *sqlx.DB) *TaskActivityRepository {
 	return &TaskActivityRepository{db: db}
 }
 
 // --- Mapping helpers --------------------------------------------------------
 
 func activityFromRecord(r taskActivityRecord) *taskdom.Activity {
-	var deletedAt *time.Time
-	if r.DeletedAt.Valid {
-		deletedAt = &r.DeletedAt.Time
-	}
 	a := &taskdom.Activity{
 		ID:           uuid.MustParse(r.ID),
 		TaskID:       uuid.MustParse(r.TaskID),
@@ -56,7 +51,7 @@ func activityFromRecord(r taskActivityRecord) *taskdom.Activity {
 		Content:      r.Content,
 		CreatedAt:    r.CreatedAt,
 		UpdatedAt:    r.UpdatedAt,
-		DeletedAt:    deletedAt,
+		DeletedAt:    r.DeletedAt,
 	}
 	if r.ActorID != nil {
 		id := uuid.MustParse(*r.ActorID)
@@ -73,23 +68,22 @@ func activityFromRecord(r taskActivityRecord) *taskdom.Activity {
 
 // --- CRUD -------------------------------------------------------------------
 
-// listQuery returns a base query that LEFT JOINs project_members → users (for human actors)
-// and project_members → agents (for agent actors) for actor name resolution.
-func (r *TaskActivityRepository) listQuery() *gorm.DB {
-	return r.db.Table("task_activities ta").
-		Select("ta.*, COALESCE(u.full_name, ag.name) AS actor_full_name, COALESCE(u.username, ag.handle) AS actor_username").
-		Joins("LEFT JOIN project_members pm ON pm.id = ta.actor_id").
-		Joins("LEFT JOIN users u ON u.id = pm.user_id").
-		Joins("LEFT JOIN agents ag ON ag.id = pm.agent_id")
-}
+const taskActivityJoinSQL = `
+	SELECT ta.id, ta.task_id, ta.actor_id, ta.activity_type, ta.content,
+	       ta.created_at, ta.updated_at, ta.deleted_at,
+	       COALESCE(u.full_name, ag.name) AS actor_full_name,
+	       COALESCE(u.username, ag.handle) AS actor_username
+	FROM task_activities ta
+	LEFT JOIN project_members pm ON pm.id = ta.actor_id
+	LEFT JOIN users u ON u.id = pm.user_id
+	LEFT JOIN agents ag ON ag.id = pm.agent_id`
 
 // ListActivities returns all non-deleted activities for a task, oldest first.
-func (r *TaskActivityRepository) ListActivities(_ context.Context, taskID uuid.UUID) ([]*taskdom.Activity, error) {
+func (r *TaskActivityRepository) ListActivities(ctx context.Context, taskID uuid.UUID) ([]*taskdom.Activity, error) {
 	var records []taskActivityRecord
-	err := r.listQuery().
-		Where("ta.task_id = ? AND ta.deleted_at IS NULL", taskID.String()).
-		Order("ta.created_at ASC").
-		Find(&records).Error
+	err := r.db.SelectContext(ctx, &records, taskActivityJoinSQL+`
+		WHERE ta.task_id = $1 AND ta.deleted_at IS NULL
+		ORDER BY ta.created_at ASC`, taskID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -101,15 +95,13 @@ func (r *TaskActivityRepository) ListActivities(_ context.Context, taskID uuid.U
 }
 
 // FindActivityByID returns a single activity (including soft-deleted).
-func (r *TaskActivityRepository) FindActivityByID(_ context.Context, id uuid.UUID) (*taskdom.Activity, error) {
+func (r *TaskActivityRepository) FindActivityByID(ctx context.Context, id uuid.UUID) (*taskdom.Activity, error) {
 	var rec taskActivityRecord
-	err := r.listQuery().
-		Where("ta.id = ?", id.String()).
-		First(&rec).Error
+	err := r.db.GetContext(ctx, &rec, taskActivityJoinSQL+` WHERE ta.id = $1`, id.String())
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, taskdom.ErrActivityNotFound
+	}
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, taskdom.ErrActivityNotFound
-		}
 		return nil, err
 	}
 	return activityFromRecord(rec), nil
@@ -121,35 +113,31 @@ func (r *TaskActivityRepository) CreateActivity(ctx context.Context, a *taskdom.
 	if content == nil {
 		content = json.RawMessage("{}")
 	}
-	rec := taskActivityRecord{
-		ID:           a.ID.String(),
-		TaskID:       a.TaskID.String(),
-		ActivityType: string(a.ActivityType),
-		Content:      content,
-		CreatedAt:    a.CreatedAt,
-		UpdatedAt:    a.UpdatedAt,
-	}
+	var actorID *string
 	if a.ActorID != nil {
 		s := a.ActorID.String()
-		rec.ActorID = &s
+		actorID = &s
 	}
-	return r.db.WithContext(ctx).Create(&rec).Error
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO task_activities (id, task_id, actor_id, activity_type, content, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		a.ID.String(), a.TaskID.String(), actorID, string(a.ActivityType), content, a.CreatedAt, a.UpdatedAt,
+	)
+	return err
 }
 
 // UpdateActivity updates the content and updated_at of an existing activity.
 func (r *TaskActivityRepository) UpdateActivity(ctx context.Context, a *taskdom.Activity) error {
-	return r.db.WithContext(ctx).
-		Table("task_activities").
-		Where("id = ?", a.ID.String()).
-		Updates(map[string]any{
-			"content":    a.Content,
-			"updated_at": a.UpdatedAt,
-		}).Error
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE task_activities SET content = $1, updated_at = $2 WHERE id = $3`,
+		a.Content, a.UpdatedAt, a.ID.String(),
+	)
+	return err
 }
 
 // DeleteActivity soft-deletes an activity by setting deleted_at.
 func (r *TaskActivityRepository) DeleteActivity(ctx context.Context, id uuid.UUID) error {
-	return r.db.WithContext(ctx).
-		Where("id = ?", id.String()).
-		Delete(&taskActivityRecord{}).Error
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE task_activities SET deleted_at = $1 WHERE id = $2`, time.Now(), id.String())
+	return err
 }

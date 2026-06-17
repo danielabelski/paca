@@ -27,7 +27,6 @@ import (
 	usersvc "github.com/Paca-AI/api/internal/service/user"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
 	"github.com/Paca-AI/api/internal/transport/http/router"
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
@@ -639,12 +638,11 @@ func (r *fakeActivityMemberRepo) FindMemberByAgent(_ context.Context, _, _ uuid.
 // Router builder and token helper
 // ---------------------------------------------------------------------------
 
-func buildTaskTestRouter(taskRepo *fakeTaskRepo, store *projectPermStore) *gin.Engine {
+func buildTaskTestRouter(taskRepo *fakeTaskRepo, store *projectPermStore) http.Handler {
 	return buildTaskTestRouterWithSprints(taskRepo, newFakeSprintRepoIT(), newFakeViewRepoIT(), store)
 }
 
-func buildTaskTestRouterWithSprints(taskRepo *fakeTaskRepo, sprintRepo *fakeSprintRepoIT, viewRepo *fakeViewRepoIT, store *projectPermStore) *gin.Engine {
-	gin.SetMode(gin.TestMode)
+func buildTaskTestRouterWithSprints(taskRepo *fakeTaskRepo, sprintRepo *fakeSprintRepoIT, viewRepo *fakeViewRepoIT, store *projectPermStore) http.Handler {
 	tm := jwttoken.New(testSecret, 15*time.Minute, 168*time.Hour)
 	refreshStore := &fakeRefreshStore{}
 	userRepo := newFakeUserRepo()

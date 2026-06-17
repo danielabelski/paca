@@ -21,7 +21,6 @@ import (
 	usersvc "github.com/Paca-AI/api/internal/service/user"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
 	"github.com/Paca-AI/api/internal/transport/http/router"
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
@@ -114,8 +113,7 @@ func (r *fakeAPIKeyRepo) UpdateLastUsed(_ context.Context, id uuid.UUID, at time
 // Router builder
 // ---------------------------------------------------------------------------
 
-func buildAPIKeyTestRouter(apiKeyRepo *fakeAPIKeyRepo) (*gin.Engine, *jwttoken.Manager, *fakeUserRepo) {
-	gin.SetMode(gin.TestMode)
+func buildAPIKeyTestRouter(apiKeyRepo *fakeAPIKeyRepo) (http.Handler, *jwttoken.Manager, *fakeUserRepo) {
 	tm := jwttoken.New(testSecret, 15*time.Minute, 168*time.Hour)
 	store := &fakeRefreshStore{}
 	userRepo := newFakeUserRepo()

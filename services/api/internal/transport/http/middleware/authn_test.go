@@ -11,7 +11,7 @@ import (
 
 	apikeydom "github.com/Paca-AI/api/internal/domain/apikey"
 	jwttoken "github.com/Paca-AI/api/internal/platform/token"
-	"github.com/gin-gonic/gin"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
@@ -34,13 +34,17 @@ func newTestTokenManager() *jwttoken.Manager {
 	return jwttoken.New("test-secret", 15*time.Minute, 24*time.Hour)
 }
 
-func TestAuthn_MissingToken(t *testing.T) {
-	r := gin.New()
-	r.GET("/protected", Authn(newTestTokenManager()), func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	})
+func okHandler(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"ok":true}`))
+}
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/protected", nil)
+func TestAuthn_MissingToken(t *testing.T) {
+	r := chi.NewRouter()
+	r.With(Authn(newTestTokenManager())).Get("/protected", okHandler)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -60,12 +64,10 @@ func TestAuthn_MissingToken(t *testing.T) {
 }
 
 func TestAuthn_InvalidToken(t *testing.T) {
-	r := gin.New()
-	r.GET("/protected", Authn(newTestTokenManager()), func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	})
+	r := chi.NewRouter()
+	r.With(Authn(newTestTokenManager())).Get("/protected", okHandler)
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Bearer not-a-token")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -82,17 +84,18 @@ func TestAuthn_ValidAccessTokenInHeader(t *testing.T) {
 		t.Fatalf("issue access token: %v", err)
 	}
 
-	r := gin.New()
-	r.GET("/protected", Authn(tm), func(c *gin.Context) {
-		claims := ClaimsFrom(c)
+	r := chi.NewRouter()
+	r.With(Authn(tm)).Get("/protected", func(w http.ResponseWriter, req *http.Request) {
+		claims := ClaimsFrom(req)
 		if claims == nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "claims missing"})
+			http.Error(w, `{"error":"claims missing"}`, http.StatusInternalServerError)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"username": claims.Username})
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"username": claims.Username})
 	})
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+at)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -109,12 +112,10 @@ func TestAuthn_RefreshTokenRejected(t *testing.T) {
 		t.Fatalf("issue refresh token: %v", err)
 	}
 
-	r := gin.New()
-	r.GET("/protected", Authn(tm), func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	})
+	r := chi.NewRouter()
+	r.With(Authn(tm)).Get("/protected", okHandler)
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+rt)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -125,8 +126,8 @@ func TestAuthn_RefreshTokenRejected(t *testing.T) {
 }
 
 func TestClaimsFrom_Missing(t *testing.T) {
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	if claims := ClaimsFrom(c); claims != nil {
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+	if claims := ClaimsFrom(req); claims != nil {
 		t.Fatal("expected nil claims when absent")
 	}
 }
@@ -135,16 +136,16 @@ func TestAuthn_APIKey_AuthorizationHeader(t *testing.T) {
 	userID := uuid.New()
 	stub := &stubAPIKeyAuth{key: &apikeydom.APIKey{ID: uuid.New(), UserID: userID}}
 
-	r := gin.New()
-	r.GET("/protected", Authn(newTestTokenManager(), stub), func(c *gin.Context) {
-		if !IsAPIKeyAuth(c) {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "expected API key auth"})
+	r := chi.NewRouter()
+	r.With(Authn(newTestTokenManager(), stub)).Get("/protected", func(w http.ResponseWriter, req *http.Request) {
+		if !IsAPIKeyAuth(req) {
+			http.Error(w, `{"error":"expected API key auth"}`, http.StatusInternalServerError)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"ok": true})
+		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "ApiKey test-api-key")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -158,16 +159,16 @@ func TestAuthn_APIKey_XAPIKeyHeader(t *testing.T) {
 	userID := uuid.New()
 	stub := &stubAPIKeyAuth{key: &apikeydom.APIKey{ID: uuid.New(), UserID: userID}}
 
-	r := gin.New()
-	r.GET("/protected", Authn(newTestTokenManager(), stub), func(c *gin.Context) {
-		if !IsAPIKeyAuth(c) {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "expected API key auth"})
+	r := chi.NewRouter()
+	r.With(Authn(newTestTokenManager(), stub)).Get("/protected", func(w http.ResponseWriter, req *http.Request) {
+		if !IsAPIKeyAuth(req) {
+			http.Error(w, `{"error":"expected API key auth"}`, http.StatusInternalServerError)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"ok": true})
+		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-API-Key", "test-api-key")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -180,12 +181,10 @@ func TestAuthn_APIKey_XAPIKeyHeader(t *testing.T) {
 func TestAuthn_APIKey_InvalidKey(t *testing.T) {
 	stub := &stubAPIKeyAuth{err: errors.New("bad key")}
 
-	r := gin.New()
-	r.GET("/protected", Authn(newTestTokenManager(), stub), func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	})
+	r := chi.NewRouter()
+	r.With(Authn(newTestTokenManager(), stub)).Get("/protected", okHandler)
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-API-Key", "invalid-key")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -198,12 +197,10 @@ func TestAuthn_APIKey_InvalidKey(t *testing.T) {
 func TestAuthn_APIKey_RevokedKey(t *testing.T) {
 	stub := &stubAPIKeyAuth{err: apikeydom.ErrRevoked}
 
-	r := gin.New()
-	r.GET("/protected", Authn(newTestTokenManager(), stub), func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	})
+	r := chi.NewRouter()
+	r.With(Authn(newTestTokenManager(), stub)).Get("/protected", okHandler)
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-API-Key", "revoked-key")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -225,12 +222,10 @@ func TestAuthn_APIKey_RevokedKey(t *testing.T) {
 func TestAuthn_APIKey_ExpiredKey(t *testing.T) {
 	stub := &stubAPIKeyAuth{err: apikeydom.ErrExpired}
 
-	r := gin.New()
-	r.GET("/protected", Authn(newTestTokenManager(), stub), func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	})
+	r := chi.NewRouter()
+	r.With(Authn(newTestTokenManager(), stub)).Get("/protected", okHandler)
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-API-Key", "expired-key")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -250,13 +245,10 @@ func TestAuthn_APIKey_ExpiredKey(t *testing.T) {
 }
 
 func TestAuthn_APIKey_NotConfigured(t *testing.T) {
-	// No API key authenticator passed — should reject ApiKey header.
-	r := gin.New()
-	r.GET("/protected", Authn(newTestTokenManager()), func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	})
+	r := chi.NewRouter()
+	r.With(Authn(newTestTokenManager())).Get("/protected", okHandler)
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "ApiKey some-key")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -270,12 +262,10 @@ func TestRequireJWTAuth_BlocksAPIKey(t *testing.T) {
 	userID := uuid.New()
 	stub := &stubAPIKeyAuth{key: &apikeydom.APIKey{ID: uuid.New(), UserID: userID}}
 
-	r := gin.New()
-	r.GET("/sensitive", Authn(newTestTokenManager(), stub), RequireJWTAuth(), func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	})
+	r := chi.NewRouter()
+	r.With(Authn(newTestTokenManager(), stub), RequireJWTAuth()).Get("/sensitive", okHandler)
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/sensitive", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/sensitive", nil)
 	req.Header.Set("X-API-Key", "some-key")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -301,12 +291,10 @@ func TestRequireJWTAuth_AllowsJWT(t *testing.T) {
 		t.Fatalf("issue access token: %v", err)
 	}
 
-	r := gin.New()
-	r.GET("/sensitive", Authn(tm), RequireJWTAuth(), func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	})
+	r := chi.NewRouter()
+	r.With(Authn(tm), RequireJWTAuth()).Get("/sensitive", okHandler)
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/sensitive", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/sensitive", nil)
 	req.Header.Set("Authorization", "Bearer "+at)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -321,28 +309,25 @@ func TestAuthn_APIKey_WithValidAgentID(t *testing.T) {
 	agentID := uuid.New()
 	stub := &stubAPIKeyAuth{key: &apikeydom.APIKey{ID: uuid.New(), UserID: userID}, isAgentKey: true}
 
-	r := gin.New()
-	r.GET("/protected", Authn(newTestTokenManager(), stub), func(c *gin.Context) {
-		if !IsAPIKeyAuth(c) {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "expected API key auth"})
+	r := chi.NewRouter()
+	r.With(Authn(newTestTokenManager(), stub)).Get("/protected", func(w http.ResponseWriter, req *http.Request) {
+		if !IsAPIKeyAuth(req) {
+			http.Error(w, `{"error":"expected API key auth"}`, http.StatusInternalServerError)
 			return
 		}
-
-		retrievedAgentID, ok := AgentIDFromGinContext(c)
+		retrievedAgentID, ok := AgentIDFromRequest(req)
 		if !ok {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "agent ID not found in context"})
+			http.Error(w, `{"error":"agent ID not found in context"}`, http.StatusInternalServerError)
 			return
 		}
-
 		if retrievedAgentID != agentID {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "agent ID mismatch"})
+			http.Error(w, `{"error":"agent ID mismatch"}`, http.StatusInternalServerError)
 			return
 		}
-
-		c.JSON(http.StatusOK, gin.H{"ok": true})
+		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-API-Key", "test-api-key")
 	req.Header.Set("X-Agent-ID", agentID.String())
 	w := httptest.NewRecorder()
@@ -358,28 +343,26 @@ func TestAuthn_APIKey_UserKeyCannotFakeAgentID(t *testing.T) {
 	agentID := uuid.New()
 	stub := &stubAPIKeyAuth{key: &apikeydom.APIKey{ID: uuid.New(), UserID: userID}, isAgentKey: false}
 
-	r := gin.New()
-	r.GET("/protected", Authn(newTestTokenManager(), stub), func(c *gin.Context) {
-		if !IsAPIKeyAuth(c) {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "expected API key auth"})
+	r := chi.NewRouter()
+	r.With(Authn(newTestTokenManager(), stub)).Get("/protected", func(w http.ResponseWriter, req *http.Request) {
+		if !IsAPIKeyAuth(req) {
+			http.Error(w, `{"error":"expected API key auth"}`, http.StatusInternalServerError)
 			return
 		}
-
-		retrievedAgentID, ok := AgentIDFromGinContext(c)
+		retrievedAgentID, ok := AgentIDFromRequest(req)
 		if ok {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "agent ID should not be set for user API key"})
+			http.Error(w, `{"error":"agent ID should not be set for user API key"}`, http.StatusInternalServerError)
 			return
 		}
-
 		if retrievedAgentID != uuid.Nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "agent ID should be Nil"})
+			http.Error(w, `{"error":"agent ID should be Nil"}`, http.StatusInternalServerError)
 			return
 		}
-
-		c.JSON(http.StatusOK, gin.H{"ok": true})
+		_ = agentID // suppress unused variable warning
+		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-API-Key", "test-api-key")
 	req.Header.Set("X-Agent-ID", agentID.String())
 	w := httptest.NewRecorder()
@@ -394,28 +377,25 @@ func TestAuthn_APIKey_WithInvalidAgentID(t *testing.T) {
 	userID := uuid.New()
 	stub := &stubAPIKeyAuth{key: &apikeydom.APIKey{ID: uuid.New(), UserID: userID}, isAgentKey: true}
 
-	r := gin.New()
-	r.GET("/protected", Authn(newTestTokenManager(), stub), func(c *gin.Context) {
-		if !IsAPIKeyAuth(c) {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "expected API key auth"})
+	r := chi.NewRouter()
+	r.With(Authn(newTestTokenManager(), stub)).Get("/protected", func(w http.ResponseWriter, req *http.Request) {
+		if !IsAPIKeyAuth(req) {
+			http.Error(w, `{"error":"expected API key auth"}`, http.StatusInternalServerError)
 			return
 		}
-
-		retrievedAgentID, ok := AgentIDFromGinContext(c)
+		retrievedAgentID, ok := AgentIDFromRequest(req)
 		if ok {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "agent ID should not be found with invalid UUID"})
+			http.Error(w, `{"error":"agent ID should not be found with invalid UUID"}`, http.StatusInternalServerError)
 			return
 		}
-
 		if retrievedAgentID != uuid.Nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "agent ID should be Nil"})
+			http.Error(w, `{"error":"agent ID should be Nil"}`, http.StatusInternalServerError)
 			return
 		}
-
-		c.JSON(http.StatusOK, gin.H{"ok": true})
+		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-API-Key", "test-api-key")
 	req.Header.Set("X-Agent-ID", "not-a-valid-uuid")
 	w := httptest.NewRecorder()
@@ -430,28 +410,25 @@ func TestAuthn_APIKey_WithoutAgentID(t *testing.T) {
 	userID := uuid.New()
 	stub := &stubAPIKeyAuth{key: &apikeydom.APIKey{ID: uuid.New(), UserID: userID}, isAgentKey: true}
 
-	r := gin.New()
-	r.GET("/protected", Authn(newTestTokenManager(), stub), func(c *gin.Context) {
-		if !IsAPIKeyAuth(c) {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "expected API key auth"})
+	r := chi.NewRouter()
+	r.With(Authn(newTestTokenManager(), stub)).Get("/protected", func(w http.ResponseWriter, req *http.Request) {
+		if !IsAPIKeyAuth(req) {
+			http.Error(w, `{"error":"expected API key auth"}`, http.StatusInternalServerError)
 			return
 		}
-
-		retrievedAgentID, ok := AgentIDFromGinContext(c)
+		retrievedAgentID, ok := AgentIDFromRequest(req)
 		if ok {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "agent ID should not be found when header is absent"})
+			http.Error(w, `{"error":"agent ID should not be found when header is absent"}`, http.StatusInternalServerError)
 			return
 		}
-
 		if retrievedAgentID != uuid.Nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "agent ID should be Nil"})
+			http.Error(w, `{"error":"agent ID should be Nil"}`, http.StatusInternalServerError)
 			return
 		}
-
-		c.JSON(http.StatusOK, gin.H{"ok": true})
+		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-API-Key", "test-api-key")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)

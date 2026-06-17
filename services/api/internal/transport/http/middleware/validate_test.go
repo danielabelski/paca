@@ -2,57 +2,46 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/gin-gonic/gin"
 )
 
-func init() { gin.SetMode(gin.TestMode) }
-
 type bindReq struct {
-	Name string `json:"name" binding:"required"`
+	Name string `json:"name"`
 }
 
 func TestBindJSON_Success(t *testing.T) {
-	r := gin.New()
-	r.POST("/bind", func(c *gin.Context) {
-		var req bindReq
-		if !BindJSON(c, &req) {
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"name": req.Name})
-	})
-
 	body := bytes.NewBufferString(`{"name":"alice"}`)
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/bind", body)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/bind", body)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
+	var dst bindReq
+	ok := BindJSON(w, req, &dst)
+
+	if !ok {
+		t.Fatalf("expected BindJSON to succeed, got status %d: %s", w.Code, w.Body.String())
+	}
+	if dst.Name != "alice" {
+		t.Fatalf("expected name=alice, got %q", dst.Name)
 	}
 }
 
 func TestBindJSON_Failure(t *testing.T) {
-	r := gin.New()
-	r.POST("/bind", func(c *gin.Context) {
-		var req bindReq
-		if !BindJSON(c, &req) {
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	})
-
-	body := bytes.NewBufferString(`{"name":""}`)
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/bind", body)
+	body := bytes.NewBufferString(`not-json`)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/bind", body)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
 
+	var dst bindReq
+	ok := BindJSON(w, req, &dst)
+
+	if ok {
+		t.Fatal("expected BindJSON to fail on invalid JSON")
+	}
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d (%s)", w.Code, w.Body.String())
 	}

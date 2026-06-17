@@ -22,7 +22,6 @@ import (
 	usersvc "github.com/Paca-AI/api/internal/service/user"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
 	"github.com/Paca-AI/api/internal/transport/http/router"
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
@@ -182,8 +181,7 @@ func (r *fakeViewRepoIT) ReorderViews(_ context.Context, items []sprintdom.ViewR
 // Router builder
 // ---------------------------------------------------------------------------
 
-func buildViewTestRouter(viewRepo *fakeViewRepoIT, sprintRepo *fakeSprintRepoIT, store *projectPermStore) *gin.Engine {
-	gin.SetMode(gin.TestMode)
+func buildViewTestRouter(viewRepo *fakeViewRepoIT, sprintRepo *fakeSprintRepoIT, store *projectPermStore) http.Handler {
 	tm := jwttoken.New(testSecret, 15*time.Minute, 168*time.Hour)
 	refreshStore := &fakeRefreshStore{}
 	userRepo := newFakeUserRepo()

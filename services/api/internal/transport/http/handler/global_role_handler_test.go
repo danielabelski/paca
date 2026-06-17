@@ -10,7 +10,7 @@ import (
 	globalroledom "github.com/Paca-AI/api/internal/domain/globalrole"
 	userdom "github.com/Paca-AI/api/internal/domain/user"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
-	"github.com/gin-gonic/gin"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
@@ -57,14 +57,14 @@ func (m *mockGlobalRoleSvc) ReplaceUserRoles(ctx context.Context, userID uuid.UU
 	return []*globalroledom.GlobalRole{}, nil
 }
 
-func newGlobalRoleRouter(svc globalroledom.Service) *gin.Engine {
-	r := gin.New()
+func newGlobalRoleRouter(svc globalroledom.Service) chi.Router {
+	r := chi.NewRouter()
 	h := handler.NewGlobalRoleHandler(svc)
-	r.GET("/admin/global-roles", h.List)
-	r.POST("/admin/global-roles", h.Create)
-	r.PATCH("/admin/global-roles/:roleId", h.Update)
-	r.DELETE("/admin/global-roles/:roleId", h.Delete)
-	r.PUT("/admin/users/:userId/global-roles", h.ReplaceUserRoles)
+	r.Get("/admin/global-roles", h.List)
+	r.Post("/admin/global-roles", h.Create)
+	r.Patch("/admin/global-roles/{roleId}", h.Update)
+	r.Delete("/admin/global-roles/{roleId}", h.Delete)
+	r.Put("/admin/users/{userId}/global-roles", h.ReplaceUserRoles)
 	return r
 }
 
@@ -139,5 +139,26 @@ func TestReplaceUserGlobalRoles_UserNotFound(t *testing.T) {
 	}
 	if code := errorCode(t, w); code != "USER_NOT_FOUND" {
 		t.Fatalf("unexpected error_code: %s", code)
+	}
+}
+
+func TestGlobalRoleCreate_EmptyName_Returns400(t *testing.T) {
+	r := newGlobalRoleRouter(&mockGlobalRoleSvc{})
+
+	w := do(t, r, http.MethodPost, "/admin/global-roles",
+		jsonBody(t, map[string]any{"name": "", "permissions": map[string]any{}}))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty name, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGlobalRoleUpdate_EmptyName_Returns400(t *testing.T) {
+	id := uuid.New()
+	r := newGlobalRoleRouter(&mockGlobalRoleSvc{})
+
+	w := do(t, r, http.MethodPatch, fmt.Sprintf("/admin/global-roles/%s", id),
+		jsonBody(t, map[string]any{"name": "", "permissions": map[string]any{}}))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty name, got %d: %s", w.Code, w.Body.String())
 	}
 }

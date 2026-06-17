@@ -18,13 +18,11 @@ import (
 	usersvc "github.com/Paca-AI/api/internal/service/user"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
 	"github.com/Paca-AI/api/internal/transport/http/router"
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
-func buildUserTestRouter(repo *fakeUserRepo) *gin.Engine {
-	gin.SetMode(gin.TestMode)
+func buildUserTestRouter(repo *fakeUserRepo) http.Handler {
 	tm := jwttoken.New(testSecret, 15*time.Minute, 168*time.Hour)
 	store := &fakeRefreshStore{}
 	authService := authsvc.New(repo, tm, store, 168*time.Hour, 24*time.Hour)
@@ -259,7 +257,7 @@ func TestGetMyGlobalPermissions_AdminRoleIncludesWildcard(t *testing.T) {
 // GetMe / UpdateMe (self-service)
 // ---------------------------------------------------------------------------
 
-func seedAndLogin(t *testing.T, r *gin.Engine, repo *fakeUserRepo, username, password string) (string, *userdom.User) {
+func seedAndLogin(t *testing.T, r http.Handler, repo *fakeUserRepo, username, password string) (string, *userdom.User) {
 	t.Helper()
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
 	if err != nil {

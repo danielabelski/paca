@@ -2,28 +2,28 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	apikeydom "github.com/Paca-AI/api/internal/domain/apikey"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
+	"github.com/jmoiron/sqlx"
 )
 
-// apiKeyRecord is the GORM write model for the api_keys table.
+// apiKeyRecord is the sqlx write model for the api_keys table.
 type apiKeyRecord struct {
-	ID         string     `gorm:"primarykey;type:uuid"`
-	UserID     string     `gorm:"column:user_id;type:uuid;not null"`
-	Name       string     `gorm:"column:name;not null"`
-	KeyPrefix  string     `gorm:"column:key_prefix;not null"`
-	KeyHash    string     `gorm:"column:key_hash;not null;uniqueIndex"`
-	LastUsedAt *time.Time `gorm:"column:last_used_at"`
-	ExpiresAt  *time.Time `gorm:"column:expires_at"`
-	CreatedAt  time.Time
-	RevokedAt  *time.Time `gorm:"column:revoked_at"`
+	ID         string     `db:"id"`
+	UserID     string     `db:"user_id"`
+	Name       string     `db:"name"`
+	KeyPrefix  string     `db:"key_prefix"`
+	KeyHash    string     `db:"key_hash"`
+	LastUsedAt *time.Time `db:"last_used_at"`
+	ExpiresAt  *time.Time `db:"expires_at"`
+	CreatedAt  time.Time  `db:"created_at"`
+	RevokedAt  *time.Time `db:"revoked_at"`
 }
-
-func (apiKeyRecord) TableName() string { return "api_keys" }
 
 func apiKeyToEntity(r *apiKeyRecord) (*apikeydom.APIKey, error) {
 	id, err := uuid.Parse(r.ID)
@@ -46,61 +46,46 @@ func apiKeyToEntity(r *apiKeyRecord) (*apikeydom.APIKey, error) {
 	}, nil
 }
 
-// APIKeyRepository is the GORM implementation of apikeydom.Repository.
+// APIKeyRepository is the sqlx implementation of apikeydom.Repository.
 type APIKeyRepository struct {
-	db *gorm.DB
+	db *sqlx.DB
 }
 
 // NewAPIKeyRepository returns a new APIKeyRepository.
-func NewAPIKeyRepository(db *gorm.DB) *APIKeyRepository {
+func NewAPIKeyRepository(db *sqlx.DB) *APIKeyRepository {
 	return &APIKeyRepository{db: db}
 }
 
 // FindByID returns the API key with the given ID.
 func (r *APIKeyRepository) FindByID(ctx context.Context, id uuid.UUID) (*apikeydom.APIKey, error) {
 	var rec apiKeyRecord
-	result := r.db.WithContext(ctx).
-		Where("id = ?", id.String()).
-		First(&rec)
-	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
-			return nil, apikeydom.ErrNotFound
-		}
-		return nil, fmt.Errorf("api key repo: find by id: %w", result.Error)
+	err := r.db.GetContext(ctx, &rec, `SELECT id, user_id, name, key_prefix, key_hash, last_used_at, expires_at, created_at, revoked_at FROM api_keys WHERE id = $1`, id.String())
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, apikeydom.ErrNotFound
 	}
-	entity, err := apiKeyToEntity(&rec)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("api key repo: find by id: %w", err)
 	}
-	return entity, nil
+	return apiKeyToEntity(&rec)
 }
 
 // FindByHash looks up an API key by its SHA-256 hash.
 func (r *APIKeyRepository) FindByHash(ctx context.Context, keyHash string) (*apikeydom.APIKey, error) {
 	var rec apiKeyRecord
-	result := r.db.WithContext(ctx).
-		Where("key_hash = ?", keyHash).
-		First(&rec)
-	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
-			return nil, apikeydom.ErrNotFound
-		}
-		return nil, fmt.Errorf("api key repo: find by hash: %w", result.Error)
+	err := r.db.GetContext(ctx, &rec, `SELECT id, user_id, name, key_prefix, key_hash, last_used_at, expires_at, created_at, revoked_at FROM api_keys WHERE key_hash = $1`, keyHash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, apikeydom.ErrNotFound
 	}
-	entity, err := apiKeyToEntity(&rec)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("api key repo: find by hash: %w", err)
 	}
-	return entity, nil
+	return apiKeyToEntity(&rec)
 }
 
 // ListByUserID returns all non-revoked API keys for the given user.
 func (r *APIKeyRepository) ListByUserID(ctx context.Context, userID uuid.UUID) ([]*apikeydom.APIKey, error) {
 	var recs []apiKeyRecord
-	if err := r.db.WithContext(ctx).
-		Where("user_id = ? AND revoked_at IS NULL", userID.String()).
-		Order("created_at DESC").
-		Find(&recs).Error; err != nil {
+	if err := r.db.SelectContext(ctx, &recs, `SELECT id, user_id, name, key_prefix, key_hash, last_used_at, expires_at, created_at, revoked_at FROM api_keys WHERE user_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC`, userID.String()); err != nil {
 		return nil, fmt.Errorf("api key repo: list: %w", err)
 	}
 	keys := make([]*apikeydom.APIKey, 0, len(recs))
@@ -117,16 +102,10 @@ func (r *APIKeyRepository) ListByUserID(ctx context.Context, userID uuid.UUID) (
 // Create persists a new API key. The keyHash is stored; the raw key is never
 // persisted.
 func (r *APIKeyRepository) Create(ctx context.Context, key *apikeydom.APIKey, keyHash string) error {
-	rec := apiKeyRecord{
-		ID:        key.ID.String(),
-		UserID:    key.UserID.String(),
-		Name:      key.Name,
-		KeyPrefix: key.KeyPrefix,
-		KeyHash:   keyHash,
-		ExpiresAt: key.ExpiresAt,
-		CreatedAt: key.CreatedAt,
-	}
-	if err := r.db.WithContext(ctx).Create(&rec).Error; err != nil {
+	_, err := r.db.ExecContext(ctx, `INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, expires_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		key.ID.String(), key.UserID.String(), key.Name, key.KeyPrefix, keyHash, key.ExpiresAt, key.CreatedAt,
+	)
+	if err != nil {
 		return fmt.Errorf("api key repo: create: %w", err)
 	}
 	return nil
@@ -135,14 +114,12 @@ func (r *APIKeyRepository) Create(ctx context.Context, key *apikeydom.APIKey, ke
 // Revoke soft-deletes an API key by setting revoked_at to now.
 func (r *APIKeyRepository) Revoke(ctx context.Context, id uuid.UUID) error {
 	now := time.Now().UTC()
-	result := r.db.WithContext(ctx).
-		Model(&apiKeyRecord{}).
-		Where("id = ? AND revoked_at IS NULL", id.String()).
-		Update("revoked_at", now)
-	if result.Error != nil {
-		return fmt.Errorf("api key repo: revoke: %w", result.Error)
+	result, err := r.db.ExecContext(ctx, `UPDATE api_keys SET revoked_at = $1 WHERE id = $2 AND revoked_at IS NULL`, now, id.String())
+	if err != nil {
+		return fmt.Errorf("api key repo: revoke: %w", err)
 	}
-	if result.RowsAffected == 0 {
+	n, _ := result.RowsAffected()
+	if n == 0 {
 		return apikeydom.ErrNotFound
 	}
 	return nil
@@ -150,10 +127,8 @@ func (r *APIKeyRepository) Revoke(ctx context.Context, id uuid.UUID) error {
 
 // UpdateLastUsed sets last_used_at on the given key.
 func (r *APIKeyRepository) UpdateLastUsed(ctx context.Context, id uuid.UUID, at time.Time) error {
-	if err := r.db.WithContext(ctx).
-		Model(&apiKeyRecord{}).
-		Where("id = ?", id.String()).
-		Update("last_used_at", at).Error; err != nil {
+	_, err := r.db.ExecContext(ctx, `UPDATE api_keys SET last_used_at = $1 WHERE id = $2`, at, id.String())
+	if err != nil {
 		return fmt.Errorf("api key repo: update last used: %w", err)
 	}
 	return nil

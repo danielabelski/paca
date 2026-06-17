@@ -26,7 +26,6 @@ import (
 	usersvc "github.com/Paca-AI/api/internal/service/user"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
 	"github.com/Paca-AI/api/internal/transport/http/router"
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
@@ -220,8 +219,7 @@ func (c *fakeStorageClient) EnsureBucket(_ context.Context, _ string) error { re
 // Router builder for attachment tests
 // ---------------------------------------------------------------------------
 
-func buildAttachmentTestRouter(attachRepo *fakeAttachmentRepo, store *fakeStorageClient, permStore *projectPermStore, tasks ...*taskdom.Task) *gin.Engine {
-	gin.SetMode(gin.TestMode)
+func buildAttachmentTestRouter(attachRepo *fakeAttachmentRepo, store *fakeStorageClient, permStore *projectPermStore, tasks ...*taskdom.Task) http.Handler {
 	tm := jwttoken.New(testSecret, 15*time.Minute, 168*time.Hour)
 	refreshStore := &fakeRefreshStore{}
 	userRepo := newFakeUserRepo()

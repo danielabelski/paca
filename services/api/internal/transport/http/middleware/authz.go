@@ -3,28 +3,29 @@ package middleware
 import (
 	"context"
 	"errors"
+	"net/http"
 
 	"github.com/Paca-AI/api/internal/apierr"
 	projectdom "github.com/Paca-AI/api/internal/domain/project"
 	"github.com/Paca-AI/api/internal/platform/authz"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"github.com/gin-gonic/gin"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
 // ScopeResolver resolves a scope-specific project ID for permission checks.
 // nil means global-only authorization.
-type ScopeResolver func(c *gin.Context) (*uuid.UUID, error)
+type ScopeResolver func(r *http.Request) (*uuid.UUID, error)
 
 // GlobalScope forces global-only permission checks.
 func GlobalScope() ScopeResolver {
-	return func(*gin.Context) (*uuid.UUID, error) { return nil, nil }
+	return func(*http.Request) (*uuid.UUID, error) { return nil, nil }
 }
 
-// ProjectScopeFromParam resolves a project ID from a route parameter.
+// ProjectScopeFromParam resolves a project ID from a chi URL parameter.
 func ProjectScopeFromParam(param string) ScopeResolver {
-	return func(c *gin.Context) (*uuid.UUID, error) {
-		v := c.Param(param)
+	return func(r *http.Request) (*uuid.UUID, error) {
+		v := chi.URLParam(r, param)
 		if v == "" {
 			return nil, apierr.New(apierr.CodeBadRequest, "missing project id")
 		}
@@ -38,25 +39,27 @@ func ProjectScopeFromParam(param string) ScopeResolver {
 
 // RequirePermissions enforces permission-based authorization and supports
 // global and project-scoped checks.
-func RequirePermissions(authorizer *authz.Authorizer, scope ScopeResolver, permissions ...authz.Permission) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if !EnforcePermissions(c, authorizer, scope, permissions...) {
-			return
-		}
-		c.Next()
+func RequirePermissions(authorizer *authz.Authorizer, scope ScopeResolver, permissions ...authz.Permission) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !EnforcePermissions(w, r, authorizer, scope, permissions...) {
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
 	}
 }
 
-// EnforcePermissions checks authorization without advancing the Gin handler chain.
-func EnforcePermissions(c *gin.Context, authorizer *authz.Authorizer, scope ScopeResolver, permissions ...authz.Permission) bool {
-	claims := ClaimsFrom(c)
+// EnforcePermissions checks authorization without advancing the handler chain.
+func EnforcePermissions(w http.ResponseWriter, r *http.Request, authorizer *authz.Authorizer, scope ScopeResolver, permissions ...authz.Permission) bool {
+	claims := ClaimsFrom(r)
 	if claims == nil {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return false
 	}
 
 	if authorizer == nil {
-		presenter.Error(c, apierr.New(apierr.CodeInternalError, "authorization not configured"))
+		presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "authorization not configured"))
 		return false
 	}
 
@@ -64,32 +67,32 @@ func EnforcePermissions(c *gin.Context, authorizer *authz.Authorizer, scope Scop
 	if resolver == nil {
 		resolver = GlobalScope()
 	}
-	projectID, err := resolver(c)
+	projectID, err := resolver(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return false
 	}
 
-	agentID, hasAgentID := AgentIDFromGinContext(c)
+	agentID, hasAgentID := AgentIDFromRequest(r)
 
 	var allowed bool
 	if hasAgentID && projectID != nil {
-		allowed, err = authorizer.HasPermissionsForAgent(c.Request.Context(), agentID, *projectID, permissions...)
+		allowed, err = authorizer.HasPermissionsForAgent(r.Context(), agentID, *projectID, permissions...)
 	} else {
 		userID, parseErr := uuid.Parse(claims.Subject)
 		if parseErr != nil {
-			presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
+			presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
 			return false
 		}
-		allowed, err = authorizer.HasPermissions(c.Request.Context(), userID, projectID, claims.Role, permissions...)
+		allowed, err = authorizer.HasPermissions(r.Context(), userID, projectID, claims.Role, permissions...)
 	}
 
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return false
 	}
 	if !allowed {
-		presenter.Error(c, apierr.New(apierr.CodeForbidden, "insufficient permissions"))
+		presenter.Error(w, r, apierr.New(apierr.CodeForbidden, "insufficient permissions"))
 		return false
 	}
 
@@ -97,7 +100,7 @@ func EnforcePermissions(c *gin.Context, authorizer *authz.Authorizer, scope Scop
 }
 
 // Authz keeps backwards-compatible middleware semantics for global scope.
-func Authz(authorizer *authz.Authorizer, permissions ...authz.Permission) gin.HandlerFunc {
+func Authz(authorizer *authz.Authorizer, permissions ...authz.Permission) func(http.Handler) http.Handler {
 	return RequirePermissions(authorizer, GlobalScope(), permissions...)
 }
 
@@ -111,76 +114,74 @@ type PermissionGroup struct {
 // RequireAnyPermissions grants access if the user satisfies at least one of the
 // provided PermissionGroups. Groups are evaluated in order; the first satisfied
 // group short-circuits the check. If no group is satisfied, 403 is returned.
-//
-// Typical use: allow access when the caller holds a broad global permission
-// (e.g. projects.read) OR a narrower project-scoped one.
-// Also supports agent authentication via X-Agent-ID header with the agent API key.
-func RequireAnyPermissions(authorizer *authz.Authorizer, groups ...PermissionGroup) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		claims := ClaimsFrom(c)
-		if claims == nil {
-			presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
-			return
-		}
-
-		if authorizer == nil {
-			presenter.Error(c, apierr.New(apierr.CodeInternalError, "authorization not configured"))
-			return
-		}
-
-		agentID, hasAgentID := AgentIDFromGinContext(c)
-		var userID uuid.UUID
-
-		if !hasAgentID {
-			var parseErr error
-			userID, parseErr = uuid.Parse(claims.Subject)
-			if parseErr != nil {
-				presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
+func RequireAnyPermissions(authorizer *authz.Authorizer, groups ...PermissionGroup) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims := ClaimsFrom(r)
+			if claims == nil {
+				presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 				return
 			}
-		}
 
-		var firstScopeErr error
-		for _, group := range groups {
-			resolver := group.Scope
-			if resolver == nil {
-				resolver = GlobalScope()
+			if authorizer == nil {
+				presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "authorization not configured"))
+				return
 			}
-			projectID, err := resolver(c)
-			if err != nil {
-				if firstScopeErr == nil {
-					firstScopeErr = err
+
+			agentID, hasAgentID := AgentIDFromRequest(r)
+			var userID uuid.UUID
+
+			if !hasAgentID {
+				var parseErr error
+				userID, parseErr = uuid.Parse(claims.Subject)
+				if parseErr != nil {
+					presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
+					return
 				}
-				continue
 			}
 
-			var allowed bool
-			if hasAgentID && projectID != nil {
-				allowed, err = authorizer.HasPermissionsForAgent(c.Request.Context(), agentID, *projectID, group.Permissions...)
-			} else {
-				allowed, err = authorizer.HasPermissions(c.Request.Context(), userID, projectID, claims.Role, group.Permissions...)
+			var firstScopeErr error
+			for _, group := range groups {
+				resolver := group.Scope
+				if resolver == nil {
+					resolver = GlobalScope()
+				}
+				projectID, err := resolver(r)
+				if err != nil {
+					if firstScopeErr == nil {
+						firstScopeErr = err
+					}
+					continue
+				}
+
+				var allowed bool
+				if hasAgentID && projectID != nil {
+					allowed, err = authorizer.HasPermissionsForAgent(r.Context(), agentID, *projectID, group.Permissions...)
+				} else {
+					allowed, err = authorizer.HasPermissions(r.Context(), userID, projectID, claims.Role, group.Permissions...)
+				}
+
+				if err != nil {
+					presenter.Error(w, r, err)
+					return
+				}
+				if allowed {
+					next.ServeHTTP(w, r)
+					return
+				}
 			}
 
-			if err != nil {
-				presenter.Error(c, err)
+			if firstScopeErr != nil {
+				presenter.Error(w, r, firstScopeErr)
 				return
 			}
-			if allowed {
-				c.Next()
-				return
-			}
-		}
-
-		if firstScopeErr != nil {
-			presenter.Error(c, firstScopeErr)
-			return
-		}
-		presenter.Error(c, apierr.New(apierr.CodeForbidden, "insufficient permissions"))
+			presenter.Error(w, r, apierr.New(apierr.CodeForbidden, "insufficient permissions"))
+		})
 	}
 }
 
 // ProjectVisibilityChecker is the minimal interface the public-project
-// middleware requires.  It is satisfied by *projectsvc.Service.
+// middleware requires. It is satisfied by *projectsvc.Service.
 type ProjectVisibilityChecker interface {
 	IsProjectPublic(ctx context.Context, id uuid.UUID) (bool, error)
 }
@@ -195,87 +196,88 @@ type ProjectVisibilityChecker interface {
 //
 // Use this instead of RequireAnyPermissions on read-only project-scoped routes
 // that should be accessible to anonymous users when the project is public.
-// Also supports agent authentication via X-Agent-ID header with the agent API key.
-func RequirePublicProjectOrPermissions(checker ProjectVisibilityChecker, authorizer *authz.Authorizer, groups ...PermissionGroup) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		claims := ClaimsFrom(c)
+func RequirePublicProjectOrPermissions(checker ProjectVisibilityChecker, authorizer *authz.Authorizer, groups ...PermissionGroup) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims := ClaimsFrom(r)
 
-		agentID, hasAgentID := AgentIDFromGinContext(c)
-		var userID uuid.UUID
+			agentID, hasAgentID := AgentIDFromRequest(r)
+			var userID uuid.UUID
 
-		if !hasAgentID && claims != nil {
-			var parseErr error
-			userID, parseErr = uuid.Parse(claims.Subject)
-			if parseErr != nil {
-				presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
-				return
-			}
-		}
-
-		// Authenticated path: run normal permission check.
-		if claims != nil {
-			var firstScopeErr error
-			for _, group := range groups {
-				resolver := group.Scope
-				if resolver == nil {
-					resolver = GlobalScope()
+			if !hasAgentID && claims != nil {
+				var parseErr error
+				userID, parseErr = uuid.Parse(claims.Subject)
+				if parseErr != nil {
+					presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid subject claim"))
+					return
 				}
-				projectID, err := resolver(c)
-				if err != nil {
-					if firstScopeErr == nil {
-						firstScopeErr = err
+			}
+
+			// Authenticated path: run normal permission check.
+			if claims != nil {
+				var firstScopeErr error
+				for _, group := range groups {
+					resolver := group.Scope
+					if resolver == nil {
+						resolver = GlobalScope()
 					}
-					continue
-				}
+					projectID, err := resolver(r)
+					if err != nil {
+						if firstScopeErr == nil {
+							firstScopeErr = err
+						}
+						continue
+					}
 
-				var allowed bool
-				if hasAgentID && projectID != nil {
-					allowed, err = authorizer.HasPermissionsForAgent(c.Request.Context(), agentID, *projectID, group.Permissions...)
-				} else {
-					allowed, err = authorizer.HasPermissions(c.Request.Context(), userID, projectID, claims.Role, group.Permissions...)
-				}
+					var allowed bool
+					if hasAgentID && projectID != nil {
+						allowed, err = authorizer.HasPermissionsForAgent(r.Context(), agentID, *projectID, group.Permissions...)
+					} else {
+						allowed, err = authorizer.HasPermissions(r.Context(), userID, projectID, claims.Role, group.Permissions...)
+					}
 
-				if err != nil {
-					presenter.Error(c, err)
+					if err != nil {
+						presenter.Error(w, r, err)
+						return
+					}
+					if allowed {
+						next.ServeHTTP(w, r)
+						return
+					}
+				}
+				if firstScopeErr != nil {
+					presenter.Error(w, r, firstScopeErr)
 					return
 				}
-				if allowed {
-					c.Next()
+				presenter.Error(w, r, apierr.New(apierr.CodeForbidden, "insufficient permissions"))
+				return
+			}
+
+			// Unauthenticated path: allow only when the project is public.
+			projectIDStr := chi.URLParam(r, "projectId")
+			if projectIDStr == "" {
+				presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+				return
+			}
+			projectID, err := uuid.Parse(projectIDStr)
+			if err != nil {
+				presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid project id"))
+				return
+			}
+			isPublic, err := checker.IsProjectPublic(r.Context(), projectID)
+			if err != nil {
+				if errors.Is(err, projectdom.ErrNotFound) {
+					presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 					return
 				}
-			}
-			if firstScopeErr != nil {
-				presenter.Error(c, firstScopeErr)
+				presenter.Error(w, r, err)
 				return
 			}
-			presenter.Error(c, apierr.New(apierr.CodeForbidden, "insufficient permissions"))
-			return
-		}
-
-		// Unauthenticated path: allow only when the project is public.
-		projectIDStr := c.Param("projectId")
-		if projectIDStr == "" {
-			presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
-			return
-		}
-		projectID, err := uuid.Parse(projectIDStr)
-		if err != nil {
-			presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid project id"))
-			return
-		}
-		isPublic, err := checker.IsProjectPublic(c.Request.Context(), projectID)
-		if err != nil {
-			if errors.Is(err, projectdom.ErrNotFound) {
-				presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+			if !isPublic {
+				presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 				return
 			}
-			presenter.Error(c, err)
-			return
-		}
-		if !isPublic {
-			presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
-			return
-		}
-		c.Next()
+			next.ServeHTTP(w, r)
+		})
 	}
 }

@@ -12,12 +12,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	sprintdom "github.com/Paca-AI/api/internal/domain/sprint"
 	taskdom "github.com/Paca-AI/api/internal/domain/task"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // ---------------------------------------------------------------------------
@@ -399,34 +400,33 @@ func (f *fakeViewSvcTask) ReorderProjectViews(_ context.Context, _ uuid.UUID, _ 
 // Router helper
 // ---------------------------------------------------------------------------
 
-func buildTaskHandlerRouter(svc *fakeTaskSvc) *gin.Engine {
+func buildTaskHandlerRouter(svc *fakeTaskSvc) chi.Router {
 	return buildTaskHandlerRouterWithActivity(svc, newFakeActivitySvc())
 }
 
-func buildTaskHandlerRouterWithActivity(svc *fakeTaskSvc, actSvc *fakeActivitySvc) *gin.Engine {
-	gin.SetMode(gin.TestMode)
+func buildTaskHandlerRouterWithActivity(svc *fakeTaskSvc, actSvc *fakeActivitySvc) chi.Router {
 	h := handler.NewTaskHandler(svc, &fakeViewSvcTask{}, actSvc)
-	r := gin.New()
-	projectGroup := r.Group("/projects/:projectId")
-	projectGroup.GET("/task-types", h.ListTaskTypes)
-	projectGroup.POST("/task-types", h.CreateTaskType)
-	projectGroup.PATCH("/task-types/:typeId", h.UpdateTaskType)
-	projectGroup.DELETE("/task-types/:typeId", h.DeleteTaskType)
-	projectGroup.GET("/tasks", h.ListTasks)
-	projectGroup.POST("/tasks", h.CreateTask)
-	projectGroup.GET("/tasks/by-number/:taskNumber", h.GetTaskByNumber)
-	projectGroup.GET("/tasks/:taskId", h.GetTask)
-	projectGroup.PATCH("/tasks/:taskId", h.UpdateTask)
-	projectGroup.DELETE("/tasks/:taskId", h.DeleteTask)
-	// Activities / comments
-	projectGroup.GET("/tasks/:taskId/activities", h.ListTaskActivities)
-	projectGroup.POST("/tasks/:taskId/activities/comments", h.AddComment)
-	projectGroup.PATCH("/tasks/:taskId/activities/comments/:commentId", h.UpdateComment)
-	projectGroup.DELETE("/tasks/:taskId/activities/comments/:commentId", h.DeleteComment)
+	r := chi.NewRouter()
+	r.Route("/projects/{projectId}", func(r chi.Router) {
+		r.Get("/task-types", h.ListTaskTypes)
+		r.Post("/task-types", h.CreateTaskType)
+		r.Patch("/task-types/{typeId}", h.UpdateTaskType)
+		r.Delete("/task-types/{typeId}", h.DeleteTaskType)
+		r.Get("/tasks", h.ListTasks)
+		r.Post("/tasks", h.CreateTask)
+		r.Get("/tasks/by-number/{taskNumber}", h.GetTaskByNumber)
+		r.Get("/tasks/{taskId}", h.GetTask)
+		r.Patch("/tasks/{taskId}", h.UpdateTask)
+		r.Delete("/tasks/{taskId}", h.DeleteTask)
+		r.Get("/tasks/{taskId}/activities", h.ListTaskActivities)
+		r.Post("/tasks/{taskId}/activities/comments", h.AddComment)
+		r.Patch("/tasks/{taskId}/activities/comments/{commentId}", h.UpdateComment)
+		r.Delete("/tasks/{taskId}/activities/comments/{commentId}", h.DeleteComment)
+	})
 	return r
 }
 
-func doTaskRequest(r *gin.Engine, method, path string, body any) *httptest.ResponseRecorder {
+func doTaskRequest(r chi.Router, method, path string, body any) *httptest.ResponseRecorder {
 	var buf *bytes.Buffer
 	if body != nil {
 		b, _ := json.Marshal(body)
@@ -898,7 +898,7 @@ func TestTaskHandler_GetTaskByNumber_InvalidNumberReturns400(t *testing.T) {
 // Helpers for actor-aware requests
 // ---------------------------------------------------------------------------
 
-func doTaskRequestWithActor(r *gin.Engine, method, path string, body any, actorID uuid.UUID) *httptest.ResponseRecorder {
+func doTaskRequestWithActor(r chi.Router, method, path string, body any, actorID uuid.UUID) *httptest.ResponseRecorder {
 	var buf *bytes.Buffer
 	if body != nil {
 		b, _ := json.Marshal(body)
@@ -1092,4 +1092,160 @@ func fakeIsContentTypeValid(content json.RawMessage) bool {
 		Text string `json:"text"`
 	}
 	return json.Unmarshal([]byte(trimmed), &legacy) == nil && legacy.Text != ""
+}
+
+// ---------------------------------------------------------------------------
+// Validation tests for additional routes not in buildTaskHandlerRouter
+// ---------------------------------------------------------------------------
+
+func buildTaskStatusRouter(svc *fakeTaskSvc) chi.Router {
+	h := handler.NewTaskHandler(svc, &fakeViewSvcTask{}, newFakeActivitySvc())
+	r := chi.NewRouter()
+	r.Route("/projects/{projectId}", func(r chi.Router) {
+		r.Post("/task-statuses", h.CreateTaskStatus)
+	})
+	return r
+}
+
+func buildCustomFieldRouter(svc *fakeTaskSvc) chi.Router {
+	h := handler.NewTaskHandler(svc, &fakeViewSvcTask{}, newFakeActivitySvc())
+	r := chi.NewRouter()
+	r.Route("/projects/{projectId}", func(r chi.Router) {
+		r.Post("/custom-fields", h.CreateCustomFieldDefinition)
+	})
+	return r
+}
+
+func TestTaskHandler_CreateTaskType_EmptyName_Returns400(t *testing.T) {
+	svc := newFakeTaskSvc()
+	r := buildTaskHandlerRouter(svc)
+	projectID := uuid.New()
+	w := doTaskRequest(r, http.MethodPost,
+		fmt.Sprintf("/projects/%s/task-types", projectID),
+		map[string]any{"name": ""},
+	)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTaskHandler_CreateTaskStatus_EmptyName_Returns400(t *testing.T) {
+	svc := newFakeTaskSvc()
+	r := buildTaskStatusRouter(svc)
+	projectID := uuid.New()
+	w := doTaskRequest(r, http.MethodPost,
+		fmt.Sprintf("/projects/%s/task-statuses", projectID),
+		map[string]any{"name": "", "category": "todo"},
+	)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTaskHandler_CreateTaskStatus_EmptyCategory_Returns400(t *testing.T) {
+	svc := newFakeTaskSvc()
+	r := buildTaskStatusRouter(svc)
+	projectID := uuid.New()
+	w := doTaskRequest(r, http.MethodPost,
+		fmt.Sprintf("/projects/%s/task-statuses", projectID),
+		map[string]any{"name": "In Progress", "category": ""},
+	)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTaskHandler_CreateCustomFieldDefinition_MissingFieldKey_Returns400(t *testing.T) {
+	svc := newFakeTaskSvc()
+	r := buildCustomFieldRouter(svc)
+	projectID := uuid.New()
+	w := doTaskRequest(r, http.MethodPost,
+		fmt.Sprintf("/projects/%s/custom-fields", projectID),
+		map[string]any{"field_key": "", "display_name": "Priority", "field_type": "text"},
+	)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing field_key, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTaskHandler_CreateCustomFieldDefinition_MissingDisplayName_Returns400(t *testing.T) {
+	svc := newFakeTaskSvc()
+	r := buildCustomFieldRouter(svc)
+	projectID := uuid.New()
+	w := doTaskRequest(r, http.MethodPost,
+		fmt.Sprintf("/projects/%s/custom-fields", projectID),
+		map[string]any{"field_key": "priority", "display_name": "", "field_type": "text"},
+	)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing display_name, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTaskHandler_CreateCustomFieldDefinition_MissingFieldType_Returns400(t *testing.T) {
+	svc := newFakeTaskSvc()
+	r := buildCustomFieldRouter(svc)
+	projectID := uuid.New()
+	w := doTaskRequest(r, http.MethodPost,
+		fmt.Sprintf("/projects/%s/custom-fields", projectID),
+		map[string]any{"field_key": "priority", "display_name": "Priority", "field_type": ""},
+	)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing field_type, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestActivityHandler_AddComment_NullContent_Returns400(t *testing.T) {
+	svc := newFakeTaskSvc()
+	actSvc := newFakeActivitySvc()
+	r := buildTaskHandlerRouterWithActivity(svc, actSvc)
+	projectID := uuid.New()
+	taskID := uuid.New()
+	actorID := uuid.New()
+
+	// content field absent → json.RawMessage is nil → len == 0 → handler returns 400
+	w := doTaskRequestWithActor(r, http.MethodPost,
+		fmt.Sprintf("/projects/%s/tasks/%s/activities/comments", projectID, taskID),
+		map[string]any{},
+		actorID,
+	)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for nil content, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestActivityHandler_UpdateComment_NullContent_Returns400(t *testing.T) {
+	svc := newFakeTaskSvc()
+	actSvc := newFakeActivitySvc()
+	r := buildTaskHandlerRouterWithActivity(svc, actSvc)
+	projectID := uuid.New()
+	taskID := uuid.New()
+	actorID := uuid.New()
+
+	// First create a comment so we have an ID
+	createW := doTaskRequestWithActor(r, http.MethodPost,
+		fmt.Sprintf("/projects/%s/tasks/%s/activities/comments", projectID, taskID),
+		map[string]any{"content": []map[string]any{{"type": "paragraph", "content": []map[string]any{{"type": "text", "text": "original"}}}}},
+		actorID,
+	)
+	if createW.Code != http.StatusCreated {
+		t.Fatalf("setup: expected 201, got %d: %s", createW.Code, createW.Body.String())
+	}
+	var created struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(createW.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	// Update with null content → handler returns 400
+	w := doTaskRequestWithActor(r, http.MethodPatch,
+		fmt.Sprintf("/projects/%s/tasks/%s/activities/comments/%s", projectID, taskID, created.Data.ID),
+		map[string]any{},
+		actorID,
+	)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for nil content, got %d: %s", w.Code, w.Body.String())
+	}
 }

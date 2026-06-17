@@ -2,23 +2,23 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
+	"github.com/jmoiron/sqlx"
+	_ "github.com/mattn/go-sqlite3"
 )
 
-func openTxTestDB(t *testing.T) *gorm.DB {
+func openTxTestDB(t *testing.T) *sqlx.DB {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "tx-test.db")
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	db, err := sqlx.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.Exec("CREATE TABLE tx_values (v TEXT NOT NULL)").Error; err != nil {
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.ExecContext(context.Background(), "CREATE TABLE tx_values (v TEXT NOT NULL)"); err != nil {
 		t.Fatalf("create table: %v", err)
 	}
 	return db
@@ -26,16 +26,18 @@ func openTxTestDB(t *testing.T) *gorm.DB {
 
 func TestWithTx_CommitsOnSuccess(t *testing.T) {
 	db := openTxTestDB(t)
+	ctx := context.Background()
 
-	err := WithTx(context.Background(), db, func(tx *gorm.DB) error {
-		return tx.Exec("INSERT INTO tx_values(v) VALUES (?)", "ok").Error
+	err := WithTx(ctx, db, func(tx *sqlx.Tx) error {
+		_, err := tx.ExecContext(ctx, "INSERT INTO tx_values(v) VALUES (?)", "ok")
+		return err
 	})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	var count int64
-	if err := db.Table("tx_values").Where("v = ?", "ok").Count(&count).Error; err != nil {
+	var count int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tx_values WHERE v = ?", "ok").Scan(&count); err != nil {
 		t.Fatalf("count rows: %v", err)
 	}
 	if count != 1 {
@@ -45,10 +47,11 @@ func TestWithTx_CommitsOnSuccess(t *testing.T) {
 
 func TestWithTx_RollsBackAndWrapsError(t *testing.T) {
 	db := openTxTestDB(t)
+	ctx := context.Background()
 	fnErr := errors.New("boom")
 
-	err := WithTx(context.Background(), db, func(tx *gorm.DB) error {
-		if e := tx.Exec("INSERT INTO tx_values(v) VALUES (?)", "rollback").Error; e != nil {
+	err := WithTx(ctx, db, func(tx *sqlx.Tx) error {
+		if _, e := tx.ExecContext(ctx, "INSERT INTO tx_values(v) VALUES (?)", "rollback"); e != nil {
 			return e
 		}
 		return fnErr
@@ -60,8 +63,8 @@ func TestWithTx_RollsBackAndWrapsError(t *testing.T) {
 		t.Fatalf("expected wrapped tx error, got %v", err)
 	}
 
-	var count int64
-	if err := db.Table("tx_values").Where("v = ?", "rollback").Count(&count).Error; err != nil {
+	var count int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tx_values WHERE v = ?", "rollback").Scan(&count); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("count rows: %v", err)
 	}
 	if count != 0 {

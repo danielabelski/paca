@@ -3,41 +3,56 @@ package postgres
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
 	userdom "github.com/Paca-AI/api/internal/domain/user"
 	"github.com/google/uuid"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
+	"github.com/jmoiron/sqlx"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // openUserRepoTestDB sets up an in-memory SQLite DB for user repository tests.
-// It auto-migrates both globalRoleRecord and userRecord, seeds a "USER" global
-// role, and returns the db plus the seeded role's UUID.
-func openUserRepoTestDB(t *testing.T) (*gorm.DB, uuid.UUID) {
+// It creates the necessary schema, seeds a "USER" global role so FK constraints
+// are satisfied, and returns the DB plus the seeded role's UUID.
+func openUserRepoTestDB(t *testing.T) (*sqlx.DB, uuid.UUID) {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "user-repo-test.db")
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	db, err := sqlx.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&globalRoleRecord{}, &userRecord{}); err != nil {
-		t.Fatalf("auto migrate: %v", err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	schema := `
+		CREATE TABLE global_roles (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			permissions BLOB NOT NULL,
+			created_at DATETIME,
+			updated_at DATETIME
+		);
+		CREATE TABLE users (
+			id TEXT PRIMARY KEY,
+			username TEXT NOT NULL UNIQUE,
+			password_hash TEXT NOT NULL,
+			full_name TEXT NOT NULL,
+			role_id TEXT NOT NULL,
+			must_change_password INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME,
+			updated_at DATETIME,
+			deleted_at DATETIME
+		);`
+	if _, err := db.ExecContext(context.Background(), schema); err != nil {
+		t.Fatalf("create schema: %v", err)
 	}
 
 	// Seed a global role so foreign-key constraints are satisfied.
 	roleID := uuid.New()
-	if err := db.Create(&globalRoleRecord{
-		ID:          roleID.String(),
-		Name:        userdom.RoleUser,
-		Permissions: []byte("{}"),
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
-	}).Error; err != nil {
-		t.Fatalf("seed global role: %v", err)
-	}
+	now := time.Now()
+	db.MustExec(
+		`INSERT INTO global_roles (id, name, permissions, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)`,
+		roleID.String(), userdom.RoleUser, []byte("{}"), now, now,
+	)
 	return db, roleID
 }
 
@@ -142,11 +157,12 @@ func TestUserRepository_DeleteSoftDelete(t *testing.T) {
 		t.Fatalf("expected ErrNotFound after delete, got %v", err)
 	}
 
+	// Verify deleted_at was set via raw query (bypassing soft-delete filter).
 	var rec userRecord
-	if err := db.Unscoped().First(&rec, "id = ?", u.ID.String()).Error; err != nil {
-		t.Fatalf("query unscoped deleted row: %v", err)
+	if err := db.GetContext(ctx, &rec, "SELECT id, username, password_hash, full_name, role_id, must_change_password, created_at, updated_at, deleted_at FROM users WHERE id = $1", u.ID.String()); err != nil {
+		t.Fatalf("query deleted row: %v", err)
 	}
-	if !rec.DeletedAt.Valid {
+	if rec.DeletedAt == nil {
 		t.Fatal("expected deleted_at to be set")
 	}
 }

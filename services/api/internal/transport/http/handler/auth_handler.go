@@ -9,7 +9,6 @@ import (
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"github.com/gin-gonic/gin"
 )
 
 const (
@@ -42,65 +41,74 @@ func NewAuthHandler(svc domainauth.Service, cookie CookieConfig) *AuthHandler {
 // Login handles POST /auth/login.
 // On success, access and refresh tokens are set as HttpOnly cookies; no token
 // values appear in the response body.
-func (h *AuthHandler) Login(c *gin.Context) {
+func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req dto.LoginRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
-	pair, err := h.svc.Login(c.Request.Context(), req.Username, req.Password, req.RememberMe)
+	if req.Username == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "username is required"))
+		return
+	}
+	if len(req.Password) < 8 {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "password must be at least 8 characters"))
+		return
+	}
+
+	pair, err := h.svc.Login(r.Context(), req.Username, req.Password, req.RememberMe)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	h.setTokenCookies(c, pair, pair.RefreshTTL)
-	presenter.OK(c, gin.H{"message": "logged in"})
+	h.setTokenCookies(w, pair, pair.RefreshTTL)
+	presenter.OK(w, r, map[string]any{"message": "logged in"})
 }
 
 // Refresh handles POST /auth/refresh.
 // The refresh token is read from the HttpOnly refresh_token cookie and, on
 // success, a rotated token pair is written back as cookies.
-func (h *AuthHandler) Refresh(c *gin.Context) {
-	refreshToken, err := c.Cookie(refreshCookieName)
-	if err != nil || refreshToken == "" {
-		presenter.Error(c, apierr.New(apierr.CodeMissingToken, "missing refresh token"))
+func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	refreshCookie, err := r.Cookie(refreshCookieName)
+	if err != nil || refreshCookie.Value == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeMissingToken, "missing refresh token"))
 		return
 	}
 
-	pair, err := h.svc.Refresh(c.Request.Context(), refreshToken)
+	pair, err := h.svc.Refresh(r.Context(), refreshCookie.Value)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	h.setTokenCookies(c, pair, pair.RefreshTTL)
-	presenter.OK(c, gin.H{"message": "token refreshed"})
+	h.setTokenCookies(w, pair, pair.RefreshTTL)
+	presenter.OK(w, r, map[string]any{"message": "token refreshed"})
 }
 
 // Logout handles POST /auth/logout.  Requires an authenticated access token.
 // Revokes the session family and clears both auth cookies.
-func (h *AuthHandler) Logout(c *gin.Context) {
-	claims := middleware.ClaimsFrom(c)
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.ClaimsFrom(r)
 	if claims == nil {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return
 	}
 
-	if err := h.svc.Logout(c.Request.Context(), claims.FamilyID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.Logout(r.Context(), claims.FamilyID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
 
-	h.clearCookies(c)
-	presenter.OK(c, gin.H{"message": "logged out"})
+	h.clearCookies(w, r)
+	presenter.OK(w, r, map[string]any{"message": "logged out"})
 }
 
 // setTokenCookies writes both tokens into HttpOnly Set-Cookie headers.
 // refreshTTL controls the MaxAge of the refresh cookie and should match the
 // TTL embedded in the refresh JWT (see TokenPair.RefreshTTL).
-func (h *AuthHandler) setTokenCookies(c *gin.Context, pair *domainauth.TokenPair, refreshTTL time.Duration) {
-	http.SetCookie(c.Writer, &http.Cookie{
+func (h *AuthHandler) setTokenCookies(w http.ResponseWriter, pair *domainauth.TokenPair, refreshTTL time.Duration) {
+	http.SetCookie(w, &http.Cookie{
 		Name:     accessCookieName,
 		Value:    pair.AccessToken,
 		Path:     "/",
@@ -109,7 +117,7 @@ func (h *AuthHandler) setTokenCookies(c *gin.Context, pair *domainauth.TokenPair
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(h.cookie.AccessTTL.Seconds()),
 	})
-	http.SetCookie(c.Writer, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{
 		Name:     refreshCookieName,
 		Value:    pair.RefreshToken,
 		Path:     refreshCookiePath,
@@ -121,8 +129,8 @@ func (h *AuthHandler) setTokenCookies(c *gin.Context, pair *domainauth.TokenPair
 }
 
 // clearCookies expires both auth cookies immediately.
-func (h *AuthHandler) clearCookies(c *gin.Context) {
-	http.SetCookie(c.Writer, &http.Cookie{
+func (h *AuthHandler) clearCookies(w http.ResponseWriter, _ *http.Request) {
+	http.SetCookie(w, &http.Cookie{
 		Name:     accessCookieName,
 		Value:    "",
 		Path:     "/",
@@ -131,7 +139,7 @@ func (h *AuthHandler) clearCookies(c *gin.Context) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
-	http.SetCookie(c.Writer, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{
 		Name:     refreshCookieName,
 		Value:    "",
 		Path:     refreshCookiePath,

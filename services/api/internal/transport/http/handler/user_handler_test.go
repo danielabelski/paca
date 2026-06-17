@@ -11,7 +11,7 @@ import (
 
 	domainuser "github.com/Paca-AI/api/internal/domain/user"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
-	"github.com/gin-gonic/gin"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
@@ -93,20 +93,20 @@ var _ domainuser.Service = (*mockUserSvc)(nil)
 // helper
 // ---------------------------------------------------------------------------
 
-func newUserRouter(svc domainuser.Service) *gin.Engine {
-	r := gin.New()
+func newUserRouter(svc domainuser.Service) chi.Router {
+	r := chi.NewRouter()
 	h := handler.NewUserHandler(svc)
 	// self-service routes
-	r.GET("/users/me", h.GetMe)
-	r.PATCH("/users/me", h.UpdateMe)
-	r.GET("/users/me/global-permissions", h.GetMyGlobalPermissions)
+	r.Get("/users/me", h.GetMe)
+	r.Patch("/users/me", h.UpdateMe)
+	r.Get("/users/me/global-permissions", h.GetMyGlobalPermissions)
 	// admin routes
-	r.GET("/admin/users", h.ListUsers)
-	r.POST("/admin/users", h.CreateUser)
-	r.GET("/admin/users/:userId", h.GetUserByID)
-	r.PATCH("/admin/users/:userId", h.AdminUpdateUser)
-	r.PATCH("/admin/users/:userId/password", h.ResetPassword)
-	r.DELETE("/admin/users/:userId", h.DeleteUser)
+	r.Get("/admin/users", h.ListUsers)
+	r.Post("/admin/users", h.CreateUser)
+	r.Get("/admin/users/{userId}", h.GetUserByID)
+	r.Patch("/admin/users/{userId}", h.AdminUpdateUser)
+	r.Patch("/admin/users/{userId}/password", h.ResetPassword)
+	r.Delete("/admin/users/{userId}", h.DeleteUser)
 	return r
 }
 
@@ -278,9 +278,9 @@ func TestGetMe_Success(t *testing.T) {
 			return &domainuser.User{ID: id, Username: "me", Role: domainuser.RoleUser}, nil
 		},
 	}
-	r := gin.New()
+	r := chi.NewRouter()
 	claims := testClaims(id.String(), "me", "USER")
-	r.GET("/users/me", injectClaims(claims), handler.NewUserHandler(svc).GetMe)
+	r.With(injectClaims(claims)).Get("/users/me", handler.NewUserHandler(svc).GetMe)
 
 	w := do(t, r, http.MethodGet, "/users/me", nil)
 	if w.Code != http.StatusOK {
@@ -289,8 +289,8 @@ func TestGetMe_Success(t *testing.T) {
 }
 
 func TestGetMe_Unauthenticated(t *testing.T) {
-	r := gin.New()
-	r.GET("/users/me", handler.NewUserHandler(&mockUserSvc{}).GetMe)
+	r := chi.NewRouter()
+	r.Get("/users/me", handler.NewUserHandler(&mockUserSvc{}).GetMe)
 
 	w := do(t, r, http.MethodGet, "/users/me", nil)
 	if w.Code != http.StatusUnauthorized {
@@ -308,9 +308,9 @@ func TestGetMe_NotFound(t *testing.T) {
 			return nil, domainuser.ErrNotFound
 		},
 	}
-	r := gin.New()
+	r := chi.NewRouter()
 	claims := testClaims(id.String(), "a", "USER")
-	r.GET("/users/me", injectClaims(claims), handler.NewUserHandler(svc).GetMe)
+	r.With(injectClaims(claims)).Get("/users/me", handler.NewUserHandler(svc).GetMe)
 
 	w := do(t, r, http.MethodGet, "/users/me", nil)
 	if w.Code != http.StatusNotFound {
@@ -335,9 +335,9 @@ func TestUpdateMe_Success(t *testing.T) {
 			return &domainuser.User{ID: id, FullName: in.FullName, Role: domainuser.RoleUser}, nil
 		},
 	}
-	r := gin.New()
+	r := chi.NewRouter()
 	claims := testClaims(id.String(), "me", "USER")
-	r.PATCH("/users/me", injectClaims(claims), handler.NewUserHandler(svc).UpdateMe)
+	r.With(injectClaims(claims)).Patch("/users/me", handler.NewUserHandler(svc).UpdateMe)
 
 	w := do(t, r, http.MethodPatch, "/users/me",
 		jsonBody(t, map[string]string{"full_name": "New Name"}))
@@ -347,8 +347,8 @@ func TestUpdateMe_Success(t *testing.T) {
 }
 
 func TestUpdateMe_Unauthenticated(t *testing.T) {
-	r := gin.New()
-	r.PATCH("/users/me", handler.NewUserHandler(&mockUserSvc{}).UpdateMe)
+	r := chi.NewRouter()
+	r.Patch("/users/me", handler.NewUserHandler(&mockUserSvc{}).UpdateMe)
 
 	w := do(t, r, http.MethodPatch, "/users/me",
 		jsonBody(t, map[string]string{"full_name": "Name"}))
@@ -371,9 +371,9 @@ func TestGetMyGlobalPermissions_Success(t *testing.T) {
 			return []string{"global_roles.read", "users.read"}, nil
 		},
 	}
-	r := gin.New()
+	r := chi.NewRouter()
 	claims := testClaims(id.String(), "me", "USER")
-	r.GET("/users/me/global-permissions", injectClaims(claims), handler.NewUserHandler(svc).GetMyGlobalPermissions)
+	r.With(injectClaims(claims)).Get("/users/me/global-permissions", handler.NewUserHandler(svc).GetMyGlobalPermissions)
 
 	w := do(t, r, http.MethodGet, "/users/me/global-permissions", nil)
 	if w.Code != http.StatusOK {
@@ -382,8 +382,8 @@ func TestGetMyGlobalPermissions_Success(t *testing.T) {
 }
 
 func TestGetMyGlobalPermissions_Unauthenticated(t *testing.T) {
-	r := gin.New()
-	r.GET("/users/me/global-permissions", handler.NewUserHandler(&mockUserSvc{}).GetMyGlobalPermissions)
+	r := chi.NewRouter()
+	r.Get("/users/me/global-permissions", handler.NewUserHandler(&mockUserSvc{}).GetMyGlobalPermissions)
 
 	w := do(t, r, http.MethodGet, "/users/me/global-permissions", nil)
 	if w.Code != http.StatusUnauthorized {
@@ -395,9 +395,9 @@ func TestGetMyGlobalPermissions_Unauthenticated(t *testing.T) {
 }
 
 func TestGetMyGlobalPermissions_InvalidSubjectClaim(t *testing.T) {
-	r := gin.New()
+	r := chi.NewRouter()
 	claims := testClaims("not-a-uuid", "me", "USER")
-	r.GET("/users/me/global-permissions", injectClaims(claims), handler.NewUserHandler(&mockUserSvc{}).GetMyGlobalPermissions)
+	r.With(injectClaims(claims)).Get("/users/me/global-permissions", handler.NewUserHandler(&mockUserSvc{}).GetMyGlobalPermissions)
 
 	w := do(t, r, http.MethodGet, "/users/me/global-permissions", nil)
 	if w.Code != http.StatusBadRequest {
@@ -415,9 +415,9 @@ func TestGetMyGlobalPermissions_ServiceError(t *testing.T) {
 			return nil, domainuser.ErrNotFound
 		},
 	}
-	r := gin.New()
+	r := chi.NewRouter()
 	claims := testClaims(id.String(), "me", "USER")
-	r.GET("/users/me/global-permissions", injectClaims(claims), handler.NewUserHandler(svc).GetMyGlobalPermissions)
+	r.With(injectClaims(claims)).Get("/users/me/global-permissions", handler.NewUserHandler(svc).GetMyGlobalPermissions)
 
 	w := do(t, r, http.MethodGet, "/users/me/global-permissions", nil)
 	if w.Code != http.StatusNotFound {
@@ -645,9 +645,9 @@ func TestChangeMyPassword_Success(t *testing.T) {
 			return nil
 		},
 	}
-	r := gin.New()
+	r := chi.NewRouter()
 	claims := testClaims(id.String(), "me", "USER")
-	r.PATCH("/users/me/password", injectClaims(claims), handler.NewUserHandler(svc).ChangeMyPassword)
+	r.With(injectClaims(claims)).Patch("/users/me/password", handler.NewUserHandler(svc).ChangeMyPassword)
 
 	w := do(t, r, http.MethodPatch, "/users/me/password",
 		jsonBody(t, map[string]string{"current_password": "oldpass123", "new_password": "newpass456"}))
@@ -660,8 +660,8 @@ func TestChangeMyPassword_Success(t *testing.T) {
 }
 
 func TestChangeMyPassword_Unauthenticated(t *testing.T) {
-	r := gin.New()
-	r.PATCH("/users/me/password", handler.NewUserHandler(&mockUserSvc{}).ChangeMyPassword)
+	r := chi.NewRouter()
+	r.Patch("/users/me/password", handler.NewUserHandler(&mockUserSvc{}).ChangeMyPassword)
 
 	w := do(t, r, http.MethodPatch, "/users/me/password",
 		jsonBody(t, map[string]string{"current_password": "old12345", "new_password": "new12345"}))
@@ -675,9 +675,9 @@ func TestChangeMyPassword_Unauthenticated(t *testing.T) {
 
 func TestChangeMyPassword_MalformedJSON(t *testing.T) {
 	id := uuid.New()
-	r := gin.New()
+	r := chi.NewRouter()
 	claims := testClaims(id.String(), "me", "USER")
-	r.PATCH("/users/me/password", injectClaims(claims), handler.NewUserHandler(&mockUserSvc{}).ChangeMyPassword)
+	r.With(injectClaims(claims)).Patch("/users/me/password", handler.NewUserHandler(&mockUserSvc{}).ChangeMyPassword)
 
 	w := do(t, r, http.MethodPatch, "/users/me/password", bytes.NewBufferString("{bad json"))
 	if w.Code != http.StatusBadRequest {
@@ -690,9 +690,9 @@ func TestChangeMyPassword_MalformedJSON(t *testing.T) {
 
 func TestChangeMyPassword_NewPasswordTooShort(t *testing.T) {
 	id := uuid.New()
-	r := gin.New()
+	r := chi.NewRouter()
 	claims := testClaims(id.String(), "me", "USER")
-	r.PATCH("/users/me/password", injectClaims(claims), handler.NewUserHandler(&mockUserSvc{}).ChangeMyPassword)
+	r.With(injectClaims(claims)).Patch("/users/me/password", handler.NewUserHandler(&mockUserSvc{}).ChangeMyPassword)
 
 	w := do(t, r, http.MethodPatch, "/users/me/password",
 		jsonBody(t, map[string]string{"current_password": "old12345", "new_password": "short"}))
@@ -711,9 +711,9 @@ func TestChangeMyPassword_WrongCurrentPassword(t *testing.T) {
 			return domainuser.ErrInvalidCurrentPassword
 		},
 	}
-	r := gin.New()
+	r := chi.NewRouter()
 	claims := testClaims(id.String(), "me", "USER")
-	r.PATCH("/users/me/password", injectClaims(claims), handler.NewUserHandler(svc).ChangeMyPassword)
+	r.With(injectClaims(claims)).Patch("/users/me/password", handler.NewUserHandler(svc).ChangeMyPassword)
 
 	w := do(t, r, http.MethodPatch, "/users/me/password",
 		jsonBody(t, map[string]string{"current_password": "wrongpass", "new_password": "newpass456"}))
@@ -726,9 +726,9 @@ func TestChangeMyPassword_WrongCurrentPassword(t *testing.T) {
 }
 
 func TestChangeMyPassword_InvalidSubjectClaim(t *testing.T) {
-	r := gin.New()
+	r := chi.NewRouter()
 	claims := testClaims("not-a-uuid", "me", "USER")
-	r.PATCH("/users/me/password", injectClaims(claims), handler.NewUserHandler(&mockUserSvc{}).ChangeMyPassword)
+	r.With(injectClaims(claims)).Patch("/users/me/password", handler.NewUserHandler(&mockUserSvc{}).ChangeMyPassword)
 
 	w := do(t, r, http.MethodPatch, "/users/me/password",
 		jsonBody(t, map[string]string{"current_password": "old12345", "new_password": "new12345"}))
@@ -746,9 +746,9 @@ func TestChangeMyPassword_InvalidSubjectClaim(t *testing.T) {
 
 func TestUpdateMe_MalformedJSON(t *testing.T) {
 	id := uuid.New()
-	r := gin.New()
+	r := chi.NewRouter()
 	claims := testClaims(id.String(), "me", "USER")
-	r.PATCH("/users/me", injectClaims(claims), handler.NewUserHandler(&mockUserSvc{}).UpdateMe)
+	r.With(injectClaims(claims)).Patch("/users/me", handler.NewUserHandler(&mockUserSvc{}).UpdateMe)
 
 	w := do(t, r, http.MethodPatch, "/users/me", bytes.NewBufferString("{bad json"))
 	if w.Code != http.StatusBadRequest {
@@ -766,9 +766,9 @@ func TestUpdateMe_NotFound(t *testing.T) {
 			return nil, domainuser.ErrNotFound
 		},
 	}
-	r := gin.New()
+	r := chi.NewRouter()
 	claims := testClaims(id.String(), "me", "USER")
-	r.PATCH("/users/me", injectClaims(claims), handler.NewUserHandler(svc).UpdateMe)
+	r.With(injectClaims(claims)).Patch("/users/me", handler.NewUserHandler(svc).UpdateMe)
 
 	w := do(t, r, http.MethodPatch, "/users/me",
 		jsonBody(t, map[string]string{"full_name": "New Name"}))

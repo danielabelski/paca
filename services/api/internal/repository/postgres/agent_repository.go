@@ -2,177 +2,142 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	agentdom "github.com/Paca-AI/api/internal/domain/agent"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
+	"github.com/jmoiron/sqlx"
 )
 
 // -------------------------------------------------------------------------
-// GORM record types
+// sqlx record types
 // -------------------------------------------------------------------------
 
 type agentRecord struct {
-	ID                            string `gorm:"primarykey;type:uuid"`
-	ProjectID                     string `gorm:"type:uuid;not null;column:project_id"`
-	Name                          string
-	Handle                        string
-	AvatarURL                     *string `gorm:"column:avatar_url"`
-	LLMProvider                   string  `gorm:"column:llm_provider"`
-	LLMModel                      string  `gorm:"column:llm_model"`
-	LLMAPIKeySecret               string  `gorm:"column:llm_api_key_secret"`
-	LLMBaseURL                    string  `gorm:"column:llm_base_url"`
-	SystemPrompt                  string  `gorm:"column:system_prompt"`
-	TaskTriggerPrompt             string  `gorm:"column:task_trigger_prompt"`
-	DocCommentTriggerPrompt       string  `gorm:"column:doc_comment_trigger_prompt"`
-	ChatTriggerPrompt             string  `gorm:"column:chat_trigger_prompt"`
-	DescriptionWriteTriggerPrompt string  `gorm:"column:description_write_trigger_prompt"`
-	CanCloneRepos                 bool    `gorm:"column:can_clone_repos"`
-	CanCreatePRs                  bool    `gorm:"column:can_create_prs"`
-	MaxIterations                 int     `gorm:"column:max_iterations"`
-	TimeoutMinutes                int     `gorm:"column:timeout_minutes"`
-	GitCommitterName              string  `gorm:"column:git_committer_name"`
-	GitCommitterEmail             string  `gorm:"column:git_committer_email"`
-	CreatedBy                     *string `gorm:"type:uuid;column:created_by"`
-	CreatedAt                     time.Time
-	UpdatedAt                     time.Time
-	DeletedAt                     gorm.DeletedAt `gorm:"index"`
-}
-
-func (agentRecord) TableName() string { return "agents" }
-
-// agentReadRow is the result of the SELECT query.
-type agentReadRow struct {
-	ID                            string
-	ProjectID                     string
-	Name                          string
-	Handle                        string
-	AvatarURL                     *string
-	LLMProvider                   string
-	LLMModel                      string
-	LLMAPIKeySecret               string
-	LLMBaseURL                    string
-	SystemPrompt                  string
-	TaskTriggerPrompt             string
-	DocCommentTriggerPrompt       string
-	ChatTriggerPrompt             string
-	DescriptionWriteTriggerPrompt string
-	CanCloneRepos                 bool
-	CanCreatePRs                  bool
-	MaxIterations                 int
-	TimeoutMinutes                int
-	GitCommitterName              string
-	GitCommitterEmail             string
-	CreatedBy                     *string
-	CreatedAt                     time.Time
-	UpdatedAt                     time.Time
-	DeletedAt                     gorm.DeletedAt
-	MemberID                      *string // populated when joining with project_members
+	ID                            string     `db:"id"`
+	ProjectID                     string     `db:"project_id"`
+	Name                          string     `db:"name"`
+	Handle                        string     `db:"handle"`
+	AvatarURL                     *string    `db:"avatar_url"`
+	LLMProvider                   string     `db:"llm_provider"`
+	LLMModel                      string     `db:"llm_model"`
+	LLMAPIKeySecret               string     `db:"llm_api_key_secret"`
+	LLMBaseURL                    string     `db:"llm_base_url"`
+	SystemPrompt                  string     `db:"system_prompt"`
+	TaskTriggerPrompt             string     `db:"task_trigger_prompt"`
+	DocCommentTriggerPrompt       string     `db:"doc_comment_trigger_prompt"`
+	ChatTriggerPrompt             string     `db:"chat_trigger_prompt"`
+	DescriptionWriteTriggerPrompt string     `db:"description_write_trigger_prompt"`
+	CanCloneRepos                 bool       `db:"can_clone_repos"`
+	CanCreatePRs                  bool       `db:"can_create_prs"`
+	MaxIterations                 int        `db:"max_iterations"`
+	TimeoutMinutes                int        `db:"timeout_minutes"`
+	GitCommitterName              string     `db:"git_committer_name"`
+	GitCommitterEmail             string     `db:"git_committer_email"`
+	CreatedBy                     *string    `db:"created_by"`
+	CreatedAt                     time.Time  `db:"created_at"`
+	UpdatedAt                     time.Time  `db:"updated_at"`
+	DeletedAt                     *time.Time `db:"deleted_at"`
+	MemberID                      *string    `db:"member_id"` // populated when joining with project_members
 }
 
 type agentMCPServerRecord struct {
-	ID         string `gorm:"primarykey;type:uuid"`
-	AgentID    string `gorm:"type:uuid;not null;column:agent_id"`
-	ServerName string `gorm:"column:server_name"`
-	Transport  string
-	Command    *string
-	Args       []byte `gorm:"type:jsonb"`
-	URL        *string
-	Env        []byte `gorm:"type:jsonb"`
-	IsEnabled  bool   `gorm:"column:is_enabled"`
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID         string    `db:"id"`
+	AgentID    string    `db:"agent_id"`
+	ServerName string    `db:"server_name"`
+	Transport  string    `db:"transport"`
+	Command    *string   `db:"command"`
+	Args       []byte    `db:"args"`
+	URL        *string   `db:"url"`
+	Env        []byte    `db:"env"`
+	IsEnabled  bool      `db:"is_enabled"`
+	CreatedAt  time.Time `db:"created_at"`
+	UpdatedAt  time.Time `db:"updated_at"`
 }
-
-func (agentMCPServerRecord) TableName() string { return "agent_mcp_servers" }
 
 type agentSkillRecord struct {
-	ID           string  `gorm:"primarykey;type:uuid"`
-	AgentID      string  `gorm:"type:uuid;not null;column:agent_id"`
-	SkillName    string  `gorm:"column:skill_name"`
-	SkillSource  string  `gorm:"column:skill_source"`
-	SkillContent string  `gorm:"column:skill_content"`
-	SourceURL    *string `gorm:"column:source_url"`
-	Triggers     []byte  `gorm:"type:jsonb"`
-	IsEnabled    bool    `gorm:"column:is_enabled"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID           string    `db:"id"`
+	AgentID      string    `db:"agent_id"`
+	SkillName    string    `db:"skill_name"`
+	SkillSource  string    `db:"skill_source"`
+	SkillContent string    `db:"skill_content"`
+	SourceURL    *string   `db:"source_url"`
+	Triggers     []byte    `db:"triggers"`
+	IsEnabled    bool      `db:"is_enabled"`
+	CreatedAt    time.Time `db:"created_at"`
+	UpdatedAt    time.Time `db:"updated_at"`
 }
-
-func (agentSkillRecord) TableName() string { return "agent_skills" }
 
 type agentConversationRecord struct {
-	ID                  string  `gorm:"primarykey;type:uuid"`
-	AgentID             string  `gorm:"type:uuid;not null;column:agent_id"`
-	ProjectID           string  `gorm:"type:uuid;not null;column:project_id"`
-	TriggerType         string  `gorm:"column:trigger_type"`
-	TaskID              *string `gorm:"type:uuid;column:task_id"`
-	CommentID           *string `gorm:"type:uuid;column:comment_id"`
-	ChatSessionID       *string `gorm:"type:uuid;column:chat_session_id"`
-	TriggeredByMemberID string  `gorm:"type:uuid;not null;column:triggered_by_member_id"`
-	Status              string
-	ContainerID         *string    `gorm:"column:container_id"`
-	HostPort            *int       `gorm:"column:host_port"`
-	IterationCount      int        `gorm:"column:iteration_count"`
-	ErrorMessage        *string    `gorm:"column:error_message"`
-	RepoPluginID        *string    `gorm:"type:uuid;column:repo_plugin_id"`
-	RepoCloneURL        *string    `gorm:"column:repo_clone_url"`
-	BranchName          *string    `gorm:"column:branch_name"`
-	PRUrl               *string    `gorm:"column:pr_url"`
-	PersistenceDir      *string    `gorm:"column:persistence_dir"`
-	StartedAt           *time.Time `gorm:"column:started_at"`
-	FinishedAt          *time.Time `gorm:"column:finished_at"`
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	ID                  string     `db:"id"`
+	AgentID             string     `db:"agent_id"`
+	ProjectID           string     `db:"project_id"`
+	TriggerType         string     `db:"trigger_type"`
+	TaskID              *string    `db:"task_id"`
+	CommentID           *string    `db:"comment_id"`
+	ChatSessionID       *string    `db:"chat_session_id"`
+	TriggeredByMemberID string     `db:"triggered_by_member_id"`
+	Status              string     `db:"status"`
+	ContainerID         *string    `db:"container_id"`
+	HostPort            *int       `db:"host_port"`
+	IterationCount      int        `db:"iteration_count"`
+	ErrorMessage        *string    `db:"error_message"`
+	RepoPluginID        *string    `db:"repo_plugin_id"`
+	RepoCloneURL        *string    `db:"repo_clone_url"`
+	BranchName          *string    `db:"branch_name"`
+	PRUrl               *string    `db:"pr_url"`
+	PersistenceDir      *string    `db:"persistence_dir"`
+	StartedAt           *time.Time `db:"started_at"`
+	FinishedAt          *time.Time `db:"finished_at"`
+	CreatedAt           time.Time  `db:"created_at"`
+	UpdatedAt           time.Time  `db:"updated_at"`
 }
-
-func (agentConversationRecord) TableName() string { return "agent_conversations" }
 
 type agentConversationEventRecord struct {
-	ID             string `gorm:"primarykey;type:uuid"`
-	ConversationID string `gorm:"type:uuid;not null;column:conversation_id"`
-	EventIndex     int    `gorm:"column:event_index"`
-	EventType      string `gorm:"column:event_type"`
-	EventSource    string `gorm:"column:event_source"`
-	Payload        []byte `gorm:"type:jsonb"`
-	CreatedAt      time.Time
+	ID             string    `db:"id"`
+	ConversationID string    `db:"conversation_id"`
+	EventIndex     int       `db:"event_index"`
+	EventType      string    `db:"event_type"`
+	EventSource    string    `db:"event_source"`
+	Payload        []byte    `db:"payload"`
+	CreatedAt      time.Time `db:"created_at"`
 }
-
-func (agentConversationEventRecord) TableName() string { return "agent_conversation_events" }
 
 type agentChatSessionRecord struct {
-	ID            string `gorm:"primarykey;type:uuid"`
-	AgentID       string `gorm:"type:uuid;not null;column:agent_id"`
-	ProjectID     string `gorm:"type:uuid;not null;column:project_id"`
-	MemberID      string `gorm:"type:uuid;not null;column:member_id"`
-	Title         *string
-	LastMessageAt *time.Time `gorm:"column:last_message_at"`
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID            string     `db:"id"`
+	AgentID       string     `db:"agent_id"`
+	ProjectID     string     `db:"project_id"`
+	MemberID      string     `db:"member_id"`
+	Title         *string    `db:"title"`
+	LastMessageAt *time.Time `db:"last_message_at"`
+	CreatedAt     time.Time  `db:"created_at"`
+	UpdatedAt     time.Time  `db:"updated_at"`
 }
-
-func (agentChatSessionRecord) TableName() string { return "agent_chat_sessions" }
 
 // -------------------------------------------------------------------------
 // Repository
 // -------------------------------------------------------------------------
 
-// AgentRepository is the GORM implementation of agentdom.Repository.
+// AgentRepository is the sqlx implementation of agentdom.Repository.
 type AgentRepository struct {
-	db *gorm.DB
+	db *sqlx.DB
 }
 
 // NewAgentRepository returns a new AgentRepository.
-func NewAgentRepository(db *gorm.DB) *AgentRepository {
+func NewAgentRepository(db *sqlx.DB) *AgentRepository {
 	return &AgentRepository{db: db}
 }
 
-// -------------------------------------------------------------------------
-// Agent Types
-// -------------------------------------------------------------------------
+const agentSelectCols = `a.id, a.project_id, a.name, a.handle, a.avatar_url, a.llm_provider, a.llm_model,
+	a.llm_api_key_secret, a.llm_base_url, a.system_prompt, a.task_trigger_prompt,
+	a.doc_comment_trigger_prompt, a.chat_trigger_prompt, a.description_write_trigger_prompt,
+	a.can_clone_repos, a.can_create_prs, a.max_iterations, a.timeout_minutes,
+	a.git_committer_name, a.git_committer_email, a.created_by, a.created_at, a.updated_at, a.deleted_at,
+	pm.id AS member_id`
 
 // -------------------------------------------------------------------------
 // Agents
@@ -180,24 +145,18 @@ func NewAgentRepository(db *gorm.DB) *AgentRepository {
 
 // ListAgents returns all agents belonging to the given project.
 func (r *AgentRepository) ListAgents(ctx context.Context, projectID uuid.UUID) ([]*agentdom.Agent, error) {
-	rows, err := r.db.WithContext(ctx).
-		Raw(`SELECT a.*,
-                    pm.id AS member_id
-             FROM agents a
-             LEFT JOIN project_members pm ON pm.agent_id = a.id AND pm.deleted_at IS NULL
-             WHERE a.project_id = ? AND a.deleted_at IS NULL`, projectID.String()).
-		Rows()
+	var rows []agentRecord
+	err := r.db.SelectContext(ctx, &rows, `
+		SELECT `+agentSelectCols+`
+		FROM agents a
+		LEFT JOIN project_members pm ON pm.agent_id = a.id AND pm.deleted_at IS NULL
+		WHERE a.project_id = $1 AND a.deleted_at IS NULL`, projectID.String())
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
 
-	var result []*agentdom.Agent
-	for rows.Next() {
-		var row agentReadRow
-		if err := r.db.ScanRows(rows, &row); err != nil {
-			return nil, err
-		}
+	result := make([]*agentdom.Agent, 0, len(rows))
+	for _, row := range rows {
 		result = append(result, agentFromReadRow(row))
 	}
 	return result, nil
@@ -205,19 +164,17 @@ func (r *AgentRepository) ListAgents(ctx context.Context, projectID uuid.UUID) (
 
 // FindAgentByID returns a single agent with its MCP servers and skills.
 func (r *AgentRepository) FindAgentByID(ctx context.Context, id uuid.UUID) (*agentdom.Agent, error) {
-	var row agentReadRow
-	err := r.db.WithContext(ctx).
-		Raw(`SELECT a.*,
-                    pm.id AS member_id
-             FROM agents a
-             LEFT JOIN project_members pm ON pm.agent_id = a.id AND pm.deleted_at IS NULL
-             WHERE a.id = ? AND a.deleted_at IS NULL`, id.String()).
-		Scan(&row).Error
+	var row agentRecord
+	err := r.db.GetContext(ctx, &row, `
+		SELECT `+agentSelectCols+`
+		FROM agents a
+		LEFT JOIN project_members pm ON pm.agent_id = a.id AND pm.deleted_at IS NULL
+		WHERE a.id = $1 AND a.deleted_at IS NULL`, id.String())
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, agentdom.ErrAgentNotFound
+	}
 	if err != nil {
 		return nil, err
-	}
-	if row.ID == "" {
-		return nil, agentdom.ErrAgentNotFound
 	}
 	agent := agentFromReadRow(row)
 	// Load MCP servers and skills
@@ -236,20 +193,18 @@ func (r *AgentRepository) FindAgentByID(ctx context.Context, id uuid.UUID) (*age
 
 // FindAgentByHandle returns an agent by its unique handle within a project.
 func (r *AgentRepository) FindAgentByHandle(ctx context.Context, projectID uuid.UUID, handle string) (*agentdom.Agent, error) {
-	var row agentReadRow
-	err := r.db.WithContext(ctx).
-		Raw(`SELECT a.*,
-                    pm.id AS member_id
-             FROM agents a
-             LEFT JOIN project_members pm ON pm.agent_id = a.id AND pm.deleted_at IS NULL
-             WHERE a.project_id = ? AND a.handle = ? AND a.deleted_at IS NULL`,
-			projectID.String(), handle).
-		Scan(&row).Error
+	var row agentRecord
+	err := r.db.GetContext(ctx, &row, `
+		SELECT `+agentSelectCols+`
+		FROM agents a
+		LEFT JOIN project_members pm ON pm.agent_id = a.id AND pm.deleted_at IS NULL
+		WHERE a.project_id = $1 AND a.handle = $2 AND a.deleted_at IS NULL`,
+		projectID.String(), handle)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, agentdom.ErrAgentNotFound
+	}
 	if err != nil {
 		return nil, err
-	}
-	if row.ID == "" {
-		return nil, agentdom.ErrAgentNotFound
 	}
 	return agentFromReadRow(row), nil
 }
@@ -257,45 +212,56 @@ func (r *AgentRepository) FindAgentByHandle(ctx context.Context, projectID uuid.
 // CreateAgent inserts a new agent record.
 func (r *AgentRepository) CreateAgent(ctx context.Context, a *agentdom.Agent) error {
 	rec := agentToRecord(a)
-	return r.db.WithContext(ctx).Create(&rec).Error
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO agents (id, project_id, name, handle, avatar_url, llm_provider, llm_model,
+		  llm_api_key_secret, llm_base_url, system_prompt, task_trigger_prompt,
+		  doc_comment_trigger_prompt, chat_trigger_prompt, description_write_trigger_prompt,
+		  can_clone_repos, can_create_prs, max_iterations, timeout_minutes,
+		  git_committer_name, git_committer_email, created_by, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
+		rec.ID, rec.ProjectID, rec.Name, rec.Handle, rec.AvatarURL,
+		rec.LLMProvider, rec.LLMModel, rec.LLMAPIKeySecret, rec.LLMBaseURL,
+		rec.SystemPrompt, rec.TaskTriggerPrompt, rec.DocCommentTriggerPrompt,
+		rec.ChatTriggerPrompt, rec.DescriptionWriteTriggerPrompt,
+		rec.CanCloneRepos, rec.CanCreatePRs, rec.MaxIterations, rec.TimeoutMinutes,
+		rec.GitCommitterName, rec.GitCommitterEmail, rec.CreatedBy, rec.CreatedAt, rec.UpdatedAt,
+	)
+	return err
 }
 
 // UpdateAgent patches the mutable fields of an existing agent.
+// When LLMAPIKeySecret is non-empty it is updated atomically with the rest of
+// the fields inside a single transaction so no partial update is possible.
 func (r *AgentRepository) UpdateAgent(ctx context.Context, a *agentdom.Agent) error {
-	updates := map[string]any{
-		"name":                             a.Name,
-		"handle":                           a.Handle,
-		"avatar_url":                       a.AvatarURL,
-		"llm_provider":                     a.LLMProvider,
-		"llm_model":                        a.LLMModel,
-		"llm_base_url":                     a.LLMBaseURL,
-		"system_prompt":                    a.SystemPrompt,
-		"task_trigger_prompt":              a.TaskTriggerPrompt,
-		"doc_comment_trigger_prompt":       a.DocCommentTriggerPrompt,
-		"chat_trigger_prompt":              a.ChatTriggerPrompt,
-		"description_write_trigger_prompt": a.DescriptionWriteTriggerPrompt,
-		"can_clone_repos":                  a.CanCloneRepos,
-		"can_create_prs":                   a.CanCreatePRs,
-		"max_iterations":                   a.MaxIterations,
-		"timeout_minutes":                  a.TimeoutMinutes,
-		"git_committer_name":               a.GitCommitterName,
-		"git_committer_email":              a.GitCommitterEmail,
-		"updated_at":                       time.Now(),
-	}
-	if a.LLMAPIKeySecret != "" {
-		updates["llm_api_key_secret"] = a.LLMAPIKeySecret
-	}
-	return r.db.WithContext(ctx).Model(&agentRecord{}).
-		Where("id = ?", a.ID.String()).
-		Updates(updates).Error
+	return WithTx(ctx, r.db, func(tx *sqlx.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			UPDATE agents SET
+			  name=$1, handle=$2, avatar_url=$3, llm_provider=$4, llm_model=$5, llm_base_url=$6,
+			  system_prompt=$7, task_trigger_prompt=$8, doc_comment_trigger_prompt=$9,
+			  chat_trigger_prompt=$10, description_write_trigger_prompt=$11,
+			  can_clone_repos=$12, can_create_prs=$13, max_iterations=$14, timeout_minutes=$15,
+			  git_committer_name=$16, git_committer_email=$17, updated_at=$18
+			WHERE id=$19`,
+			a.Name, a.Handle, a.AvatarURL, a.LLMProvider, a.LLMModel, a.LLMBaseURL,
+			a.SystemPrompt, a.TaskTriggerPrompt, a.DocCommentTriggerPrompt,
+			a.ChatTriggerPrompt, a.DescriptionWriteTriggerPrompt,
+			a.CanCloneRepos, a.CanCreatePRs, a.MaxIterations, a.TimeoutMinutes,
+			a.GitCommitterName, a.GitCommitterEmail, time.Now(), a.ID.String(),
+		)
+		if err != nil {
+			return err
+		}
+		if a.LLMAPIKeySecret != "" {
+			_, err = tx.ExecContext(ctx, `UPDATE agents SET llm_api_key_secret=$1 WHERE id=$2`, a.LLMAPIKeySecret, a.ID.String())
+		}
+		return err
+	})
 }
 
 // SoftDeleteAgent sets deleted_at on the agent row.
 func (r *AgentRepository) SoftDeleteAgent(ctx context.Context, id uuid.UUID) error {
-	return r.db.WithContext(ctx).
-		Model(&agentRecord{}).
-		Where("id = ?", id.String()).
-		Update("deleted_at", time.Now()).Error
+	_, err := r.db.ExecContext(ctx, `UPDATE agents SET deleted_at=$1 WHERE id=$2`, time.Now(), id.String())
+	return err
 }
 
 // SetAgentMemberID is a no-op; membership is derived from project_members JOIN.
@@ -307,15 +273,31 @@ func (r *AgentRepository) SetAgentMemberID(_ context.Context, _, _ uuid.UUID) er
 // CreateAgentWithMembership atomically inserts the agent and its project_members
 // row within a single database transaction.
 func (r *AgentRepository) CreateAgentWithMembership(ctx context.Context, a *agentdom.Agent, memberID, projectID, roleID uuid.UUID) error {
-	return WithTx(ctx, r.db, func(tx *gorm.DB) error {
-		if err := tx.Create(agentToRecord(a)).Error; err != nil {
+	return WithTx(ctx, r.db, func(tx *sqlx.Tx) error {
+		rec := agentToRecord(a)
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO agents (id, project_id, name, handle, avatar_url, llm_provider, llm_model,
+			  llm_api_key_secret, llm_base_url, system_prompt, task_trigger_prompt,
+			  doc_comment_trigger_prompt, chat_trigger_prompt, description_write_trigger_prompt,
+			  can_clone_repos, can_create_prs, max_iterations, timeout_minutes,
+			  git_committer_name, git_committer_email, created_by, created_at, updated_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
+			rec.ID, rec.ProjectID, rec.Name, rec.Handle, rec.AvatarURL,
+			rec.LLMProvider, rec.LLMModel, rec.LLMAPIKeySecret, rec.LLMBaseURL,
+			rec.SystemPrompt, rec.TaskTriggerPrompt, rec.DocCommentTriggerPrompt,
+			rec.ChatTriggerPrompt, rec.DescriptionWriteTriggerPrompt,
+			rec.CanCloneRepos, rec.CanCreatePRs, rec.MaxIterations, rec.TimeoutMinutes,
+			rec.GitCommitterName, rec.GitCommitterEmail, rec.CreatedBy, rec.CreatedAt, rec.UpdatedAt,
+		)
+		if err != nil {
 			return err
 		}
-		return tx.Exec(`
+		_, err = tx.ExecContext(ctx, `
 			INSERT INTO project_members (id, project_id, agent_id, project_role_id, member_type, user_id, created_at, deleted_at)
-			VALUES (?, ?, ?, ?, 'agent', NULL, NOW(), NULL)`,
+			VALUES ($1, $2, $3, $4, 'agent', NULL, NOW(), NULL)`,
 			memberID.String(), projectID.String(), a.ID.String(), roleID.String(),
-		).Error
+		)
+		return err
 	})
 }
 
@@ -323,16 +305,15 @@ func (r *AgentRepository) CreateAgentWithMembership(ctx context.Context, a *agen
 // project_members row within a single database transaction.
 func (r *AgentRepository) SoftDeleteAgentWithMembership(ctx context.Context, projectID, agentID uuid.UUID) error {
 	now := time.Now()
-	return WithTx(ctx, r.db, func(tx *gorm.DB) error {
-		if err := tx.Model(&agentRecord{}).
-			Where("id = ?", agentID.String()).
-			Update("deleted_at", now).Error; err != nil {
+	return WithTx(ctx, r.db, func(tx *sqlx.Tx) error {
+		if _, err := tx.ExecContext(ctx, `UPDATE agents SET deleted_at=$1 WHERE id=$2`, now, agentID.String()); err != nil {
 			return err
 		}
 		// Soft-delete the membership row; 0 rows affected is fine for orphaned agents.
-		return tx.Model(&projectMemberRecord{}).
-			Where("project_id = ? AND agent_id = ? AND member_type = 'agent'", projectID.String(), agentID.String()).
-			Update("deleted_at", now).Error
+		_, err := tx.ExecContext(ctx, `
+			UPDATE project_members SET deleted_at=$1
+			WHERE project_id=$2 AND agent_id=$3 AND member_type='agent'`, now, projectID.String(), agentID.String())
+		return err
 	})
 }
 
@@ -340,10 +321,12 @@ func (r *AgentRepository) SoftDeleteAgentWithMembership(ctx context.Context, pro
 // MCP Servers
 // -------------------------------------------------------------------------
 
+const mcpServerCols = `id, agent_id, server_name, transport, command, args, url, env, is_enabled, created_at, updated_at`
+
 // ListMCPServers returns all MCP server records for the given agent.
 func (r *AgentRepository) ListMCPServers(ctx context.Context, agentID uuid.UUID) ([]*agentdom.AgentMCPServer, error) {
 	var recs []agentMCPServerRecord
-	if err := r.db.WithContext(ctx).Where("agent_id = ?", agentID.String()).Find(&recs).Error; err != nil {
+	if err := r.db.SelectContext(ctx, &recs, `SELECT `+mcpServerCols+` FROM agent_mcp_servers WHERE agent_id = $1`, agentID.String()); err != nil {
 		return nil, err
 	}
 	result := make([]*agentdom.AgentMCPServer, 0, len(recs))
@@ -360,8 +343,8 @@ func (r *AgentRepository) ListMCPServers(ctx context.Context, agentID uuid.UUID)
 // FindMCPServerByID returns a single MCP server by its primary key.
 func (r *AgentRepository) FindMCPServerByID(ctx context.Context, id uuid.UUID) (*agentdom.AgentMCPServer, error) {
 	var rec agentMCPServerRecord
-	if err := r.db.WithContext(ctx).First(&rec, "id = ?", id.String()).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	if err := r.db.GetContext(ctx, &rec, `SELECT `+mcpServerCols+` FROM agent_mcp_servers WHERE id = $1`, id.String()); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, agentdom.ErrMCPServerNotFound
 		}
 		return nil, err
@@ -375,7 +358,13 @@ func (r *AgentRepository) CreateMCPServer(ctx context.Context, s *agentdom.Agent
 	if err != nil {
 		return err
 	}
-	return r.db.WithContext(ctx).Create(&rec).Error
+	_, err = r.db.ExecContext(ctx, `
+		INSERT INTO agent_mcp_servers (id, agent_id, server_name, transport, command, args, url, env, is_enabled, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+		rec.ID, rec.AgentID, rec.ServerName, rec.Transport, rec.Command,
+		rec.Args, rec.URL, rec.Env, rec.IsEnabled, rec.CreatedAt, rec.UpdatedAt,
+	)
+	return err
 }
 
 // UpdateMCPServer saves the full MCP server record.
@@ -384,22 +373,32 @@ func (r *AgentRepository) UpdateMCPServer(ctx context.Context, s *agentdom.Agent
 	if err != nil {
 		return err
 	}
-	return r.db.WithContext(ctx).Save(&rec).Error
+	_, err = r.db.ExecContext(ctx, `
+		UPDATE agent_mcp_servers SET agent_id=$1, server_name=$2, transport=$3, command=$4,
+		  args=$5, url=$6, env=$7, is_enabled=$8, updated_at=$9
+		WHERE id=$10`,
+		rec.AgentID, rec.ServerName, rec.Transport, rec.Command,
+		rec.Args, rec.URL, rec.Env, rec.IsEnabled, rec.UpdatedAt, rec.ID,
+	)
+	return err
 }
 
 // DeleteMCPServer permanently removes an MCP server record.
 func (r *AgentRepository) DeleteMCPServer(ctx context.Context, id uuid.UUID) error {
-	return r.db.WithContext(ctx).Delete(&agentMCPServerRecord{}, "id = ?", id.String()).Error
+	_, err := r.db.ExecContext(ctx, `DELETE FROM agent_mcp_servers WHERE id = $1`, id.String())
+	return err
 }
 
 // -------------------------------------------------------------------------
 // Skills
 // -------------------------------------------------------------------------
 
+const skillCols = `id, agent_id, skill_name, skill_source, skill_content, source_url, triggers, is_enabled, created_at, updated_at`
+
 // ListSkills returns all skill records for the given agent.
 func (r *AgentRepository) ListSkills(ctx context.Context, agentID uuid.UUID) ([]*agentdom.AgentSkill, error) {
 	var recs []agentSkillRecord
-	if err := r.db.WithContext(ctx).Where("agent_id = ?", agentID.String()).Find(&recs).Error; err != nil {
+	if err := r.db.SelectContext(ctx, &recs, `SELECT `+skillCols+` FROM agent_skills WHERE agent_id = $1`, agentID.String()); err != nil {
 		return nil, err
 	}
 	result := make([]*agentdom.AgentSkill, 0, len(recs))
@@ -416,8 +415,8 @@ func (r *AgentRepository) ListSkills(ctx context.Context, agentID uuid.UUID) ([]
 // FindSkillByID returns a single skill by its primary key.
 func (r *AgentRepository) FindSkillByID(ctx context.Context, id uuid.UUID) (*agentdom.AgentSkill, error) {
 	var rec agentSkillRecord
-	if err := r.db.WithContext(ctx).First(&rec, "id = ?", id.String()).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	if err := r.db.GetContext(ctx, &rec, `SELECT `+skillCols+` FROM agent_skills WHERE id = $1`, id.String()); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, agentdom.ErrSkillNotFound
 		}
 		return nil, err
@@ -431,7 +430,13 @@ func (r *AgentRepository) CreateSkill(ctx context.Context, s *agentdom.AgentSkil
 	if err != nil {
 		return err
 	}
-	return r.db.WithContext(ctx).Create(&rec).Error
+	_, err = r.db.ExecContext(ctx, `
+		INSERT INTO agent_skills (id, agent_id, skill_name, skill_source, skill_content, source_url, triggers, is_enabled, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		rec.ID, rec.AgentID, rec.SkillName, rec.SkillSource, rec.SkillContent,
+		rec.SourceURL, rec.Triggers, rec.IsEnabled, rec.CreatedAt, rec.UpdatedAt,
+	)
+	return err
 }
 
 // UpdateSkill saves the full skill record.
@@ -440,41 +445,70 @@ func (r *AgentRepository) UpdateSkill(ctx context.Context, s *agentdom.AgentSkil
 	if err != nil {
 		return err
 	}
-	return r.db.WithContext(ctx).Save(&rec).Error
+	_, err = r.db.ExecContext(ctx, `
+		UPDATE agent_skills SET agent_id=$1, skill_name=$2, skill_source=$3, skill_content=$4,
+		  source_url=$5, triggers=$6, is_enabled=$7, updated_at=$8
+		WHERE id=$9`,
+		rec.AgentID, rec.SkillName, rec.SkillSource, rec.SkillContent,
+		rec.SourceURL, rec.Triggers, rec.IsEnabled, rec.UpdatedAt, rec.ID,
+	)
+	return err
 }
 
 // DeleteSkill permanently removes a skill record.
 func (r *AgentRepository) DeleteSkill(ctx context.Context, id uuid.UUID) error {
-	return r.db.WithContext(ctx).Delete(&agentSkillRecord{}, "id = ?", id.String()).Error
+	_, err := r.db.ExecContext(ctx, `DELETE FROM agent_skills WHERE id = $1`, id.String())
+	return err
 }
 
 // -------------------------------------------------------------------------
 // Conversations
 // -------------------------------------------------------------------------
 
+const conversationCols = `id, agent_id, project_id, trigger_type, task_id, comment_id, chat_session_id,
+	triggered_by_member_id, status, container_id, host_port, iteration_count, error_message,
+	repo_plugin_id, repo_clone_url, branch_name, pr_url, persistence_dir,
+	started_at, finished_at, created_at, updated_at`
+
 // ListConversations returns a paginated list of conversations matching the filter.
 func (r *AgentRepository) ListConversations(ctx context.Context, in agentdom.ListConversationsFilter) ([]*agentdom.AgentConversation, int64, error) {
-	q := r.db.WithContext(ctx).Model(&agentConversationRecord{})
+	// Build dynamic WHERE clause
+	where := "WHERE 1=1"
+	args := []interface{}{}
+	idx := 1
+
 	if in.AgentID != nil {
-		q = q.Where("agent_id = ?", in.AgentID.String())
+		where += fmt.Sprintf(" AND agent_id = $%d", idx)
+		args = append(args, in.AgentID.String())
+		idx++
 	}
 	if in.ProjectID != nil {
-		q = q.Where("project_id = ?", in.ProjectID.String())
+		where += fmt.Sprintf(" AND project_id = $%d", idx)
+		args = append(args, in.ProjectID.String())
+		idx++
 	}
 	if in.TaskID != nil {
-		q = q.Where("task_id = ?", in.TaskID.String())
+		where += fmt.Sprintf(" AND task_id = $%d", idx)
+		args = append(args, in.TaskID.String())
+		idx++
 	}
 	if in.Status != nil {
-		q = q.Where("status = ?", *in.Status)
+		where += fmt.Sprintf(" AND status = $%d", idx)
+		args = append(args, *in.Status)
+		idx++
 	}
 
 	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	if err := r.db.GetContext(ctx, &total, `SELECT COUNT(*) FROM agent_conversations `+where, args...); err != nil {
 		return nil, 0, err
 	}
 
+	orderArgs := make([]interface{}, len(args), len(args)+2)
+	copy(orderArgs, args)
+	orderArgs = append(orderArgs, in.Offset, in.Limit)
 	var recs []agentConversationRecord
-	if err := q.Order("created_at DESC").Offset(in.Offset).Limit(in.Limit).Find(&recs).Error; err != nil {
+	if err := r.db.SelectContext(ctx, &recs, `SELECT `+conversationCols+` FROM agent_conversations `+where+
+		fmt.Sprintf(` ORDER BY created_at DESC OFFSET $%d LIMIT $%d`, idx, idx+1), orderArgs...); err != nil {
 		return nil, 0, err
 	}
 
@@ -488,8 +522,8 @@ func (r *AgentRepository) ListConversations(ctx context.Context, in agentdom.Lis
 // FindConversationByID returns a single conversation by its primary key.
 func (r *AgentRepository) FindConversationByID(ctx context.Context, id uuid.UUID) (*agentdom.AgentConversation, error) {
 	var rec agentConversationRecord
-	if err := r.db.WithContext(ctx).First(&rec, "id = ?", id.String()).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	if err := r.db.GetContext(ctx, &rec, `SELECT `+conversationCols+` FROM agent_conversations WHERE id = $1`, id.String()); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, agentdom.ErrConversationNotFound
 		}
 		return nil, err
@@ -500,38 +534,58 @@ func (r *AgentRepository) FindConversationByID(ctx context.Context, id uuid.UUID
 // CreateConversation inserts a new conversation record.
 func (r *AgentRepository) CreateConversation(ctx context.Context, c *agentdom.AgentConversation) error {
 	rec := conversationToRecord(c)
-	return r.db.WithContext(ctx).Create(&rec).Error
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO agent_conversations (id, agent_id, project_id, trigger_type, task_id, comment_id, chat_session_id,
+		  triggered_by_member_id, status, container_id, host_port, iteration_count, error_message,
+		  repo_plugin_id, repo_clone_url, branch_name, pr_url, persistence_dir,
+		  started_at, finished_at, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+		rec.ID, rec.AgentID, rec.ProjectID, rec.TriggerType, rec.TaskID, rec.CommentID, rec.ChatSessionID,
+		rec.TriggeredByMemberID, rec.Status, rec.ContainerID, rec.HostPort, rec.IterationCount, rec.ErrorMessage,
+		rec.RepoPluginID, rec.RepoCloneURL, rec.BranchName, rec.PRUrl, rec.PersistenceDir,
+		rec.StartedAt, rec.FinishedAt, rec.CreatedAt, rec.UpdatedAt,
+	)
+	return err
 }
 
 // UpdateConversationStatus sets the status field of a conversation.
 func (r *AgentRepository) UpdateConversationStatus(ctx context.Context, id uuid.UUID, status string) error {
-	return r.db.WithContext(ctx).
-		Model(&agentConversationRecord{}).
-		Where("id = ?", id.String()).
-		Updates(map[string]any{"status": status, "updated_at": time.Now()}).Error
+	_, err := r.db.ExecContext(ctx, `UPDATE agent_conversations SET status=$1, updated_at=$2 WHERE id=$3`, status, time.Now(), id.String())
+	return err
 }
 
 // UpdateConversation saves the full conversation record.
 func (r *AgentRepository) UpdateConversation(ctx context.Context, c *agentdom.AgentConversation) error {
 	rec := conversationToRecord(c)
-	return r.db.WithContext(ctx).Save(&rec).Error
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE agent_conversations SET
+		  agent_id=$1, project_id=$2, trigger_type=$3, task_id=$4, comment_id=$5, chat_session_id=$6,
+		  triggered_by_member_id=$7, status=$8, container_id=$9, host_port=$10, iteration_count=$11,
+		  error_message=$12, repo_plugin_id=$13, repo_clone_url=$14, branch_name=$15, pr_url=$16,
+		  persistence_dir=$17, started_at=$18, finished_at=$19, updated_at=$20
+		WHERE id=$21`,
+		rec.AgentID, rec.ProjectID, rec.TriggerType, rec.TaskID, rec.CommentID, rec.ChatSessionID,
+		rec.TriggeredByMemberID, rec.Status, rec.ContainerID, rec.HostPort, rec.IterationCount,
+		rec.ErrorMessage, rec.RepoPluginID, rec.RepoCloneURL, rec.BranchName, rec.PRUrl,
+		rec.PersistenceDir, rec.StartedAt, rec.FinishedAt, rec.UpdatedAt, rec.ID,
+	)
+	return err
 }
 
 // ListConversationEvents returns a paginated list of events for a conversation.
 func (r *AgentRepository) ListConversationEvents(ctx context.Context, conversationID uuid.UUID, offset, limit int) ([]*agentdom.AgentConversationEvent, int64, error) {
 	var total int64
-	if err := r.db.WithContext(ctx).Model(&agentConversationEventRecord{}).
-		Where("conversation_id = ?", conversationID.String()).
-		Count(&total).Error; err != nil {
+	if err := r.db.GetContext(ctx, &total, `SELECT COUNT(*) FROM agent_conversation_events WHERE conversation_id = $1`, conversationID.String()); err != nil {
 		return nil, 0, err
 	}
 
 	var recs []agentConversationEventRecord
-	if err := r.db.WithContext(ctx).
-		Where("conversation_id = ?", conversationID.String()).
-		Order("event_index ASC").
-		Offset(offset).Limit(limit).
-		Find(&recs).Error; err != nil {
+	if err := r.db.SelectContext(ctx, &recs, `
+		SELECT id, conversation_id, event_index, event_type, event_source, payload, created_at
+		FROM agent_conversation_events
+		WHERE conversation_id = $1
+		ORDER BY event_index ASC
+		OFFSET $2 LIMIT $3`, conversationID.String(), offset, limit); err != nil {
 		return nil, 0, err
 	}
 
@@ -552,20 +606,27 @@ func (r *AgentRepository) CreateConversationEvent(ctx context.Context, e *agentd
 	if err != nil {
 		return err
 	}
-	return r.db.WithContext(ctx).Create(&rec).Error
+	_, err = r.db.ExecContext(ctx, `
+		INSERT INTO agent_conversation_events (id, conversation_id, event_index, event_type, event_source, payload, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		rec.ID, rec.ConversationID, rec.EventIndex, rec.EventType, rec.EventSource, rec.Payload, rec.CreatedAt,
+	)
+	return err
 }
 
 // -------------------------------------------------------------------------
 // Chat Sessions
 // -------------------------------------------------------------------------
 
+const chatSessionCols = `id, agent_id, project_id, member_id, title, last_message_at, created_at, updated_at`
+
 // ListChatSessions returns all chat sessions for the given agent and member.
 func (r *AgentRepository) ListChatSessions(ctx context.Context, agentID, memberID uuid.UUID) ([]*agentdom.AgentChatSession, error) {
 	var recs []agentChatSessionRecord
-	if err := r.db.WithContext(ctx).
-		Where("agent_id = ? AND member_id = ?", agentID.String(), memberID.String()).
-		Order("created_at DESC").
-		Find(&recs).Error; err != nil {
+	if err := r.db.SelectContext(ctx, &recs, `
+		SELECT `+chatSessionCols+` FROM agent_chat_sessions
+		WHERE agent_id = $1 AND member_id = $2
+		ORDER BY created_at DESC`, agentID.String(), memberID.String()); err != nil {
 		return nil, err
 	}
 	result := make([]*agentdom.AgentChatSession, 0, len(recs))
@@ -578,8 +639,8 @@ func (r *AgentRepository) ListChatSessions(ctx context.Context, agentID, memberI
 // FindChatSessionByID returns a single chat session by its primary key.
 func (r *AgentRepository) FindChatSessionByID(ctx context.Context, id uuid.UUID) (*agentdom.AgentChatSession, error) {
 	var rec agentChatSessionRecord
-	if err := r.db.WithContext(ctx).First(&rec, "id = ?", id.String()).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	if err := r.db.GetContext(ctx, &rec, `SELECT `+chatSessionCols+` FROM agent_chat_sessions WHERE id = $1`, id.String()); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, agentdom.ErrChatSessionNotFound
 		}
 		return nil, err
@@ -590,20 +651,30 @@ func (r *AgentRepository) FindChatSessionByID(ctx context.Context, id uuid.UUID)
 // CreateChatSession inserts a new chat session record.
 func (r *AgentRepository) CreateChatSession(ctx context.Context, s *agentdom.AgentChatSession) error {
 	rec := chatSessionToRecord(s)
-	return r.db.WithContext(ctx).Create(&rec).Error
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO agent_chat_sessions (id, agent_id, project_id, member_id, title, last_message_at, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		rec.ID, rec.AgentID, rec.ProjectID, rec.MemberID, rec.Title, rec.LastMessageAt, rec.CreatedAt, rec.UpdatedAt,
+	)
+	return err
 }
 
 // UpdateChatSession saves the full chat session record.
 func (r *AgentRepository) UpdateChatSession(ctx context.Context, s *agentdom.AgentChatSession) error {
 	rec := chatSessionToRecord(s)
-	return r.db.WithContext(ctx).Save(&rec).Error
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE agent_chat_sessions SET agent_id=$1, project_id=$2, member_id=$3, title=$4, last_message_at=$5, updated_at=$6
+		WHERE id=$7`,
+		rec.AgentID, rec.ProjectID, rec.MemberID, rec.Title, rec.LastMessageAt, rec.UpdatedAt, rec.ID,
+	)
+	return err
 }
 
 // -------------------------------------------------------------------------
 // Mapping helpers
 // -------------------------------------------------------------------------
 
-func agentFromReadRow(row agentReadRow) *agentdom.Agent {
+func agentFromReadRow(row agentRecord) *agentdom.Agent {
 	a := &agentdom.Agent{
 		ID:                            mustParseUUID(row.ID),
 		ProjectID:                     mustParseUUID(row.ProjectID),
@@ -627,14 +698,11 @@ func agentFromReadRow(row agentReadRow) *agentdom.Agent {
 		GitCommitterEmail:             row.GitCommitterEmail,
 		CreatedAt:                     row.CreatedAt,
 		UpdatedAt:                     row.UpdatedAt,
+		DeletedAt:                     row.DeletedAt,
 	}
 	if row.CreatedBy != nil {
 		id := mustParseUUID(*row.CreatedBy)
 		a.CreatedBy = &id
-	}
-	if row.DeletedAt.Valid {
-		t := row.DeletedAt.Time
-		a.DeletedAt = &t
 	}
 	if row.MemberID != nil {
 		mid := mustParseUUID(*row.MemberID)

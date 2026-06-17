@@ -2,14 +2,16 @@ package handler
 
 import (
 	"encoding/json"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/Paca-AI/api/internal/apierr"
 	docdom "github.com/Paca-AI/api/internal/domain/doc"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // DocumentHandler handles documentation endpoints.
@@ -29,104 +31,108 @@ func NewDocumentHandler(svc docdom.Service, activitySvc docdom.ActivityService) 
 // =============================================================================
 
 // ListFolders handles GET /projects/:projectId/docs/folders.
-func (h *DocumentHandler) ListFolders(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *DocumentHandler) ListFolders(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	folders, err := h.svc.ListFolders(c.Request.Context(), projectID)
+	folders, err := h.svc.ListFolders(r.Context(), projectID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.DocFolderResponse, 0, len(folders))
 	for _, f := range folders {
 		resp = append(resp, dto.DocFolderFromEntity(f))
 	}
-	presenter.OK(c, gin.H{"items": resp})
+	presenter.OK(w, r, map[string]any{"items": resp})
 }
 
 // CreateFolder handles POST /projects/:projectId/docs/folders.
-func (h *DocumentHandler) CreateFolder(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *DocumentHandler) CreateFolder(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.CreateFolderRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if req.Name == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "name is required"))
 		return
 	}
 
 	var createdBy *uuid.UUID
-	if actorID, ok := middleware.ActorIDFromContext(c.Request.Context()); ok {
+	if actorID, ok := middleware.ActorIDFromContext(r.Context()); ok {
 		createdBy = &actorID
 	}
 
-	f, err := h.svc.CreateFolder(c.Request.Context(), docdom.CreateFolderInput{
+	f, err := h.svc.CreateFolder(r.Context(), docdom.CreateFolderInput{
 		ProjectID: projectID,
 		ParentID:  req.ParentID,
 		Name:      req.Name,
 		CreatedBy: createdBy,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	presenter.Created(c, dto.DocFolderFromEntity(f))
+	presenter.Created(w, r, dto.DocFolderFromEntity(f))
 }
 
 // UpdateFolder handles PATCH /projects/:projectId/docs/folders/:folderId.
-func (h *DocumentHandler) UpdateFolder(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *DocumentHandler) UpdateFolder(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	folderID, err := parseDocFolderID(c)
+	folderID, err := parseDocFolderID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.UpdateFolderRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
-	f, err := h.svc.UpdateFolder(c.Request.Context(), folderID, docdom.UpdateFolderInput{
+	f, err := h.svc.UpdateFolder(r.Context(), folderID, docdom.UpdateFolderInput{
 		ProjectID: projectID,
 		Name:      req.Name,
 		ParentID:  req.ParentID.Ptr(),
 		Position:  req.Position,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.DocFolderFromEntity(f))
+	presenter.OK(w, r, dto.DocFolderFromEntity(f))
 }
 
 // DeleteFolder handles DELETE /projects/:projectId/docs/folders/:folderId.
-func (h *DocumentHandler) DeleteFolder(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *DocumentHandler) DeleteFolder(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	folderID, err := parseDocFolderID(c)
+	folderID, err := parseDocFolderID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	if err := h.svc.DeleteFolder(c.Request.Context(), folderID, projectID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.DeleteFolder(r.Context(), folderID, projectID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.NoContent(c)
+	presenter.NoContent(w)
 }
 
 // =============================================================================
@@ -135,82 +141,82 @@ func (h *DocumentHandler) DeleteFolder(c *gin.Context) {
 
 // ListDocuments handles GET /projects/:projectId/docs.
 // Optional query param: folder_id — filter by folder.
-func (h *DocumentHandler) ListDocuments(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *DocumentHandler) ListDocuments(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var folderID *uuid.UUID
-	if raw := c.Query("folder_id"); raw != "" {
+	if raw := r.URL.Query().Get("folder_id"); raw != "" {
 		id, err := uuid.Parse(raw)
 		if err != nil {
-			presenter.Error(c, apierr.New(apierr.CodeBadRequest, "invalid folder_id"))
+			presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "invalid folder_id"))
 			return
 		}
 		folderID = &id
 	}
 
-	docs, err := h.svc.ListDocuments(c.Request.Context(), projectID, folderID)
+	docs, err := h.svc.ListDocuments(r.Context(), projectID, folderID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.DocumentListItemResponse, 0, len(docs))
 	for _, d := range docs {
 		resp = append(resp, dto.DocumentListItemFromEntity(d))
 	}
-	presenter.OK(c, gin.H{"items": resp})
+	presenter.OK(w, r, map[string]any{"items": resp})
 }
 
 // GetDocument handles GET /projects/:projectId/docs/:docId.
-func (h *DocumentHandler) GetDocument(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *DocumentHandler) GetDocument(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	docID, err := parseDocID(c)
+	docID, err := parseDocID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	d, err := h.svc.GetDocument(c.Request.Context(), docID)
+	d, err := h.svc.GetDocument(r.Context(), docID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	if d.ProjectID != projectID {
-		presenter.Error(c, docdom.ErrDocNotFound)
+		presenter.Error(w, r, docdom.ErrDocNotFound)
 		return
 	}
-	presenter.OK(c, dto.DocumentFromEntity(d))
+	presenter.OK(w, r, dto.DocumentFromEntity(d))
 }
 
 // CreateDocument handles POST /projects/:projectId/docs.
-func (h *DocumentHandler) CreateDocument(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *DocumentHandler) CreateDocument(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.CreateDocumentRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
 	var createdBy *uuid.UUID
 	var createdByAgent *uuid.UUID
-	if actorID, ok := middleware.ActorIDFromContext(c.Request.Context()); ok {
+	if actorID, ok := middleware.ActorIDFromContext(r.Context()); ok {
 		createdBy = &actorID
 	}
-	if agentID, _ := middleware.AgentIDFromContext(c.Request.Context()); agentID != uuid.Nil {
+	if agentID, _ := middleware.AgentIDFromContext(r.Context()); agentID != uuid.Nil {
 		createdByAgent = &agentID
 	}
 
-	d, err := h.svc.CreateDocument(c.Request.Context(), docdom.CreateDocumentInput{
+	d, err := h.svc.CreateDocument(r.Context(), docdom.CreateDocumentInput{
 		ProjectID: projectID,
 		FolderID:  req.FolderID,
 		Title:     req.Title,
@@ -218,14 +224,14 @@ func (h *DocumentHandler) CreateDocument(c *gin.Context) {
 		CreatedBy: createdBy,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	// Record creation activity (best-effort).
 	if createdBy != nil {
 		content, _ := json.Marshal(map[string]string{"title": d.Title})
-		_ = h.activitySvc.RecordActivity(c.Request.Context(), docdom.RecordActivityInput{
+		_ = h.activitySvc.RecordActivity(r.Context(), docdom.RecordActivityInput{
 			DocumentID:   d.ID,
 			ProjectID:    projectID,
 			ActorID:      createdBy,
@@ -235,35 +241,35 @@ func (h *DocumentHandler) CreateDocument(c *gin.Context) {
 		})
 	}
 
-	presenter.Created(c, dto.DocumentFromEntity(d))
+	presenter.Created(w, r, dto.DocumentFromEntity(d))
 }
 
 // UpdateDocument handles PATCH /projects/:projectId/docs/:docId.
-func (h *DocumentHandler) UpdateDocument(c *gin.Context) {
-	docID, err := parseDocID(c)
+func (h *DocumentHandler) UpdateDocument(w http.ResponseWriter, r *http.Request) {
+	docID, err := parseDocID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.UpdateDocumentRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
 	var updatedBy *uuid.UUID
 	var updatedByAgent *uuid.UUID
-	if actorID, ok := middleware.ActorIDFromContext(c.Request.Context()); ok {
+	if actorID, ok := middleware.ActorIDFromContext(r.Context()); ok {
 		updatedBy = &actorID
 	}
-	if agentID, _ := middleware.AgentIDFromContext(c.Request.Context()); agentID != uuid.Nil {
+	if agentID, _ := middleware.AgentIDFromContext(r.Context()); agentID != uuid.Nil {
 		updatedByAgent = &agentID
 	}
 
 	// Capture old state for activity recording.
-	oldDoc, _ := h.svc.GetDocument(c.Request.Context(), docID)
+	oldDoc, _ := h.svc.GetDocument(r.Context(), docID)
 
-	d, err := h.svc.UpdateDocument(c.Request.Context(), docID, docdom.UpdateDocumentInput{
+	d, err := h.svc.UpdateDocument(r.Context(), docID, docdom.UpdateDocumentInput{
 		Title:     req.Title,
 		Content:   req.Content.Ptr(),
 		FolderID:  req.FolderID.Ptr(),
@@ -271,7 +277,7 @@ func (h *DocumentHandler) UpdateDocument(c *gin.Context) {
 		UpdatedBy: updatedBy,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
@@ -280,7 +286,7 @@ func (h *DocumentHandler) UpdateDocument(c *gin.Context) {
 		changes := docChangedFields(oldDoc, req)
 		if len(changes) > 0 {
 			content, _ := json.Marshal(map[string]any{"changes": changes})
-			_ = h.activitySvc.RecordActivity(c.Request.Context(), docdom.RecordActivityInput{
+			_ = h.activitySvc.RecordActivity(r.Context(), docdom.RecordActivityInput{
 				DocumentID:   docID,
 				ProjectID:    oldDoc.ProjectID,
 				ActorID:      updatedBy,
@@ -291,35 +297,35 @@ func (h *DocumentHandler) UpdateDocument(c *gin.Context) {
 		}
 	}
 
-	presenter.OK(c, dto.DocumentFromEntity(d))
+	presenter.OK(w, r, dto.DocumentFromEntity(d))
 }
 
 // DeleteDocument handles DELETE /projects/:projectId/docs/:docId.
-func (h *DocumentHandler) DeleteDocument(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *DocumentHandler) DeleteDocument(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	docID, err := parseDocID(c)
+	docID, err := parseDocID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	if err := h.svc.DeleteDocument(c.Request.Context(), docID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.DeleteDocument(r.Context(), docID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
 
 	// Record deletion activity (best-effort).
-	if actorID, ok := middleware.ActorIDFromContext(c.Request.Context()); ok {
-		agentID, _ := middleware.AgentIDFromContext(c.Request.Context())
+	if actorID, ok := middleware.ActorIDFromContext(r.Context()); ok {
+		agentID, _ := middleware.AgentIDFromContext(r.Context())
 		var agentIDPtr *uuid.UUID
 		if agentID != uuid.Nil {
 			agentIDPtr = &agentID
 		}
-		_ = h.activitySvc.RecordActivity(c.Request.Context(), docdom.RecordActivityInput{
+		_ = h.activitySvc.RecordActivity(r.Context(), docdom.RecordActivityInput{
 			DocumentID:   docID,
 			ProjectID:    projectID,
 			ActorID:      &actorID,
@@ -328,7 +334,7 @@ func (h *DocumentHandler) DeleteDocument(c *gin.Context) {
 		})
 	}
 
-	presenter.NoContent(c)
+	presenter.NoContent(w)
 }
 
 // =============================================================================
@@ -336,37 +342,37 @@ func (h *DocumentHandler) DeleteDocument(c *gin.Context) {
 // =============================================================================
 
 // ListSnapshots handles GET /projects/:projectId/docs/:docId/snapshots.
-func (h *DocumentHandler) ListSnapshots(c *gin.Context) {
-	docID, err := parseDocID(c)
+func (h *DocumentHandler) ListSnapshots(w http.ResponseWriter, r *http.Request) {
+	docID, err := parseDocID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	snaps, err := h.svc.ListSnapshots(c.Request.Context(), docID)
+	snaps, err := h.svc.ListSnapshots(r.Context(), docID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.DocSnapshotResponse, 0, len(snaps))
 	for _, s := range snaps {
 		resp = append(resp, dto.DocSnapshotFromEntity(s))
 	}
-	presenter.OK(c, gin.H{"items": resp})
+	presenter.OK(w, r, map[string]any{"items": resp})
 }
 
 // GetSnapshot handles GET /projects/:projectId/docs/:docId/snapshots/:snapshotId.
-func (h *DocumentHandler) GetSnapshot(c *gin.Context) {
-	snapshotID, err := parseDocSnapshotID(c)
+func (h *DocumentHandler) GetSnapshot(w http.ResponseWriter, r *http.Request) {
+	snapshotID, err := parseDocSnapshotID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	snap, err := h.svc.GetSnapshot(c.Request.Context(), snapshotID)
+	snap, err := h.svc.GetSnapshot(r.Context(), snapshotID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.DocSnapshotFromEntity(snap))
+	presenter.OK(w, r, dto.DocSnapshotFromEntity(snap))
 }
 
 // =============================================================================
@@ -374,55 +380,59 @@ func (h *DocumentHandler) GetSnapshot(c *gin.Context) {
 // =============================================================================
 
 // ListActivities handles GET /projects/:projectId/docs/:docId/activities.
-func (h *DocumentHandler) ListActivities(c *gin.Context) {
-	docID, err := parseDocID(c)
+func (h *DocumentHandler) ListActivities(w http.ResponseWriter, r *http.Request) {
+	docID, err := parseDocID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	activities, err := h.activitySvc.ListActivities(c.Request.Context(), docID)
+	activities, err := h.activitySvc.ListActivities(r.Context(), docID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.DocActivityResponse, 0, len(activities))
 	for _, a := range activities {
 		resp = append(resp, dto.DocActivityFromEntity(a))
 	}
-	presenter.OK(c, gin.H{"items": resp})
+	presenter.OK(w, r, map[string]any{"items": resp})
 }
 
 // AddComment handles POST /projects/:projectId/docs/:docId/comments.
-func (h *DocumentHandler) AddComment(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *DocumentHandler) AddComment(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	docID, err := parseDocID(c)
+	docID, err := parseDocID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	actorID, ok := middleware.ActorIDFromContext(c.Request.Context())
+	actorID, ok := middleware.ActorIDFromContext(r.Context())
 	if !ok {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return
 	}
 
 	var req dto.AddDocCommentRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if len(req.Content) == 0 {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "content is required"))
 		return
 	}
 
-	agentID, _ := middleware.AgentIDFromContext(c.Request.Context())
+	agentID, _ := middleware.AgentIDFromContext(r.Context())
 	var agentIDPtr *uuid.UUID
 	if agentID != uuid.Nil {
 		agentIDPtr = &agentID
 	}
 
-	a, err := h.activitySvc.AddComment(c.Request.Context(), docdom.AddCommentInput{
+	a, err := h.activitySvc.AddComment(r.Context(), docdom.AddCommentInput{
 		DocumentID: docID,
 		ProjectID:  projectID,
 		ActorID:    actorID,
@@ -430,112 +440,116 @@ func (h *DocumentHandler) AddComment(c *gin.Context) {
 		Content:    req.Content,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.Created(c, dto.DocActivityFromEntity(a))
+	presenter.Created(w, r, dto.DocActivityFromEntity(a))
 }
 
 // UpdateComment handles PATCH /projects/:projectId/docs/:docId/comments/:commentId.
-func (h *DocumentHandler) UpdateComment(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *DocumentHandler) UpdateComment(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	commentID, err := parseDocCommentID(c)
+	commentID, err := parseDocCommentID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	actorID, ok := middleware.ActorIDFromContext(c.Request.Context())
+	actorID, ok := middleware.ActorIDFromContext(r.Context())
 	if !ok {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return
 	}
 
 	var req dto.UpdateDocCommentRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if len(req.Content) == 0 {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "content is required"))
 		return
 	}
 
-	agentID, _ := middleware.AgentIDFromContext(c.Request.Context())
+	agentID, _ := middleware.AgentIDFromContext(r.Context())
 	var agentIDPtr *uuid.UUID
 	if agentID != uuid.Nil {
 		agentIDPtr = &agentID
 	}
 
-	a, err := h.activitySvc.UpdateComment(c.Request.Context(), commentID, projectID, actorID, agentIDPtr, req.Content)
+	a, err := h.activitySvc.UpdateComment(r.Context(), commentID, projectID, actorID, agentIDPtr, req.Content)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.DocActivityFromEntity(a))
+	presenter.OK(w, r, dto.DocActivityFromEntity(a))
 }
 
 // DeleteComment handles DELETE /projects/:projectId/docs/:docId/comments/:commentId.
-func (h *DocumentHandler) DeleteComment(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *DocumentHandler) DeleteComment(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	commentID, err := parseDocCommentID(c)
+	commentID, err := parseDocCommentID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	actorID, ok := middleware.ActorIDFromContext(c.Request.Context())
+	actorID, ok := middleware.ActorIDFromContext(r.Context())
 	if !ok {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return
 	}
 
-	agentID, _ := middleware.AgentIDFromContext(c.Request.Context())
+	agentID, _ := middleware.AgentIDFromContext(r.Context())
 	var agentIDPtr *uuid.UUID
 	if agentID != uuid.Nil {
 		agentIDPtr = &agentID
 	}
 
-	if err := h.activitySvc.DeleteComment(c.Request.Context(), commentID, projectID, actorID, agentIDPtr); err != nil {
-		presenter.Error(c, err)
+	if err := h.activitySvc.DeleteComment(r.Context(), commentID, projectID, actorID, agentIDPtr); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.NoContent(c)
+	presenter.NoContent(w)
 }
 
 // =============================================================================
 // Parse helpers
 // =============================================================================
 
-func parseDocID(c *gin.Context) (uuid.UUID, error) {
-	id, err := uuid.Parse(c.Param("docId"))
+func parseDocID(r *http.Request) (uuid.UUID, error) {
+	id, err := uuid.Parse(chi.URLParam(r, "docId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid document id")
 	}
 	return id, nil
 }
 
-func parseDocFolderID(c *gin.Context) (uuid.UUID, error) {
-	id, err := uuid.Parse(c.Param("folderId"))
+func parseDocFolderID(r *http.Request) (uuid.UUID, error) {
+	id, err := uuid.Parse(chi.URLParam(r, "folderId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid folder id")
 	}
 	return id, nil
 }
 
-func parseDocSnapshotID(c *gin.Context) (uuid.UUID, error) {
-	id, err := uuid.Parse(c.Param("snapshotId"))
+func parseDocSnapshotID(r *http.Request) (uuid.UUID, error) {
+	id, err := uuid.Parse(chi.URLParam(r, "snapshotId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid snapshot id")
 	}
 	return id, nil
 }
 
-func parseDocCommentID(c *gin.Context) (uuid.UUID, error) {
-	id, err := uuid.Parse(c.Param("commentId"))
+func parseDocCommentID(r *http.Request) (uuid.UUID, error) {
+	id, err := uuid.Parse(chi.URLParam(r, "commentId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid comment id")
 	}

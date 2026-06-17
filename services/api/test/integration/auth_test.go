@@ -18,7 +18,6 @@ import (
 	authsvc "github.com/Paca-AI/api/internal/service/auth"
 	"github.com/Paca-AI/api/internal/transport/http/handler"
 	"github.com/Paca-AI/api/internal/transport/http/router"
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -144,8 +143,7 @@ func decodeErrorCode(t *testing.T, w *httptest.ResponseRecorder) string {
 	return env.ErrorCode
 }
 
-func buildTestRouter(repo *fakeUserRepo) *gin.Engine {
-	gin.SetMode(gin.TestMode)
+func buildTestRouter(repo *fakeUserRepo) http.Handler {
 	tm := jwttoken.New(testSecret, 15*time.Minute, 168*time.Hour)
 	store := &fakeRefreshStore{}
 	authService := authsvc.New(repo, tm, store, 168*time.Hour, 24*time.Hour)

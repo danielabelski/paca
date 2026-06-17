@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/Paca-AI/api/internal/apierr"
 	agentdom "github.com/Paca-AI/api/internal/domain/agent"
@@ -15,8 +17,6 @@ import (
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 type agentActivityRecorder interface {
@@ -50,60 +50,83 @@ func (h *AgentHandler) WithActivityRecorder(r agentActivityRecorder) *AgentHandl
 // --- Agents -----------------------------------------------------------------
 
 // ListAgents handles GET /projects/:projectId/agents.
-func (h *AgentHandler) ListAgents(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *AgentHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	agents, err := h.svc.ListAgents(c.Request.Context(), projectID)
+	agents, err := h.svc.ListAgents(r.Context(), projectID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.AgentResponse, 0, len(agents))
 	for _, a := range agents {
 		resp = append(resp, dto.AgentFromEntity(a))
 	}
-	presenter.OK(c, gin.H{"items": resp})
+	presenter.OK(w, r, map[string]any{"items": resp})
 }
 
 // GetAgent handles GET /projects/:projectId/agents/:agentId.
-func (h *AgentHandler) GetAgent(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *AgentHandler) GetAgent(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	agentID, err := parseParamUUID(c, "agentId")
+	agentID, err := parseParamUUID(r, "agentId")
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	a, err := h.svc.GetAgent(c.Request.Context(), projectID, agentID)
+	a, err := h.svc.GetAgent(r.Context(), projectID, agentID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.AgentFromEntity(a))
+	presenter.OK(w, r, dto.AgentFromEntity(a))
 }
 
 // CreateAgent handles POST /projects/:projectId/agents.
-func (h *AgentHandler) CreateAgent(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *AgentHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	var req dto.CreateAgentRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		presenter.Error(c, err)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	claims := middleware.ClaimsFrom(c)
+	switch {
+	case req.Name == "":
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "name is required"))
+		return
+	case req.Handle == "":
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "handle is required"))
+		return
+	case req.LLMProvider == "":
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "llm_provider is required"))
+		return
+	case req.LLMModel == "":
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "llm_model is required"))
+		return
+	case req.LLMAPIKey == "":
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "llm_api_key is required"))
+		return
+	case req.LLMBaseURL == "":
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "llm_base_url is required"))
+		return
+	case req.ProjectRoleID == uuid.Nil:
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "project_role_id is required"))
+		return
+	}
+	claims := middleware.ClaimsFrom(r)
 	callerID, _ := uuid.Parse(claims.Subject)
 
-	a, err := h.svc.CreateAgent(c.Request.Context(), projectID, agentdom.CreateAgentInput{
+	a, err := h.svc.CreateAgent(r.Context(), projectID, agentdom.CreateAgentInput{
 		Name:                          req.Name,
 		Handle:                        req.Handle,
 		LLMProvider:                   req.LLMProvider,
@@ -125,30 +148,30 @@ func (h *AgentHandler) CreateAgent(c *gin.Context) {
 		CreatedBy:                     &callerID,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.Created(c, dto.AgentFromEntity(a))
+	presenter.Created(w, r, dto.AgentFromEntity(a))
 }
 
 // UpdateAgent handles PATCH /projects/:projectId/agents/:agentId.
-func (h *AgentHandler) UpdateAgent(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *AgentHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	agentID, err := parseParamUUID(c, "agentId")
+	agentID, err := parseParamUUID(r, "agentId")
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	var req dto.UpdateAgentRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		presenter.Error(c, err)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	a, err := h.svc.UpdateAgent(c.Request.Context(), projectID, agentID, agentdom.UpdateAgentInput{
+	a, err := h.svc.UpdateAgent(r.Context(), projectID, agentID, agentdom.UpdateAgentInput{
 		Name:                          req.Name,
 		Handle:                        req.Handle,
 		LLMProvider:                   req.LLMProvider,
@@ -168,29 +191,29 @@ func (h *AgentHandler) UpdateAgent(c *gin.Context) {
 		GitCommitterEmail:             req.GitCommitterEmail,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.AgentFromEntity(a))
+	presenter.OK(w, r, dto.AgentFromEntity(a))
 }
 
 // DeleteAgent handles DELETE /projects/:projectId/agents/:agentId.
-func (h *AgentHandler) DeleteAgent(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *AgentHandler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	agentID, err := parseParamUUID(c, "agentId")
+	agentID, err := parseParamUUID(r, "agentId")
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	if err := h.svc.DeleteAgent(c.Request.Context(), projectID, agentID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.DeleteAgent(r.Context(), projectID, agentID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, gin.H{"message": "agent deleted"})
+	presenter.OK(w, r, map[string]any{"message": "agent deleted"})
 }
 
 // --- MCP Servers ------------------------------------------------------------
@@ -198,54 +221,64 @@ func (h *AgentHandler) DeleteAgent(c *gin.Context) {
 // parseAgentForProject parses projectId and agentId, verifies the agent belongs
 // to the project, and returns both IDs. Handlers that operate on agent sub-resources
 // (MCP servers, skills) must call this instead of parsing agentId alone.
-func (h *AgentHandler) parseAgentForProject(c *gin.Context) (projectID, agentID uuid.UUID, err error) {
-	projectID, err = parseProjectID(c)
+func (h *AgentHandler) parseAgentForProject(r *http.Request) (projectID, agentID uuid.UUID, err error) {
+	projectID, err = parseProjectID(r)
 	if err != nil {
 		return
 	}
-	agentID, err = parseParamUUID(c, "agentId")
+	agentID, err = parseParamUUID(r, "agentId")
 	if err != nil {
 		return
 	}
 	// Verify the agent belongs to the project (prevents cross-project access).
-	if _, err = h.svc.GetAgent(c.Request.Context(), projectID, agentID); err != nil {
+	if _, err = h.svc.GetAgent(r.Context(), projectID, agentID); err != nil {
 		return
 	}
 	return
 }
 
 // ListMCPServers handles GET /projects/:projectId/agents/:agentId/mcp-servers.
-func (h *AgentHandler) ListMCPServers(c *gin.Context) {
-	_, agentID, err := h.parseAgentForProject(c)
+func (h *AgentHandler) ListMCPServers(w http.ResponseWriter, r *http.Request) {
+	_, agentID, err := h.parseAgentForProject(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	servers, err := h.svc.ListMCPServers(c.Request.Context(), agentID)
+	servers, err := h.svc.ListMCPServers(r.Context(), agentID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.AgentMCPServerResponse, 0, len(servers))
 	for _, s := range servers {
 		resp = append(resp, dto.MCPServerFromEntity(s))
 	}
-	presenter.OK(c, gin.H{"items": resp})
+	presenter.OK(w, r, map[string]any{"items": resp})
 }
 
 // AddMCPServer handles POST /projects/:projectId/agents/:agentId/mcp-servers.
-func (h *AgentHandler) AddMCPServer(c *gin.Context) {
-	_, agentID, err := h.parseAgentForProject(c)
+func (h *AgentHandler) AddMCPServer(w http.ResponseWriter, r *http.Request) {
+	_, agentID, err := h.parseAgentForProject(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	var req dto.AddMCPServerRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		presenter.Error(c, err)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	srv, err := h.svc.AddMCPServer(c.Request.Context(), agentID, agentdom.AddMCPServerInput{
+	if req.ServerName == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "server_name is required"))
+		return
+	}
+	switch req.Transport {
+	case "stdio", "sse", "http":
+	default:
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "transport must be one of: stdio, sse, http"))
+		return
+	}
+	srv, err := h.svc.AddMCPServer(r.Context(), agentID, agentdom.AddMCPServerInput{
 		ServerName: req.ServerName,
 		Transport:  req.Transport,
 		Command:    req.Command,
@@ -254,30 +287,30 @@ func (h *AgentHandler) AddMCPServer(c *gin.Context) {
 		Env:        req.Env,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.Created(c, dto.MCPServerFromEntity(srv))
+	presenter.Created(w, r, dto.MCPServerFromEntity(srv))
 }
 
 // UpdateMCPServer handles PATCH /projects/:projectId/agents/:agentId/mcp-servers/:serverId.
-func (h *AgentHandler) UpdateMCPServer(c *gin.Context) {
-	_, agentID, err := h.parseAgentForProject(c)
+func (h *AgentHandler) UpdateMCPServer(w http.ResponseWriter, r *http.Request) {
+	_, agentID, err := h.parseAgentForProject(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	serverID, err := parseParamUUID(c, "serverId")
+	serverID, err := parseParamUUID(r, "serverId")
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	var req dto.UpdateMCPServerRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		presenter.Error(c, err)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	srv, err := h.svc.UpdateMCPServer(c.Request.Context(), agentID, serverID, agentdom.UpdateMCPServerInput{
+	srv, err := h.svc.UpdateMCPServer(r.Context(), agentID, serverID, agentdom.UpdateMCPServerInput{
 		Command:   req.Command,
 		Args:      req.Args,
 		URL:       req.URL,
@@ -285,65 +318,75 @@ func (h *AgentHandler) UpdateMCPServer(c *gin.Context) {
 		IsEnabled: req.IsEnabled,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.MCPServerFromEntity(srv))
+	presenter.OK(w, r, dto.MCPServerFromEntity(srv))
 }
 
 // DeleteMCPServer handles DELETE /projects/:projectId/agents/:agentId/mcp-servers/:serverId.
-func (h *AgentHandler) DeleteMCPServer(c *gin.Context) {
-	_, agentID, err := h.parseAgentForProject(c)
+func (h *AgentHandler) DeleteMCPServer(w http.ResponseWriter, r *http.Request) {
+	_, agentID, err := h.parseAgentForProject(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	serverID, err := parseParamUUID(c, "serverId")
+	serverID, err := parseParamUUID(r, "serverId")
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	if err := h.svc.DeleteMCPServer(c.Request.Context(), agentID, serverID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.DeleteMCPServer(r.Context(), agentID, serverID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, gin.H{"message": "mcp server deleted"})
+	presenter.OK(w, r, map[string]any{"message": "mcp server deleted"})
 }
 
 // --- Skills -----------------------------------------------------------------
 
 // ListSkills handles GET /projects/:projectId/agents/:agentId/skills.
-func (h *AgentHandler) ListSkills(c *gin.Context) {
-	_, agentID, err := h.parseAgentForProject(c)
+func (h *AgentHandler) ListSkills(w http.ResponseWriter, r *http.Request) {
+	_, agentID, err := h.parseAgentForProject(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	skills, err := h.svc.ListSkills(c.Request.Context(), agentID)
+	skills, err := h.svc.ListSkills(r.Context(), agentID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.AgentSkillResponse, 0, len(skills))
 	for _, s := range skills {
 		resp = append(resp, dto.SkillFromEntity(s))
 	}
-	presenter.OK(c, gin.H{"items": resp})
+	presenter.OK(w, r, map[string]any{"items": resp})
 }
 
 // AddSkill handles POST /projects/:projectId/agents/:agentId/skills.
-func (h *AgentHandler) AddSkill(c *gin.Context) {
-	_, agentID, err := h.parseAgentForProject(c)
+func (h *AgentHandler) AddSkill(w http.ResponseWriter, r *http.Request) {
+	_, agentID, err := h.parseAgentForProject(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	var req dto.AddSkillRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		presenter.Error(c, err)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	skill, err := h.svc.AddSkill(c.Request.Context(), agentID, agentdom.AddSkillInput{
+	if req.SkillName == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "skill_name is required"))
+		return
+	}
+	switch req.SkillSource {
+	case "inline", "marketplace", "github_url":
+	default:
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "skill_source must be one of: inline, marketplace, github_url"))
+		return
+	}
+	skill, err := h.svc.AddSkill(r.Context(), agentID, agentdom.AddSkillInput{
 		SkillName:    req.SkillName,
 		SkillSource:  req.SkillSource,
 		SkillContent: req.SkillContent,
@@ -351,176 +394,188 @@ func (h *AgentHandler) AddSkill(c *gin.Context) {
 		Triggers:     req.Triggers,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.Created(c, dto.SkillFromEntity(skill))
+	presenter.Created(w, r, dto.SkillFromEntity(skill))
 }
 
 // UpdateSkill handles PATCH /projects/:projectId/agents/:agentId/skills/:skillId.
-func (h *AgentHandler) UpdateSkill(c *gin.Context) {
-	_, agentID, err := h.parseAgentForProject(c)
+func (h *AgentHandler) UpdateSkill(w http.ResponseWriter, r *http.Request) {
+	_, agentID, err := h.parseAgentForProject(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	skillID, err := parseParamUUID(c, "skillId")
+	skillID, err := parseParamUUID(r, "skillId")
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	var req dto.UpdateSkillRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		presenter.Error(c, err)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	skill, err := h.svc.UpdateSkill(c.Request.Context(), agentID, skillID, agentdom.UpdateSkillInput{
+	skill, err := h.svc.UpdateSkill(r.Context(), agentID, skillID, agentdom.UpdateSkillInput{
 		SkillContent: req.SkillContent,
 		Triggers:     req.Triggers,
 		IsEnabled:    req.IsEnabled,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.SkillFromEntity(skill))
+	presenter.OK(w, r, dto.SkillFromEntity(skill))
 }
 
 // DeleteSkill handles DELETE /projects/:projectId/agents/:agentId/skills/:skillId.
-func (h *AgentHandler) DeleteSkill(c *gin.Context) {
-	_, agentID, err := h.parseAgentForProject(c)
+func (h *AgentHandler) DeleteSkill(w http.ResponseWriter, r *http.Request) {
+	_, agentID, err := h.parseAgentForProject(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	skillID, err := parseParamUUID(c, "skillId")
+	skillID, err := parseParamUUID(r, "skillId")
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	if err := h.svc.DeleteSkill(c.Request.Context(), agentID, skillID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.DeleteSkill(r.Context(), agentID, skillID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, gin.H{"message": "skill deleted"})
+	presenter.OK(w, r, map[string]any{"message": "skill deleted"})
 }
 
 // --- Chat Sessions ----------------------------------------------------------
 
 // ListChatSessions handles GET /projects/:projectId/agents/:agentId/chat-sessions.
-func (h *AgentHandler) ListChatSessions(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *AgentHandler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	agentID, err := parseParamUUID(c, "agentId")
+	agentID, err := parseParamUUID(r, "agentId")
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	claims := middleware.ClaimsFrom(c)
+	claims := middleware.ClaimsFrom(r)
 	memberID, _ := uuid.Parse(claims.Subject)
 
-	sessions, err := h.svc.ListChatSessions(c.Request.Context(), projectID, agentID, memberID)
+	sessions, err := h.svc.ListChatSessions(r.Context(), projectID, agentID, memberID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.AgentChatSessionResponse, 0, len(sessions))
 	for _, s := range sessions {
 		resp = append(resp, dto.ChatSessionFromEntity(s))
 	}
-	presenter.OK(c, gin.H{"items": resp})
+	presenter.OK(w, r, map[string]any{"items": resp})
 }
 
 // StartChatSession handles POST /projects/:projectId/agents/:agentId/chat-sessions.
-func (h *AgentHandler) StartChatSession(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *AgentHandler) StartChatSession(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	agentID, err := parseParamUUID(c, "agentId")
+	agentID, err := parseParamUUID(r, "agentId")
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	var req dto.StartChatSessionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		presenter.Error(c, err)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	claims := middleware.ClaimsFrom(c)
+	if req.Message == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "message is required"))
+		return
+	}
+	claims := middleware.ClaimsFrom(r)
 	memberID, _ := uuid.Parse(claims.Subject)
 
-	session, conv, err := h.svc.StartChatSession(c.Request.Context(), projectID, agentID, memberID, req.Message)
+	session, conv, err := h.svc.StartChatSession(r.Context(), projectID, agentID, memberID, req.Message)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.Created(c, gin.H{
+	presenter.Created(w, r, map[string]any{
 		"session":      dto.ChatSessionFromEntity(session),
 		"conversation": dto.ConversationFromEntity(conv),
 	})
 }
 
 // SendChatMessage handles POST /projects/:projectId/agents/:agentId/chat-sessions/:sessionId/messages.
-func (h *AgentHandler) SendChatMessage(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *AgentHandler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	sessionID, err := parseParamUUID(c, "sessionId")
+	sessionID, err := parseParamUUID(r, "sessionId")
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	var req dto.SendChatMessageRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		presenter.Error(c, err)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	claims := middleware.ClaimsFrom(c)
+	if req.Message == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "message is required"))
+		return
+	}
+	claims := middleware.ClaimsFrom(r)
 	memberID, _ := uuid.Parse(claims.Subject)
 
-	conv, err := h.svc.SendChatMessage(c.Request.Context(), projectID, sessionID, memberID, req.Message)
+	conv, err := h.svc.SendChatMessage(r.Context(), projectID, sessionID, memberID, req.Message)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.Created(c, gin.H{"conversation": dto.ConversationFromEntity(conv)})
+	presenter.Created(w, r, map[string]any{"conversation": dto.ConversationFromEntity(conv)})
 }
 
 // --- Write with AI ----------------------------------------------------------
 
 // WriteTaskDescriptionWithAI handles POST /projects/:projectId/tasks/:taskId/write-with-ai.
 // It triggers the selected agent to write the description for the given task.
-func (h *AgentHandler) WriteTaskDescriptionWithAI(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *AgentHandler) WriteTaskDescriptionWithAI(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	taskID, err := parseParamUUID(c, "taskId")
+	taskID, err := parseParamUUID(r, "taskId")
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.WriteWithAIRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		presenter.Error(c, err)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		presenter.Error(w, r, err)
+		return
+	}
+	if req.AgentID == uuid.Nil {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "agent_id is required"))
 		return
 	}
 
-	claims := middleware.ClaimsFrom(c)
+	claims := middleware.ClaimsFrom(r)
 	callerID, _ := uuid.Parse(claims.Subject)
 
-	conv, err := h.svc.TriggerDescriptionWrite(c.Request.Context(), projectID, req.AgentID, taskID, callerID)
+	conv, err := h.svc.TriggerDescriptionWrite(r.Context(), projectID, req.AgentID, taskID, callerID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
@@ -530,7 +585,7 @@ func (h *AgentHandler) WriteTaskDescriptionWithAI(c *gin.Context) {
 			"agent_id":        req.AgentID.String(),
 		})
 		agentID := req.AgentID
-		_ = h.activityRec.RecordActivity(c.Request.Context(), taskdom.RecordActivityInput{
+		_ = h.activityRec.RecordActivity(r.Context(), taskdom.RecordActivityInput{
 			TaskID:       taskID,
 			ProjectID:    projectID,
 			ActorAgentID: &agentID,
@@ -539,42 +594,30 @@ func (h *AgentHandler) WriteTaskDescriptionWithAI(c *gin.Context) {
 		})
 	}
 
-	presenter.Created(c, gin.H{"conversation": dto.ConversationFromEntity(conv)})
+	presenter.Created(w, r, map[string]any{"conversation": dto.ConversationFromEntity(conv)})
 }
 
 // --- helpers ----------------------------------------------------------------
 
-func parseParamUUID(c *gin.Context, param string) (uuid.UUID, error) {
-	id, err := uuid.Parse(c.Param(param))
+func parseParamUUID(r *http.Request, param string) (uuid.UUID, error) {
+	id, err := uuid.Parse(chi.URLParam(r, param))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, fmt.Sprintf("invalid %s", param))
 	}
 	return id, nil
 }
 
-func parseOffsetLimit(c *gin.Context) (offset, limit int) {
-	offset, _ = strconv.Atoi(c.DefaultQuery("offset", "0"))
-	limit, _ = strconv.Atoi(c.DefaultQuery("limit", "50"))
-	if offset < 0 {
-		offset = 0
-	}
-	if limit < 1 || limit > 500 {
-		limit = 50
-	}
-	return offset, limit
-}
-
 // --- Skill templates --------------------------------------------------------
 
 // ListSkillTemplates handles GET /agents/skill-templates.
 // Returns the hardcoded built-in skill template catalog.
-func (h *AgentHandler) ListSkillTemplates(c *gin.Context) {
+func (h *AgentHandler) ListSkillTemplates(w http.ResponseWriter, r *http.Request) {
 	templates := agentsvc.ListSkillTemplates()
 	resp := make([]dto.SkillTemplateResponse, 0, len(templates))
 	for _, t := range templates {
 		resp = append(resp, dto.SkillTemplateFromEntity(t))
 	}
-	presenter.OK(c, resp)
+	presenter.OK(w, r, resp)
 }
 
 // --- LLM models proxy -------------------------------------------------------
@@ -582,34 +625,36 @@ func (h *AgentHandler) ListSkillTemplates(c *gin.Context) {
 // GetLLMModels handles GET /agents/llm-models.
 // It proxies the request to the ai-agent service and returns the verified
 // LLM models grouped by provider.
-func (h *AgentHandler) GetLLMModels(c *gin.Context) {
+func (h *AgentHandler) GetLLMModels(w http.ResponseWriter, r *http.Request) {
 	if h.aiAgentURL == "" {
-		presenter.Error(c, apierr.New(apierr.CodeInternalError, "ai-agent service URL not configured"))
+		presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "ai-agent service URL not configured"))
 		return
 	}
 
-	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, h.aiAgentURL+"/llm/models", nil)
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, h.aiAgentURL+"/llm/models", nil)
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeInternalError, "failed to create request"))
+		presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "failed to create request"))
 		return
 	}
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeInternalError, "failed to reach ai-agent service"))
+		presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "failed to reach ai-agent service"))
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeInternalError, "failed to read ai-agent response"))
+		presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "failed to read ai-agent response"))
 		return
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		presenter.Error(c, apierr.New(apierr.CodeInternalError, "ai-agent service returned an error"))
+		presenter.Error(w, r, apierr.New(apierr.CodeInternalError, "ai-agent service returned an error"))
 		return
 	}
 
-	c.Data(http.StatusOK, "application/json", body)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
 }

@@ -1,15 +1,17 @@
 package handler
 
 import (
+	"net/http"
 	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/Paca-AI/api/internal/apierr"
 	attachmentdom "github.com/Paca-AI/api/internal/domain/attachment"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // AttachmentHandler handles task-attachment endpoints.
@@ -25,35 +27,43 @@ func NewAttachmentHandler(svc attachmentdom.Service) *AttachmentHandler {
 // InitiateUpload handles POST /projects/:projectId/tasks/:taskId/attachments/initiate-upload.
 // It creates a pending file record and returns either a single presigned PUT URL
 // (for files < 5 MiB) or a multipart upload session with per-part URLs.
-func (h *AttachmentHandler) InitiateUpload(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *AttachmentHandler) InitiateUpload(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	taskID, err := parseTaskID(c)
+	taskID, err := parseTaskID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.InitiateUploadRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if req.FileName == "" || req.ContentType == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "file_name and content_type are required"))
+		return
+	}
+	if req.FileSize <= 0 {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "file_size must be greater than 0"))
 		return
 	}
 
-	claims := middleware.ClaimsFrom(c)
+	claims := middleware.ClaimsFrom(r)
 	if claims == nil {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return
 	}
 	uploaderID, err := uuid.Parse(claims.Subject)
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "invalid subject in token"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "invalid subject in token"))
 		return
 	}
 
-	session, err := h.svc.InitiateUpload(c.Request.Context(), projectID, attachmentdom.InitiateUploadInput{
+	session, err := h.svc.InitiateUpload(r.Context(), projectID, attachmentdom.InitiateUploadInput{
 		TaskID:      taskID,
 		FileName:    req.FileName,
 		ContentType: req.ContentType,
@@ -61,42 +71,46 @@ func (h *AttachmentHandler) InitiateUpload(c *gin.Context) {
 		UploadedBy:  uploaderID,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	presenter.Created(c, dto.UploadSessionFromDomain(session))
+	presenter.Created(w, r, dto.UploadSessionFromDomain(session))
 }
 
 // CompleteUpload handles POST /projects/:projectId/tasks/:taskId/attachments/complete-upload.
 // The client calls this after successfully uploading the file (or all parts) to
 // the object store.  For multipart uploads the completed parts (with ETags) must
 // be supplied so the server can reassemble the object.
-func (h *AttachmentHandler) CompleteUpload(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *AttachmentHandler) CompleteUpload(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	taskID, err := parseTaskID(c)
+	taskID, err := parseTaskID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.CompleteUploadRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if req.FileID == uuid.Nil {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "file_id is required"))
 		return
 	}
 
-	claims := middleware.ClaimsFrom(c)
+	claims := middleware.ClaimsFrom(r)
 	if claims == nil {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "unauthenticated"))
 		return
 	}
 	creatorID, err := uuid.Parse(claims.Subject)
 	if err != nil {
-		presenter.Error(c, apierr.New(apierr.CodeUnauthenticated, "invalid subject in token"))
+		presenter.Error(w, r, apierr.New(apierr.CodeUnauthenticated, "invalid subject in token"))
 		return
 	}
 
@@ -108,7 +122,7 @@ func (h *AttachmentHandler) CompleteUpload(c *gin.Context) {
 		})
 	}
 
-	attachment, err := h.svc.CompleteUpload(c.Request.Context(), projectID, attachmentdom.CompleteUploadInput{
+	attachment, err := h.svc.CompleteUpload(r.Context(), projectID, attachmentdom.CompleteUploadInput{
 		FileID:    req.FileID,
 		TaskID:    taskID,
 		CreatedBy: creatorID,
@@ -116,29 +130,29 @@ func (h *AttachmentHandler) CompleteUpload(c *gin.Context) {
 		Parts:     parts,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	presenter.Created(c, dto.TaskAttachmentFromEntity(attachment))
+	presenter.Created(w, r, dto.TaskAttachmentFromEntity(attachment))
 }
 
 // ListTaskAttachments handles GET /projects/:projectId/tasks/:taskId/attachments.
-func (h *AttachmentHandler) ListTaskAttachments(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *AttachmentHandler) ListTaskAttachments(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	taskID, err := parseTaskID(c)
+	taskID, err := parseTaskID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	attachments, err := h.svc.ListTaskAttachments(c.Request.Context(), projectID, taskID)
+	attachments, err := h.svc.ListTaskAttachments(r.Context(), projectID, taskID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
@@ -146,71 +160,71 @@ func (h *AttachmentHandler) ListTaskAttachments(c *gin.Context) {
 	for _, a := range attachments {
 		resp = append(resp, dto.TaskAttachmentFromEntity(a))
 	}
-	presenter.OK(c, gin.H{"items": resp})
+	presenter.OK(w, r, map[string]any{"items": resp})
 }
 
 // GetDownloadURL handles GET /projects/:projectId/tasks/:taskId/attachments/:attachmentId/download-url.
 // Returns a short-lived presigned URL valid for 15 minutes.
 // Add ?download=true to receive a URL with Content-Disposition: attachment
 // so the browser forces a file download instead of inline preview.
-func (h *AttachmentHandler) GetDownloadURL(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *AttachmentHandler) GetDownloadURL(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	taskID, err := parseTaskID(c)
+	taskID, err := parseTaskID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	attachmentID, err := parseAttachmentID(c)
+	attachmentID, err := parseAttachmentID(r)
 	if err != nil {
-		presenter.Error(c, err)
-		return
-	}
-
-	forceDownload := c.Query("download") == "true"
-
-	url, err := h.svc.GetDownloadURL(c.Request.Context(), projectID, taskID, attachmentID, 15*time.Minute, forceDownload)
-	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	presenter.OK(c, dto.DownloadURLResponse{URL: url})
+	forceDownload := r.URL.Query().Get("download") == "true"
+
+	url, err := h.svc.GetDownloadURL(r.Context(), projectID, taskID, attachmentID, 15*time.Minute, forceDownload)
+	if err != nil {
+		presenter.Error(w, r, err)
+		return
+	}
+
+	presenter.OK(w, r, dto.DownloadURLResponse{URL: url})
 }
 
 // DeleteTaskAttachment handles DELETE /projects/:projectId/tasks/:taskId/attachments/:attachmentId.
-func (h *AttachmentHandler) DeleteTaskAttachment(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *AttachmentHandler) DeleteTaskAttachment(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	taskID, err := parseTaskID(c)
+	taskID, err := parseTaskID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	attachmentID, err := parseAttachmentID(c)
+	attachmentID, err := parseAttachmentID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
-	if err := h.svc.DeleteTaskAttachment(c.Request.Context(), projectID, taskID, attachmentID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.DeleteTaskAttachment(r.Context(), projectID, taskID, attachmentID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
 
-	presenter.NoContent(c)
+	presenter.NoContent(w)
 }
 
 // --- helpers ---------------------------------------------------------------
 
-func parseAttachmentID(c *gin.Context) (uuid.UUID, error) {
-	id, err := uuid.Parse(c.Param("attachmentId"))
+func parseAttachmentID(r *http.Request) (uuid.UUID, error) {
+	id, err := uuid.Parse(chi.URLParam(r, "attachmentId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid attachment id")
 	}

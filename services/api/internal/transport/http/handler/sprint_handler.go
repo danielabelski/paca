@@ -1,13 +1,16 @@
 package handler
 
 import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	"github.com/Paca-AI/api/internal/apierr"
 	sprintdom "github.com/Paca-AI/api/internal/domain/sprint"
 	"github.com/Paca-AI/api/internal/transport/http/dto"
 	"github.com/Paca-AI/api/internal/transport/http/middleware"
 	"github.com/Paca-AI/api/internal/transport/http/presenter"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // SprintHandler handles sprint management endpoints.
@@ -47,38 +50,42 @@ func NewSprintHandler(svc sprintdom.SprintService, viewSvc sprintdom.ViewService
 }
 
 // ListSprints handles GET /projects/:projectId/sprints.
-func (h *SprintHandler) ListSprints(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *SprintHandler) ListSprints(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	sprints, err := h.svc.ListSprints(c.Request.Context(), projectID)
+	sprints, err := h.svc.ListSprints(r.Context(), projectID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 	resp := make([]dto.SprintResponse, 0, len(sprints))
 	for _, s := range sprints {
 		resp = append(resp, dto.SprintFromEntity(s))
 	}
-	presenter.OK(c, gin.H{"items": resp})
+	presenter.OK(w, r, map[string]any{"items": resp})
 }
 
 // CreateSprint handles POST /projects/:projectId/sprints.
-func (h *SprintHandler) CreateSprint(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *SprintHandler) CreateSprint(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.CreateSprintRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
+		return
+	}
+	if req.Name == "" {
+		presenter.Error(w, r, apierr.New(apierr.CodeBadRequest, "name is required"))
 		return
 	}
 
-	s, err := h.svc.CreateSprint(c.Request.Context(), sprintdom.CreateSprintInput{
+	s, err := h.svc.CreateSprint(r.Context(), sprintdom.CreateSprintInput{
 		ProjectID: projectID,
 		Name:      req.Name,
 		StartDate: req.StartDate,
@@ -87,49 +94,40 @@ func (h *SprintHandler) CreateSprint(c *gin.Context) {
 		Status:    req.Status,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	// Seed default views for every new sprint.
-	ctx := c.Request.Context()
-	taskTypes, loadErr := loadTaskTypes(ctx, h.taskTypeSvc, s.ProjectID)
-	if loadErr != nil {
-		c.Error(loadErr) //nolint:errcheck
-	}
-	statuses, statusLoadErr := loadTaskStatuses(ctx, h.taskStatusSvc, s.ProjectID)
-	if statusLoadErr != nil {
-		c.Error(statusLoadErr) //nolint:errcheck
-	}
+	ctx := r.Context()
+	taskTypes, _ := loadTaskTypes(ctx, h.taskTypeSvc, s.ProjectID)
+	statuses, _ := loadTaskStatuses(ctx, h.taskStatusSvc, s.ProjectID)
 	for _, input := range defaultSprintViewInputs(s.ProjectID, s.ID, taskTypes, statuses) {
-		if _, err := h.viewSvc.CreateView(ctx, input); err != nil {
-			// Non-fatal: the sprint was created; log and continue.
-			c.Error(err) //nolint:errcheck
-		}
+		_, _ = h.viewSvc.CreateView(ctx, input)
 	}
 
-	presenter.Created(c, dto.SprintFromEntity(s))
+	presenter.Created(w, r, dto.SprintFromEntity(s))
 }
 
 // UpdateSprint handles PATCH /projects/:projectId/sprints/:sprintId.
-func (h *SprintHandler) UpdateSprint(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *SprintHandler) UpdateSprint(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	sprintID, err := parseSprintID(c)
+	sprintID, err := parseSprintID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.UpdateSprintRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
-	s, err := h.svc.UpdateSprint(c.Request.Context(), projectID, sprintID, sprintdom.UpdateSprintInput{
+	s, err := h.svc.UpdateSprint(r.Context(), projectID, sprintID, sprintdom.UpdateSprintInput{
 		Name:      req.Name,
 		StartDate: req.StartDate,
 		EndDate:   req.EndDate,
@@ -137,64 +135,64 @@ func (h *SprintHandler) UpdateSprint(c *gin.Context) {
 		Status:    req.Status,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.SprintFromEntity(s))
+	presenter.OK(w, r, dto.SprintFromEntity(s))
 }
 
 // DeleteSprint handles DELETE /projects/:projectId/sprints/:sprintId.
-func (h *SprintHandler) DeleteSprint(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *SprintHandler) DeleteSprint(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	sprintID, err := parseSprintID(c)
+	sprintID, err := parseSprintID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	if err := h.svc.DeleteSprint(c.Request.Context(), projectID, sprintID); err != nil {
-		presenter.Error(c, err)
+	if err := h.svc.DeleteSprint(r.Context(), projectID, sprintID); err != nil {
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, gin.H{"message": "sprint deleted"})
+	presenter.OK(w, r, map[string]any{"message": "sprint deleted"})
 }
 
 // CompleteSprint handles POST /projects/:projectId/sprints/:sprintId/complete.
 // It bulk-moves all non-done tasks to the requested destination sprint (or the
 // backlog when move_to_sprint_id is absent/null) and marks the sprint completed.
-func (h *SprintHandler) CompleteSprint(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *SprintHandler) CompleteSprint(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	sprintID, err := parseSprintID(c)
+	sprintID, err := parseSprintID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
 
 	var req dto.CompleteSprintRequest
-	if !middleware.BindJSON(c, &req) {
+	if !middleware.BindJSON(w, r, &req) {
 		return
 	}
 
-	s, err := h.svc.CompleteSprint(c.Request.Context(), projectID, sprintID, sprintdom.CompleteSprintInput{
+	s, err := h.svc.CompleteSprint(r.Context(), projectID, sprintID, sprintdom.CompleteSprintInput{
 		MoveToSprintID: req.MoveToSprintID,
 	})
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.SprintFromEntity(s))
+	presenter.OK(w, r, dto.SprintFromEntity(s))
 }
 
 // parseSprintID extracts and validates the :sprintId path parameter.
-func parseSprintID(c *gin.Context) (uuid.UUID, error) {
-	id, err := uuid.Parse(c.Param("sprintId"))
+func parseSprintID(r *http.Request) (uuid.UUID, error) {
+	id, err := uuid.Parse(chi.URLParam(r, "sprintId"))
 	if err != nil {
 		return uuid.Nil, apierr.New(apierr.CodeBadRequest, "invalid sprint id")
 	}
@@ -202,21 +200,21 @@ func parseSprintID(c *gin.Context) (uuid.UUID, error) {
 }
 
 // GetSprint handles GET /projects/:projectId/sprints/:sprintId.
-func (h *SprintHandler) GetSprint(c *gin.Context) {
-	projectID, err := parseProjectID(c)
+func (h *SprintHandler) GetSprint(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseProjectID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	sprintID, err := parseSprintID(c)
+	sprintID, err := parseSprintID(r)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	s, err := h.svc.GetSprint(c.Request.Context(), projectID, sprintID)
+	s, err := h.svc.GetSprint(r.Context(), projectID, sprintID)
 	if err != nil {
-		presenter.Error(c, err)
+		presenter.Error(w, r, err)
 		return
 	}
-	presenter.OK(c, dto.SprintFromEntity(s))
+	presenter.OK(w, r, dto.SprintFromEntity(s))
 }
