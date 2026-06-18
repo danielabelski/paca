@@ -2,13 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Link2, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import {
-	type DisplayLinkType,
-	type LinkType,
-	LINK_TYPE_LABELS,
 	createTaskLink,
+	type DisplayLinkType,
 	deleteTaskLink,
-	taskLinksQueryOptions,
+	LINK_TYPE_LABELS,
+	type LinkType,
 	type TaskLink,
+	taskLinksQueryOptions,
 } from "@/lib/interaction-api";
 import { AddTaskLinkModal } from "./add-task-link-modal";
 
@@ -51,7 +51,9 @@ export function TaskLinksSection({
 	const qc = useQueryClient();
 	const [modalOpen, setModalOpen] = useState(false);
 
-	const { data: links = [] } = useQuery(taskLinksQueryOptions(projectId, taskId));
+	const { data: links = [] } = useQuery(
+		taskLinksQueryOptions(projectId, taskId),
+	);
 
 	const createMutation = useMutation({
 		mutationFn: ({
@@ -62,16 +64,24 @@ export function TaskLinksSection({
 			targetTaskId: string;
 			linkType: LinkType;
 			sourceTaskId: string;
-		}) => createTaskLink(projectId, sourceTaskId, { target_task_id: targetTaskId, link_type: linkType }),
+		}) =>
+			createTaskLink(projectId, sourceTaskId, {
+				target_task_id: targetTaskId,
+				link_type: linkType,
+			}),
 		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: taskLinksQueryOptions(projectId, taskId).queryKey });
+			qc.invalidateQueries({
+				queryKey: taskLinksQueryOptions(projectId, taskId).queryKey,
+			});
 		},
 	});
 
 	const deleteMutation = useMutation({
 		mutationFn: (linkId: string) => deleteTaskLink(projectId, taskId, linkId),
 		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: taskLinksQueryOptions(projectId, taskId).queryKey });
+			qc.invalidateQueries({
+				queryKey: taskLinksQueryOptions(projectId, taskId).queryKey,
+			});
 		},
 	});
 
@@ -85,7 +95,9 @@ export function TaskLinksSection({
 				target_task_id: taskId,
 				link_type: linkType,
 			}).then(() => {
-				qc.invalidateQueries({ queryKey: taskLinksQueryOptions(projectId, taskId).queryKey });
+				qc.invalidateQueries({
+					queryKey: taskLinksQueryOptions(projectId, taskId).queryKey,
+				});
 			});
 		} else {
 			createMutation.mutate({ targetTaskId, linkType, sourceTaskId: taskId });
@@ -136,14 +148,22 @@ export function TaskLinksSection({
 											<span className="shrink-0 text-[11px] font-mono text-muted-foreground/50">
 												{prefix}
 											</span>
-											{/* biome-ignore lint/a11y/useKeyWithClickEvents: click-to-navigate */}
+											{/* biome-ignore lint/a11y/useSemanticElements: span for styling and truncation */}
 											<span
+												role="button"
+												tabIndex={onNavigateToTask ? 0 : -1}
 												className={`flex-1 text-[13px] text-foreground truncate ${
 													onNavigateToTask
 														? "cursor-pointer hover:text-primary transition-colors duration-100"
 														: ""
 												}`}
 												onClick={() => onNavigateToTask?.(t.id)}
+												onKeyDown={(e) => {
+													if (e.key === "Enter" || e.key === " ") {
+														e.preventDefault();
+														onNavigateToTask?.(t.id);
+													}
+												}}
 											>
 												{t.title}
 											</span>

@@ -329,6 +329,7 @@ func httpStatusForCode(code apierr.Code) int {
 		apierr.CodeTaskTypeNotFound,
 		apierr.CodeTaskStatusNotFound,
 		apierr.CodeSprintNotFound,
+		apierr.CodeTaskLinkNotFound,
 		apierr.CodeViewNotFound,
 		apierr.CodeCustomFieldNotFound,
 		apierr.CodeFileNotFound,
@@ -344,6 +345,8 @@ func httpStatusForCode(code apierr.Code) int {
 		apierr.CodeEpicCannotHaveParent,
 		apierr.CodeTaskCannotBeOwnParent,
 		apierr.CodeTaskParentCycleDetected,
+		apierr.CodeTaskLinkSelf,
+		apierr.CodeTaskLinkCrossProject,
 		apierr.CodeTaskTypeNameInvalid,
 		apierr.CodeTaskStatusNameInvalid,
 		apierr.CodeTaskStatusCategoryInvalid,
@@ -364,6 +367,7 @@ func httpStatusForCode(code apierr.Code) int {
 		return http.StatusForbidden
 	case apierr.CodeViewIsLastView,
 		apierr.CodeSprintAlreadyComplete,
+		apierr.CodeTaskLinkDuplicate,
 		apierr.CodeCustomFieldKeyTaken,
 		apierr.CodeTaskTypeNameReserved:
 		return http.StatusConflict

@@ -1578,7 +1578,7 @@ func (r *fakeTaskRepo) LinkExists(_ context.Context, _, _ uuid.UUID, _ taskdom.L
 	return false, nil
 }
 
-func (r *fakeTaskRepo) CreateTaskLink(_ context.Context, l *taskdom.TaskLink) error { return nil }
+func (r *fakeTaskRepo) CreateTaskLink(_ context.Context, _ *taskdom.TaskLink) error { return nil }
 
 func (r *fakeTaskRepo) DeleteTaskLink(_ context.Context, _ uuid.UUID) error { return nil }
 

@@ -13,29 +13,29 @@ import (
 
 // taskLinkRecord mirrors a row in the task_links table.
 type taskLinkRecord struct {
-	ID           string     `db:"id"`
-	SourceTaskID string     `db:"source_task_id"`
-	TargetTaskID string     `db:"target_task_id"`
-	LinkType     string     `db:"link_type"`
-	CreatedBy    *string    `db:"created_by"`
-	CreatedAt    time.Time  `db:"created_at"`
+	ID           string    `db:"id"`
+	SourceTaskID string    `db:"source_task_id"`
+	TargetTaskID string    `db:"target_task_id"`
+	LinkType     string    `db:"link_type"`
+	CreatedBy    *string   `db:"created_by"`
+	CreatedAt    time.Time `db:"created_at"`
 }
 
 // taskLinkWithTaskRow is used for the join query that fetches linked task info.
 type taskLinkWithTaskRow struct {
 	// link columns
-	ID           string     `db:"id"`
-	SourceTaskID string     `db:"source_task_id"`
-	TargetTaskID string     `db:"target_task_id"`
-	LinkType     string     `db:"link_type"`
-	CreatedBy    *string    `db:"created_by"`
-	CreatedAt    time.Time  `db:"created_at"`
+	ID           string    `db:"id"`
+	SourceTaskID string    `db:"source_task_id"`
+	TargetTaskID string    `db:"target_task_id"`
+	LinkType     string    `db:"link_type"`
+	CreatedBy    *string   `db:"created_by"`
+	CreatedAt    time.Time `db:"created_at"`
 	// linked task columns (the "other" side of the link)
-	LinkedTaskID         string  `db:"linked_task_id"`
-	LinkedTaskNumber     int64   `db:"linked_task_number"`
-	LinkedTaskTitle      string  `db:"linked_task_title"`
-	LinkedTaskStatusID   *string `db:"linked_task_status_id"`
-	LinkedTaskTypeID     *string `db:"linked_task_type_id"`
+	LinkedTaskID       string  `db:"linked_task_id"`
+	LinkedTaskNumber   int64   `db:"linked_task_number"`
+	LinkedTaskTitle    string  `db:"linked_task_title"`
+	LinkedTaskStatusID *string `db:"linked_task_status_id"`
+	LinkedTaskTypeID   *string `db:"linked_task_type_id"`
 	// perspective: "source" means the queried task is the source, "target" means it's the target
 	Perspective string `db:"perspective"`
 }
@@ -256,10 +256,10 @@ func (row *taskLinkWithTaskRow) toDomain() (*taskdom.TaskLink, error) {
 		switch taskdom.LinkType(row.LinkType) {
 		case taskdom.LinkTypeBlocks:
 			link.DisplayLinkType = "is_blocked_by"
+		case taskdom.LinkTypeRelatesTo:
+			link.DisplayLinkType = row.LinkType
 		case taskdom.LinkTypeDuplicates:
 			link.DisplayLinkType = "is_duplicated_by"
-		default: // relates_to is symmetric
-			link.DisplayLinkType = row.LinkType
 		}
 	}
 

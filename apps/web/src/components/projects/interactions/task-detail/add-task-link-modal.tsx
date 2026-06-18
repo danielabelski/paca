@@ -1,10 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
 import { Link2, Search, X } from "lucide-react";
-import {
-	type LinkType,
-	listAllTasks,
-	type Task,
-} from "@/lib/interaction-api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { type LinkType, listAllTasks, type Task } from "@/lib/interaction-api";
 
 interface AddTaskLinkModalProps {
 	open: boolean;
@@ -15,15 +11,38 @@ interface AddTaskLinkModalProps {
 	taskIdPrefix?: string;
 }
 
-const LINK_TYPE_OPTIONS: { value: LinkType; label: string; description: string }[] = [
-	{ value: "blocks", label: "Blocks", description: "This task must be completed before the other" },
-	{ value: "is_blocked_by" as LinkType, label: "Is blocked by", description: "This task cannot start until the other is done" },
-	{ value: "relates_to", label: "Relates to", description: "These tasks are related but not dependent" },
-	{ value: "duplicates", label: "Duplicates", description: "This task is a duplicate of the other" },
+const LINK_TYPE_OPTIONS: {
+	value: LinkType;
+	label: string;
+	description: string;
+}[] = [
+	{
+		value: "blocks",
+		label: "Blocks",
+		description: "This task must be completed before the other",
+	},
+	{
+		value: "is_blocked_by" as LinkType,
+		label: "Is blocked by",
+		description: "This task cannot start until the other is done",
+	},
+	{
+		value: "relates_to",
+		label: "Relates to",
+		description: "These tasks are related but not dependent",
+	},
+	{
+		value: "duplicates",
+		label: "Duplicates",
+		description: "This task is a duplicate of the other",
+	},
 ];
 
 // Maps display types back to the canonical storage type and direction
-const DISPLAY_TO_CANONICAL: Record<string, { linkType: LinkType; swap: boolean }> = {
+const DISPLAY_TO_CANONICAL: Record<
+	string,
+	{ linkType: LinkType; swap: boolean }
+> = {
 	blocks: { linkType: "blocks", swap: false },
 	is_blocked_by: { linkType: "blocks", swap: true },
 	relates_to: { linkType: "relates_to", swap: false },
@@ -59,10 +78,11 @@ export function AddTaskLinkModal({
 		return tasks.filter((t) => {
 			if (t.id === currentTaskId) return false;
 			if (!q) return true;
-			const prefix = taskIdPrefix ? `${taskIdPrefix}-${t.task_number}` : String(t.task_number);
+			const prefix = taskIdPrefix
+				? `${taskIdPrefix}-${t.task_number}`
+				: String(t.task_number);
 			return (
-				t.title.toLowerCase().includes(q) ||
-				prefix.toLowerCase().includes(q)
+				t.title.toLowerCase().includes(q) || prefix.toLowerCase().includes(q)
 			);
 		});
 	}, [tasks, query, currentTaskId, taskIdPrefix]);
@@ -89,6 +109,7 @@ export function AddTaskLinkModal({
 	if (!open) return null;
 
 	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: backdrop element for modal
 		<div
 			className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
 			onClick={(e) => {
@@ -105,7 +126,9 @@ export function AddTaskLinkModal({
 						<div className="size-7 rounded-lg bg-primary/10 flex items-center justify-center">
 							<Link2 className="size-3.5 text-primary" />
 						</div>
-						<h2 className="text-[14px] font-semibold text-foreground">Link task</h2>
+						<h2 className="text-[14px] font-semibold text-foreground">
+							Link task
+						</h2>
 					</div>
 					<button
 						type="button"

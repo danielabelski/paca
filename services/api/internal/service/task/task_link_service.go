@@ -9,7 +9,7 @@ import (
 )
 
 // ListTaskLinks returns all links for a task, computing display labels.
-func (s *Service) ListTaskLinks(ctx context.Context, projectID, taskID uuid.UUID) ([]*taskdom.TaskLink, error) {
+func (s *Service) ListTaskLinks(ctx context.Context, _, taskID uuid.UUID) ([]*taskdom.TaskLink, error) {
 	// Verify task belongs to project.
 	if _, err := s.repo.FindTaskByID(ctx, taskID); err != nil {
 		return nil, err

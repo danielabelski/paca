@@ -103,8 +103,11 @@ type CustomFieldDefinition struct {
 type LinkType string
 
 const (
-	LinkTypeBlocks    LinkType = "blocks"
+	// LinkTypeBlocks indicates the source task blocks completion of the target.
+	LinkTypeBlocks LinkType = "blocks"
+	// LinkTypeRelatesTo indicates the source and target tasks are related.
 	LinkTypeRelatesTo LinkType = "relates_to"
+	// LinkTypeDuplicates indicates the source task duplicates the target.
 	LinkTypeDuplicates LinkType = "duplicates"
 )
 

@@ -131,7 +131,12 @@ function activityDescription(
 		case "task.attachment.removed":
 			return `removed attachment${content.file_name ? `: ${content.file_name}` : ""}`;
 		case "task.link.added": {
-			const linkType = content.link_type === "blocks" ? "blocked by" : content.link_type === "relates_to" ? "related to" : "duplicated";
+			const linkType =
+				content.link_type === "blocks"
+					? "blocked by"
+					: content.link_type === "relates_to"
+						? "related to"
+						: "duplicated";
 			return `added task link (${linkType})`;
 		}
 		case "task.link.removed":
