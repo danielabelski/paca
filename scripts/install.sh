@@ -357,31 +357,25 @@ heading "Network"
 echo "  Caddy (the gateway) serves HTTPS by default: a trusted Let's Encrypt"
 echo "  certificate if you give it a domain name with DNS already pointed at"
 echo "  this server, or its own local certificate authority otherwise (an IP"
-echo "  address, \"localhost\", etc.) — traffic is still encrypted, but"
-echo "  browsers will show a trust warning until you have a real domain."
+echo "  address, etc.) — traffic is still encrypted, but browsers will show a"
+echo "  trust warning until you have a real domain. \"localhost\" is served"
+echo "  over plain HTTP instead, since it never needs (or can get) a certificate."
 echo ""
 
-USE_HTTPS="yes"
-yes_no USE_HTTPS "Serve over HTTPS?" "y"
+ADDRESS=""
+ask ADDRESS "Domain name (recommended) or IP address Paca will be accessible at" "localhost"
 
 GATEWAY_PORT="80"
 
+if [[ "$ADDRESS" == "localhost" ]]; then
+    USE_HTTPS="no"
+    info "Using localhost — serving over plain HTTP."
+else
+    USE_HTTPS="yes"
+    yes_no USE_HTTPS "Serve over HTTPS?" "y"
+fi
+
 if [[ "$USE_HTTPS" == "yes" ]]; then
-    # Best-effort default: this server's public IP, so hitting enter below
-    # still gives Caddy a concrete address to issue a certificate for.
-    # (Caddy can't provision HTTPS for a bare, hostname-less catch-all.)
-    _DETECTED_IP=""
-    if command -v curl &>/dev/null; then
-        _DETECTED_IP="$(curl -fsSL --max-time 3 https://api.ipify.org 2>/dev/null || true)"
-    fi
-    if [[ ! "$_DETECTED_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-        _DETECTED_IP=""
-    fi
-    _DEFAULT_ADDRESS="${_DETECTED_IP:-localhost}"
-
-    ADDRESS=""
-    ask ADDRESS "Domain name (recommended) or IP address Paca will be accessible at" "$_DEFAULT_ADDRESS"
-
     SITE_ADDRESS="$ADDRESS"
     PUBLIC_URL="https://${ADDRESS}"
 
@@ -394,9 +388,9 @@ else
 
     # Derive a sensible default public URL from the port.
     if [[ "$GATEWAY_PORT" == "80" ]]; then
-        _DEFAULT_PUBLIC_URL="http://localhost"
+        _DEFAULT_PUBLIC_URL="http://${ADDRESS}"
     else
-        _DEFAULT_PUBLIC_URL="http://localhost:${GATEWAY_PORT}"
+        _DEFAULT_PUBLIC_URL="http://${ADDRESS}:${GATEWAY_PORT}"
     fi
 
     ask PUBLIC_URL "Public URL (full URL where Paca will be accessible, no trailing slash)" "$_DEFAULT_PUBLIC_URL"
