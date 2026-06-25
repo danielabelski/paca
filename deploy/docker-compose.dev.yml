@@ -41,7 +41,7 @@ services:
   # To test retention pruning, backdate a dump's mtime past the retention
   # window and re-run the script above:
   #   docker compose -f deploy/docker-compose.dev.yml exec db-backup \
-  #     touch -d '10 days ago' /backups/paca-fake.sql.gz
+  #     sh -c 'touch -t "$(date -d "@$(($(date +%s)-10*86400))" +%Y%m%d%H%M)" /backups/paca-fake.sql.gz'
   db-backup:
     image: postgres:16-alpine
     environment:

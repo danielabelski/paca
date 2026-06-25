@@ -315,12 +315,16 @@ fi
 heading "Database backups"
 
 SCALE_DB_BACKUP=""
+BACKUP_ENABLED="true"
 BACKUP_DIR="./backups"
 BACKUP_CRON="0 2 * * *"
 BACKUP_RETENTION_DAYS="7"
 
 # validate_cron VALUE
-# Mirrors the db-backup container's own check: exactly 5 whitespace-separated fields.
+# Checks the same field count the db-backup container enforces at startup
+# (exactly 5 whitespace-separated fields), plus a basic character check per
+# field to catch obviously invalid values (e.g. typos) before they're written
+# to .env and silently ignored by crond.
 validate_cron() {
     local v="$1"
     local -a fields
@@ -329,6 +333,13 @@ validate_cron() {
         error "Cron schedule must have exactly 5 fields (minute hour day month weekday)."
         return 1
     fi
+    local f
+    for f in "${fields[@]}"; do
+        if [[ ! "$f" =~ ^[0-9*,/-]+$ ]]; then
+            error "Invalid cron field '${f}' — only digits and * , - / are supported."
+            return 1
+        fi
+    done
     return 0
 }
 
@@ -336,6 +347,7 @@ if [[ -n "$SCALE_POSTGRES" ]]; then
     # db-backup runs pg_dump against the bundled container; an external/managed
     # database is assumed to already have its own backup mechanism.
     SCALE_DB_BACKUP="--scale db-backup=0"
+    BACKUP_ENABLED="false"
     info "Using an external database — skipping automated backups (its provider"
     info "likely already handles this). To have Paca back it up instead, set"
     info "BACKUP_DIR/BACKUP_CRON/BACKUP_RETENTION_DAYS in .env and start without"
@@ -350,6 +362,7 @@ else
 
     if [[ "$INCLUDE_BACKUPS" == "no" ]]; then
         SCALE_DB_BACKUP="--scale db-backup=0"
+        BACKUP_ENABLED="false"
         info "Automated backups will be skipped."
     else
         ask BACKUP_DIR "Directory to store backups in" "$BACKUP_DIR"
@@ -595,6 +608,10 @@ POSTGRES_PASSWORD=${POSTGRES_PASSWORD_VALUE}
 DATABASE_URL=${DATABASE_URL_OVERRIDE}
 
 # ── Database backups ─────────────────────────────────────────────────────────
+# BACKUP_ENABLED records your choice below so upgrade.sh can honor it later
+# instead of guessing — flip to false (and optionally --scale db-backup=0) to
+# turn backups off permanently.
+BACKUP_ENABLED=${BACKUP_ENABLED}
 BACKUP_DIR=${BACKUP_DIR}
 # Standard 5-field cron syntax, interpreted in UTC. Uncomment TZ below to change.
 BACKUP_CRON=${BACKUP_CRON}

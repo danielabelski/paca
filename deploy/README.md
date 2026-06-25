@@ -222,6 +222,7 @@ or an external `DATABASE_URL`.
 Configure it in `.env`:
 
 ```bash
+BACKUP_ENABLED=true             # set to false to turn off backups permanently
 BACKUP_DIR=./backups            # host directory dumps are written to
 BACKUP_CRON=0 2 * * *           # standard 5-field cron syntax, default 02:00 daily
 BACKUP_RETENTION_DAYS=7         # dumps older than this are deleted
@@ -232,8 +233,15 @@ BACKUP_RETENTION_DAYS=7         # dumps older than this are deleted
 to wherever you run `docker compose`, or absolute) — not a bare name.
 `BACKUP_CRON` accepts any standard cron expression, e.g. `*/30 * * * *` (every
 30 minutes) or `0 2 * * 0` (weekly, Sunday at 02:00). The install script prompts
-for all three; existing installs get them backfilled by `upgrade.sh` with these
+for all four; existing installs get them backfilled by `upgrade.sh` with these
 same defaults.
+
+`BACKUP_ENABLED` is the persisted record of whether the service should run at
+all — `--scale db-backup=0` only suppresses it for a single `up` invocation,
+so `upgrade.sh` reads `BACKUP_ENABLED` back on every upgrade to decide whether
+to re-apply that scale flag automatically, rather than guessing from
+`DATABASE_URL` alone. Set it (not just the scale flag) if you want a "no" to
+backups during install to stay a "no" on every future upgrade.
 
 Scheduling is handled by `crond` inside the container, which blocks until the
 next due minute rather than polling, and the container is capped at 0.5 CPU /
@@ -262,6 +270,10 @@ Disable automated backups (e.g. if a managed database already handles this):
 ```bash
 docker compose --env-file .env up -d --scale db-backup=0
 ```
+
+To keep it disabled across future `upgrade.sh` runs as well, also set
+`BACKUP_ENABLED=false` in `.env` — otherwise `upgrade.sh` has no record of the
+choice and may re-enable it on the next upgrade.
 
 ## Development Compose
 
@@ -323,7 +335,7 @@ and re-run the script:
 
 ```bash
 docker compose -f deploy/docker-compose.dev.yml exec db-backup \
-  touch -d '10 days ago' /backups/paca-fake.sql.gz
+  sh -c 'touch -t "$(date -d "@$(($(date +%s)-10*86400))" +%Y%m%d%H%M)" /backups/paca-fake.sql.gz'
 docker compose -f deploy/docker-compose.dev.yml exec db-backup run-backup.sh
 ls deploy/backups/   # paca-fake.sql.gz should be gone
 ```
