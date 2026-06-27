@@ -615,6 +615,19 @@ func (r *Runtime) execQuery(ctx context.Context, schema, sqlStr, paramsJSON stri
 	if err != nil {
 		return nil, err
 	}
+	colTypes, err := rows.ColumnTypes()
+	if err != nil {
+		return nil, err
+	}
+	// The driver returns text/json/jsonb columns as []byte; encoding/json would
+	// otherwise base64-encode those when marshaling the result across the WASM
+	// boundary, corrupting the value for the plugin. Convert those columns to
+	// string so plugins receive the raw text. Genuinely binary columns (bytea)
+	// are left as []byte so they keep going through the safe base64 path.
+	isTextColumn := make([]bool, len(colTypes))
+	for i, ct := range colTypes {
+		isTextColumn[i] = strings.ToUpper(ct.DatabaseTypeName()) != "BYTEA"
+	}
 	result := &dbQueryResult{Columns: cols}
 	for rows.Next() {
 		vals := make([]any, len(cols))
@@ -625,12 +638,8 @@ func (r *Runtime) execQuery(ctx context.Context, schema, sqlStr, paramsJSON stri
 		if err := rows.Scan(ptrs...); err != nil {
 			return nil, err
 		}
-		// Postgres driver returns text/json/jsonb columns as []byte; encoding/json
-		// would otherwise base64-encode those when marshaling the result across
-		// the WASM boundary, corrupting the value for the plugin. Convert to
-		// string so plugins receive the raw text.
 		for i, v := range vals {
-			if b, ok := v.([]byte); ok {
+			if b, ok := v.([]byte); ok && isTextColumn[i] {
 				vals[i] = string(b)
 			}
 		}
