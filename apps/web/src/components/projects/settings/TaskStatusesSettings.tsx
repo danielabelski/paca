@@ -71,6 +71,7 @@ export function TaskStatusesSettings({
 	const [localOrder, setLocalOrder] = useState<TaskStatus[] | null>(null);
 	const [dragId, setDragId] = useState<string | null>(null);
 	const [dragOverId, setDragOverId] = useState<string | null>(null);
+	const [reorderError, setReorderError] = useState<string | null>(null);
 
 	const setDefaultMutation = useMutation({
 		mutationFn: (statusId: string) => setDefaultTaskStatus(projectId, statusId),
@@ -85,12 +86,17 @@ export function TaskStatusesSettings({
 		mutationFn: (ordered: TaskStatus[]) =>
 			reorderTaskStatuses(
 				projectId,
-				ordered.map((s, i) => ({ id: s.id, position: i })),
+				ordered.map((s) => s.id),
 			),
 		onSuccess: () => {
+			setReorderError(null);
 			queryClient.invalidateQueries({
 				queryKey: taskStatusesQueryOptions(projectId).queryKey,
 			});
+		},
+		onError: () => {
+			setLocalOrder(null);
+			setReorderError("Failed to save the new order. Please try again.");
 		},
 	});
 
@@ -117,6 +123,7 @@ export function TaskStatusesSettings({
 		const [moved] = next.splice(srcIndex, 1);
 		next.splice(targetIndex, 0, moved);
 		setLocalOrder(next);
+		setReorderError(null);
 		reorderMutation.mutate(next);
 	};
 
@@ -141,6 +148,12 @@ export function TaskStatusesSettings({
 					</Button>
 				) : null}
 			</div>
+
+			{reorderError ? (
+				<p className="mt-4 text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">
+					{reorderError}
+				</p>
+			) : null}
 
 			{isLoading ? (
 				<div className="rounded-xl border overflow-hidden mt-4">
