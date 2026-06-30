@@ -1,8 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronsUpDown, Key, LogOut, User } from "lucide-react";
+import { ChevronsUpDown, Key, Languages, LogOut, User } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
+import { LocaleRadioGroup } from "@/components/LocaleRadioGroup";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
 	DropdownMenu,
@@ -11,6 +13,9 @@ import {
 	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuSeparator,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -18,6 +23,7 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import { useLocale } from "@/hooks/use-locale";
 import { currentUserOptionalQueryOptions, logout } from "@/lib/auth-api";
 
 function getInitials(name: string): string {
@@ -31,24 +37,26 @@ function getInitials(name: string): string {
 }
 
 export function UserMenu() {
+	const { t } = useTranslation("appShell");
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const { data: user } = useQuery(currentUserOptionalQueryOptions);
 	const [isLoggingOut, setIsLoggingOut] = useState(false);
+	const { locale, set: setLocale } = useLocale();
 
 	if (!user) {
 		return (
 			<SidebarMenu>
 				<SidebarMenuItem>
 					<SidebarMenuButton
-						tooltip="Sign in"
+						tooltip={t("userMenu.signIn")}
 						onClick={() => {
 							window.location.href = "/";
 						}}
 						className="text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60 transition-all"
 					>
 						<User className="size-4" />
-						<span>Sign in</span>
+						<span>{t("userMenu.signIn")}</span>
 					</SidebarMenuButton>
 				</SidebarMenuItem>
 			</SidebarMenu>
@@ -118,14 +126,24 @@ export function UserMenu() {
 						<DropdownMenuSeparator />
 						<DropdownMenuItem onClick={() => void navigate({ to: "/profile" })}>
 							<User className="size-4" />
-							My Profile
+							{t("userMenu.myProfile")}
 						</DropdownMenuItem>
 						<DropdownMenuItem
 							onClick={() => void navigate({ to: "/profile/api-keys" })}
 						>
 							<Key className="size-4" />
-							API Keys
+							{t("userMenu.apiKeys")}
 						</DropdownMenuItem>
+						<DropdownMenuSeparator />
+						<DropdownMenuSub>
+							<DropdownMenuSubTrigger>
+								<Languages className="size-4" />
+								{t("language.label")}
+							</DropdownMenuSubTrigger>
+							<DropdownMenuSubContent>
+								<LocaleRadioGroup value={locale} onValueChange={setLocale} />
+							</DropdownMenuSubContent>
+						</DropdownMenuSub>
 						<DropdownMenuSeparator />
 						<DropdownMenuItem
 							variant="destructive"
@@ -133,7 +151,7 @@ export function UserMenu() {
 							disabled={isLoggingOut}
 						>
 							<LogOut className="size-4" />
-							{isLoggingOut ? "Logging out…" : "Log out"}
+							{isLoggingOut ? t("userMenu.loggingOut") : t("userMenu.logOut")}
 						</DropdownMenuItem>
 					</DropdownMenuContent>
 				</DropdownMenu>

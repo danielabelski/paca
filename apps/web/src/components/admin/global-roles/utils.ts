@@ -1,5 +1,7 @@
+import { formatDate as formatDateLocale } from "@/lib/format-date";
+
 export function formatDate(iso: string) {
-	return new Date(iso).toLocaleDateString("en-US", {
+	return formatDateLocale(iso, {
 		year: "numeric",
 		month: "short",
 		day: "numeric",

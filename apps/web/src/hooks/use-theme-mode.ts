@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { onStorageKeyChange } from "@/lib/storage-sync";
 
 export type ThemeMode = "light" | "dark" | "auto";
 
@@ -52,21 +53,17 @@ export function useThemeMode() {
 			}
 		};
 
-		const onStorageChange = (event: StorageEvent) => {
-			if (event.key === THEME_STORAGE_KEY) {
-				setMode(getStoredTheme());
-			}
-		};
-
 		window.addEventListener(THEME_CHANGE_EVENT, onThemeChange as EventListener);
-		window.addEventListener("storage", onStorageChange);
+		const offStorage = onStorageKeyChange(THEME_STORAGE_KEY, () => {
+			setMode(getStoredTheme());
+		});
 
 		return () => {
 			window.removeEventListener(
 				THEME_CHANGE_EVENT,
 				onThemeChange as EventListener,
 			);
-			window.removeEventListener("storage", onStorageChange);
+			offStorage();
 		};
 	}, []);
 

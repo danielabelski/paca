@@ -1,5 +1,6 @@
 import { Check, GripVertical, Layers, Link, User } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { getTaskTypeIconComponent } from "@/components/projects/task-types/task-type-icons";
 import {
@@ -13,6 +14,7 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/components/ui/popover";
+import { formatDate } from "@/lib/format-date";
 import type { Task } from "@/lib/interaction-api";
 import type {
 	CustomFieldDefinition,
@@ -48,13 +50,6 @@ interface TaskCardProps {
 	onUpdate?: (taskId: string, payload: UpdatePayload) => void;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function formatDate(iso: string): string {
-	const d = new Date(iso);
-	return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
 export function TaskCard({
 	task,
 	taskIdPrefix = "",
@@ -71,6 +66,7 @@ export function TaskCard({
 	canEdit,
 	onUpdate,
 }: TaskCardProps) {
+	const { t } = useTranslation("projects");
 	const [typePopoverOpen, setTypePopoverOpen] = useState(false);
 	const taskType = taskTypes.find((t) => t.id === task.task_type_id);
 	const assignee = task.assignee_id
@@ -114,7 +110,9 @@ export function TaskCard({
 								}}
 							>
 								<User className="size-3.5 opacity-60" />
-								<span className="flex-1 text-left">Unassigned</span>
+								<span className="flex-1 text-left">
+									{t("board.taskCard.unassigned")}
+								</span>
 								{!assignee && <Check className="size-3.5 text-primary" />}
 							</button>
 							{members.map((m) => (
@@ -316,7 +314,7 @@ export function TaskCard({
 				return (
 					<span
 						key="story_points"
-						title="Story Points"
+						title={t("board.taskCard.storyPointsTitle")}
 						className="inline-flex items-center rounded-md bg-primary/10 px-1.5 py-0.5 text-xs font-bold text-primary/80 shrink-0 tabular-nums"
 					>
 						{task.story_points}
@@ -340,11 +338,11 @@ export function TaskCard({
 										className="size-1.5 rounded-full shrink-0"
 										style={{ background: p.color }}
 									/>
-									{p.label}
+									{t(p.labelKey)}
 								</>
 							) : (
 								<span className="text-xs text-muted-foreground/40">
-									Priority
+									{t("board.taskCard.priorityLabel")}
 								</span>
 							)}
 						</DropdownMenuTrigger>
@@ -363,8 +361,10 @@ export function TaskCard({
 										className="size-2 rounded-full shrink-0 mr-2"
 										style={{ background: level.color }}
 									/>
-									<span style={{ color: level.color }}>{level.label}</span>
-									{getPriority(task.importance).label === level.label &&
+									<span style={{ color: level.color }}>
+										{t(level.labelKey)}
+									</span>
+									{getPriority(task.importance).labelKey === level.labelKey &&
 										task.importance > 0 === level.value > 0 && (
 											<Check className="size-3.5 text-primary ml-auto" />
 										)}
@@ -382,7 +382,7 @@ export function TaskCard({
 							className="size-1.5 rounded-full shrink-0"
 							style={{ background: p.color }}
 						/>
-						{p.label}
+						{t(p.labelKey)}
 					</span>
 				) : null;
 			}
@@ -395,7 +395,9 @@ export function TaskCard({
 					<div
 						key="reporter"
 						title={
-							reporter ? reporter.full_name || reporter.username : "Reporter"
+							reporter
+								? reporter.full_name || reporter.username
+								: t("board.taskCard.reporterTitle")
 						}
 						className="flex size-5 items-center justify-center rounded-full bg-linear-to-br from-muted/80 to-muted/40 text-muted-foreground text-xs font-bold ring-1 ring-border/25"
 					>
@@ -416,7 +418,7 @@ export function TaskCard({
 						key="start_date"
 						className="text-xs text-muted-foreground/70 shrink-0"
 					>
-						{formatDate(task.start_date)}
+						{formatDate(task.start_date, { month: "short", day: "numeric" })}
 					</span>
 				) : null;
 
@@ -426,7 +428,7 @@ export function TaskCard({
 						key="due_date"
 						className="text-xs text-muted-foreground/70 shrink-0"
 					>
-						{formatDate(task.due_date)}
+						{formatDate(task.due_date, { month: "short", day: "numeric" })}
 					</span>
 				) : null;
 
@@ -436,7 +438,7 @@ export function TaskCard({
 						key="created"
 						className="text-xs text-muted-foreground/50 shrink-0"
 					>
-						{formatDate(task.created_at)}
+						{formatDate(task.created_at, { month: "short", day: "numeric" })}
 					</span>
 				);
 
@@ -455,7 +457,9 @@ export function TaskCard({
 							{epic ? (
 								<span className="max-w-20 truncate">{epic.title}</span>
 							) : (
-								<span className="text-muted-foreground/40">Epic</span>
+								<span className="text-muted-foreground/40">
+									{t("board.taskCard.epicLabel")}
+								</span>
 							)}
 						</PopoverTrigger>
 						<PopoverContent
@@ -470,7 +474,9 @@ export function TaskCard({
 									onUpdate?.(task.id, { parent_task_id: null });
 								}}
 							>
-								<span className="flex-1 text-left">No Epic</span>
+								<span className="flex-1 text-left">
+									{t("board.taskCard.noEpic")}
+								</span>
 								{!task.parent_task_id && (
 									<Check className="size-3.5 text-primary" />
 								)}
@@ -541,7 +547,7 @@ export function TaskCard({
 								key={fieldKey}
 								className="text-xs text-muted-foreground/70 shrink-0"
 							>
-								{formatDate(String(val))}
+								{formatDate(String(val), { month: "short", day: "numeric" })}
 							</span>
 						);
 					case "select":

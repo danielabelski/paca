@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500;600&family=Be+Vietnam+Pro:wght@300;400;500;600;700;800;900&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
@@ -138,6 +138,7 @@
 
 @theme inline {
 	--font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+	--font-display: "Syne", ui-sans-serif, sans-serif;
 	--font-mono: "JetBrains Mono", ui-monospace, monospace;
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
@@ -275,8 +276,21 @@ pre code {
 	margin-inline: auto;
 }
 
-.display-title {
-	font-family: "Syne", ui-sans-serif, sans-serif;
+.display-title,
+.font-\[Syne\] {
+	font-family: var(--font-display);
+}
+
+/*
+ * Syne and DM Sans render Vietnamese tone marks (combining diacritics) with
+ * visible hinting glitches — Be Vietnam Pro is purpose-built for Vietnamese
+ * and renders them correctly, so swap it in whenever the active locale is vi.
+ * Locales with their own font needs can add a sibling `html[lang="..."]`
+ * rule here overriding the same two variables — no other CSS to touch.
+ */
+html[lang="vi"] {
+	--font-sans: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
+	--font-display: "Be Vietnam Pro", ui-sans-serif, sans-serif;
 }
 
 .island-shell {
