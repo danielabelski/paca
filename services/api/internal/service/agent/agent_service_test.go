@@ -105,7 +105,7 @@ type mockAgentRepo struct {
 	createConversation                   func(ctx context.Context, conv *agentdom.AgentConversation) error
 	updateConversationStatus             func(ctx context.Context, id uuid.UUID, status string) error
 	claimConversationStatus              func(ctx context.Context, id uuid.UUID, fromStatus, toStatus string) (bool, error)
-	claimQueuedForDispatch               func(ctx context.Context, conversationID, agentID uuid.UUID, limit int) (bool, error)
+	claimQueuedForDispatch               func(ctx context.Context, conversationID, agentID uuid.UUID, limit int) (claimed, atCapacity bool, err error)
 	updateConversation                   func(ctx context.Context, conv *agentdom.AgentConversation) error
 	listConversationEvents               func(ctx context.Context, conversationID uuid.UUID, window agentdom.ConversationEventWindow) ([]*agentdom.AgentConversationEvent, int64, error)
 	createConversationEvent              func(ctx context.Context, event *agentdom.AgentConversationEvent) error
@@ -434,11 +434,11 @@ func (m *mockAgentRepo) ClaimConversationStatus(ctx context.Context, id uuid.UUI
 	return true, nil
 }
 
-func (m *mockAgentRepo) ClaimQueuedForDispatch(ctx context.Context, conversationID, agentID uuid.UUID, limit int) (bool, error) {
+func (m *mockAgentRepo) ClaimQueuedForDispatch(ctx context.Context, conversationID, agentID uuid.UUID, limit int) (bool, bool, error) {
 	if m.claimQueuedForDispatch != nil {
 		return m.claimQueuedForDispatch(ctx, conversationID, agentID, limit)
 	}
-	return true, nil
+	return true, false, nil
 }
 
 func (m *mockAgentRepo) UpdateConversation(ctx context.Context, conv *agentdom.AgentConversation) error {
@@ -4947,9 +4947,9 @@ func TestAdvanceQueue_ClaimsConversationBeforeDispatch(t *testing.T) {
 			}
 			return pending, nil
 		},
-		claimQueuedForDispatch: func(_ context.Context, conversationID, agentID uuid.UUID, limit int) (bool, error) {
+		claimQueuedForDispatch: func(_ context.Context, conversationID, agentID uuid.UUID, limit int) (bool, bool, error) {
 			claimedConvID, claimedAgentID, claimedLimit = conversationID, agentID, limit
-			return true, nil
+			return true, false, nil
 		},
 	}
 	svc := New(repo, &mockProjectRepo{}, nil, &mockPluginRepo{})
@@ -5000,11 +5000,11 @@ func TestAdvanceQueue_SkipsPendingTriggerWhenClaimFails(t *testing.T) {
 			queue = queue[1:]
 			return next, nil
 		},
-		claimQueuedForDispatch: func(_ context.Context, conversationID, _ uuid.UUID, _ int) (bool, error) {
+		claimQueuedForDispatch: func(_ context.Context, conversationID, _ uuid.UUID, _ int) (bool, bool, error) {
 			// Simulates StopConversation having already claimed/moved
 			// stoppedConvID out of "queued" between it being queued and
 			// AdvanceQueue reaching it.
-			return conversationID != stoppedConvID, nil
+			return conversationID != stoppedConvID, false, nil
 		},
 	}
 	svc := New(repo, &mockProjectRepo{}, nil, &mockPluginRepo{})
@@ -5142,17 +5142,18 @@ func TestClaimQueuedForDispatch_UsesEffectiveParallelismLimit(t *testing.T) {
 		findAgentByID: func(_ context.Context, id uuid.UUID) (*agentdom.Agent, error) {
 			return &agentdom.Agent{ID: id, AgentType: agentdom.AgentTypeACP, ParallelismLimit: 5}, nil
 		},
-		claimQueuedForDispatch: func(_ context.Context, conversationID, agentID uuid.UUID, limit int) (bool, error) {
+		claimQueuedForDispatch: func(_ context.Context, conversationID, agentID uuid.UUID, limit int) (bool, bool, error) {
 			gotConvID, gotAgentID, gotLimit = conversationID, agentID, limit
-			return true, nil
+			return true, false, nil
 		},
 	}
 	svc := New(repo, &mockProjectRepo{}, nil, &mockPluginRepo{})
 
-	claimed, err := svc.claimQueuedForDispatch(context.Background(), agentID, convID)
+	claimed, atCapacity, err := svc.claimQueuedForDispatch(context.Background(), agentID, convID)
 
 	assert.NoError(t, err)
 	assert.True(t, claimed)
+	assert.False(t, atCapacity)
 	assert.Equal(t, convID, gotConvID)
 	assert.Equal(t, agentID, gotAgentID)
 	assert.Equal(t, 1, gotLimit, "ACP agents must be re-verified against their forced limit of 1, not the raw stored ParallelismLimit")
@@ -5235,6 +5236,226 @@ func TestRevertFailedDispatch_LeavesConversationAloneIfAlreadyMovedElsewhere(t *
 
 	assert.ErrorIs(t, err, publishErr)
 	assert.False(t, createCalled, "must not recreate a pending trigger for a conversation that already moved on to something else")
+}
+
+// TestDeliverTrigger_AtCapacityRaceEnqueuesInsteadOfDropping is the
+// regression guard for pullfrog's follow-up finding on ClaimQueuedForDispatch
+// itself: claimed=false covers two different situations (gone for good vs.
+// still queued but the agent's atomic re-check found no room), and
+// deliverTrigger used to treat both identically — silently returning nil.
+// For a fresh dispatch (needsClaim=true: StartChatSession,
+// SendChatMessage's conv==nil branch, dispatchOrEnqueue, ...) that brand
+// new conversation has no agent_pending_triggers row yet, so silently
+// dropping it here would strand it "queued" forever with nothing left to
+// ever advance it — exactly the concurrent-burst scenario this whole
+// feature exists to absorb. atCapacity=true must instead persist a
+// PendingTrigger, the same as the plain "no capacity" branch would have.
+func TestDeliverTrigger_AtCapacityRaceEnqueuesInsteadOfDropping(t *testing.T) {
+	agentID := uuid.New()
+	convID := uuid.New()
+	envID := uuid.New()
+	folderID := uuid.New()
+
+	var created *agentdom.PendingTrigger
+	repo := &mockAgentRepo{
+		findAgentByID: func(_ context.Context, id uuid.UUID) (*agentdom.Agent, error) {
+			return &agentdom.Agent{ID: id, ParallelismLimit: 1}, nil
+		},
+		claimQueuedForDispatch: func(_ context.Context, _, _ uuid.UUID, _ int) (bool, bool, error) {
+			return false, true, nil // lost the capacity race, still queued
+		},
+		createPendingTrigger: func(_ context.Context, p *agentdom.PendingTrigger) error {
+			created = p
+			return nil
+		},
+	}
+	svc := New(repo, &mockProjectRepo{}, nil, &mockPluginRepo{})
+
+	payload := map[string]any{"conversation_id": convID.String(), "message": "hi"}
+	err := svc.deliverTrigger(context.Background(), agentID, convID, true, true, "agent.chat_message", payload, &envID, &folderID)
+
+	assert.NoError(t, err)
+	if assert.NotNil(t, created, "a capacity-race loss must persist a PendingTrigger, not silently drop the conversation") {
+		assert.Equal(t, agentID, created.AgentID)
+		assert.Equal(t, convID, created.ConversationID)
+		assert.Equal(t, "agent.chat_message", created.Topic)
+		assert.Equal(t, &envID, created.EnvironmentID)
+		assert.Equal(t, &folderID, created.EnvironmentFolderID)
+		assert.Equal(t, "hi", created.Payload["message"])
+	}
+}
+
+// TestDispatchPendingTrigger_AtCapacityRequeuesPreservingIdentity covers the
+// dequeue-path half of the same fix: pending's own agent_pending_triggers
+// row is already gone by the time dispatchPendingTrigger runs (deleted as
+// part of the dequeue that produced it), so a capacity-race loss here has
+// nothing else recording that it's still waiting — dispatchPendingTrigger
+// must re-create it, with its original ID/CreatedAt/Payload preserved
+// (same as requeueSkipped), and report atCapacity=true so its caller
+// (AdvanceQueue/AdvanceFolderQueue) knows this wasn't a "gone for good"
+// StopConversation-style loss.
+func TestDispatchPendingTrigger_AtCapacityRequeuesPreservingIdentity(t *testing.T) {
+	agentID := uuid.New()
+	convID := uuid.New()
+	pending := &agentdom.PendingTrigger{
+		ID:             uuid.New(),
+		AgentID:        agentID,
+		ConversationID: convID,
+		Topic:          "agent.task_assigned",
+		Payload:        map[string]string{"conversation_id": convID.String()},
+		CreatedAt:      time.Now().Add(-time.Hour),
+	}
+	conv := &agentdom.AgentConversation{ID: convID, AgentID: agentID, Status: "queued"}
+
+	var created *agentdom.PendingTrigger
+	repo := &mockAgentRepo{
+		findAgentByID: func(_ context.Context, id uuid.UUID) (*agentdom.Agent, error) {
+			return &agentdom.Agent{ID: id, ParallelismLimit: 1}, nil
+		},
+		findConversationByID: func(_ context.Context, _ uuid.UUID) (*agentdom.AgentConversation, error) {
+			return conv, nil
+		},
+		claimQueuedForDispatch: func(_ context.Context, _, _ uuid.UUID, _ int) (bool, bool, error) {
+			return false, true, nil
+		},
+		createPendingTrigger: func(_ context.Context, p *agentdom.PendingTrigger) error {
+			created = p
+			return nil
+		},
+	}
+	svc := New(repo, &mockProjectRepo{}, nil, &mockPluginRepo{})
+
+	dispatched, atCapacity, err := svc.dispatchPendingTrigger(context.Background(), pending)
+
+	assert.NoError(t, err)
+	assert.False(t, dispatched)
+	assert.True(t, atCapacity)
+	if assert.NotNil(t, created, "must re-create the pending trigger row, not drop it") {
+		assert.Equal(t, pending.ID, created.ID, "must keep its original id/FIFO position, exactly like requeueSkipped")
+		assert.Equal(t, pending.CreatedAt, created.CreatedAt)
+	}
+}
+
+// TestAdvanceQueue_StopsImmediatelyWhenCapacityLostMidCall pins AdvanceQueue's
+// reaction to atCapacity: once one item in this agent's own queue loses the
+// capacity race, every other item behind it is guaranteed to hit the exact
+// same agent-wide limit (it's the same agent, and the true running count
+// only goes up from here, never down, within one call) — so the loop must
+// stop immediately rather than waste a dequeue+re-queue round trip on each
+// remaining item up to maxDispatch.
+func TestAdvanceQueue_StopsImmediatelyWhenCapacityLostMidCall(t *testing.T) {
+	agentID := uuid.New()
+	pendingA := &agentdom.PendingTrigger{ID: uuid.New(), AgentID: agentID, ConversationID: uuid.New(), Topic: "agent.task_assigned"}
+	pendingB := &agentdom.PendingTrigger{ID: uuid.New(), AgentID: agentID, ConversationID: uuid.New(), Topic: "agent.task_assigned"}
+	queue := []*agentdom.PendingTrigger{pendingA, pendingB}
+
+	dequeueCalls := 0
+	var requeued []*agentdom.PendingTrigger
+	repo := &mockAgentRepo{
+		findAgentByID: func(_ context.Context, id uuid.UUID) (*agentdom.Agent, error) {
+			return &agentdom.Agent{ID: id, ParallelismLimit: 5}, nil
+		},
+		countRunningConversations: func(context.Context, uuid.UUID) (int, error) {
+			return 0, nil // this call's own (now-stale) snapshot says there's plenty of room
+		},
+		findConversationByID: func(_ context.Context, id uuid.UUID) (*agentdom.AgentConversation, error) {
+			return &agentdom.AgentConversation{ID: id, AgentID: agentID, Status: "queued"}, nil
+		},
+		dequeueOldestPendingTrigger: func(context.Context, uuid.UUID) (*agentdom.PendingTrigger, error) {
+			dequeueCalls++
+			if len(queue) == 0 {
+				return nil, nil
+			}
+			next := queue[0]
+			queue = queue[1:]
+			return next, nil
+		},
+		claimQueuedForDispatch: func(_ context.Context, _, _ uuid.UUID, _ int) (bool, bool, error) {
+			return false, true, nil // every claim in this test loses the capacity race
+		},
+		createPendingTrigger: func(_ context.Context, p *agentdom.PendingTrigger) error {
+			requeued = append(requeued, p)
+			return nil
+		},
+	}
+	svc := New(repo, &mockProjectRepo{}, nil, &mockPluginRepo{})
+
+	dispatched, err := svc.AdvanceQueue(context.Background(), agentID, 3)
+
+	assert.NoError(t, err)
+	assert.Equal(t, 0, dispatched)
+	assert.Equal(t, 1, dequeueCalls, "must not attempt a second item once the first hits capacity — the whole agent is equally blocked")
+	if assert.Len(t, requeued, 1, "the one item it dequeued must be put back, not dropped") {
+		assert.Equal(t, pendingA.ID, requeued[0].ID)
+	}
+}
+
+// TestAdvanceFolderQueue_ContinuesToNextItemWhenOneAgentIsAtCapacity is
+// AdvanceQueue's stop-immediately test's mirror image: AdvanceFolderQueue's
+// queue can hold items from DIFFERENT agents sharing one folder, so one
+// agent losing its own capacity race says nothing about whether the next
+// item (a different agent) still has room — it must keep trying instead of
+// giving up after the first capacity loss.
+func TestAdvanceFolderQueue_ContinuesToNextItemWhenOneAgentIsAtCapacity(t *testing.T) {
+	envID := uuid.New()
+	folderID := uuid.New()
+	busyAgentID := uuid.New()
+	freeAgentID := uuid.New()
+	busyConvID := uuid.New()
+	freeConvID := uuid.New()
+	pendingBusy := &agentdom.PendingTrigger{ID: uuid.New(), AgentID: busyAgentID, ConversationID: busyConvID, Topic: "agent.chat_message", EnvironmentID: &envID, EnvironmentFolderID: &folderID}
+	pendingFree := &agentdom.PendingTrigger{ID: uuid.New(), AgentID: freeAgentID, ConversationID: freeConvID, Topic: "agent.chat_message", EnvironmentID: &envID, EnvironmentFolderID: &folderID}
+	queue := []*agentdom.PendingTrigger{pendingBusy, pendingFree}
+	conversations := map[uuid.UUID]*agentdom.AgentConversation{
+		busyConvID: {ID: busyConvID, AgentID: busyAgentID, Status: "queued", EnvironmentID: &envID},
+		freeConvID: {ID: freeConvID, AgentID: freeAgentID, Status: "queued", EnvironmentID: &envID},
+	}
+
+	var requeued []*agentdom.PendingTrigger
+	var claimedConvID uuid.UUID
+	repo := &mockAgentRepo{
+		countRunningConversationsInFolder: func(context.Context, uuid.UUID, *uuid.UUID) (int, error) {
+			return 0, nil
+		},
+		findAgentByID: func(_ context.Context, id uuid.UUID) (*agentdom.Agent, error) {
+			return &agentdom.Agent{ID: id, ParallelismLimit: 1}, nil
+		},
+		countRunningConversations: func(context.Context, uuid.UUID) (int, error) {
+			return 0, nil // the AdvanceFolderQueue pre-check sees room for both — the atomic re-check is what actually catches busyAgentID
+		},
+		dequeueOldestPendingTriggerForFolder: func(context.Context, uuid.UUID, *uuid.UUID) (*agentdom.PendingTrigger, error) {
+			if len(queue) == 0 {
+				return nil, nil
+			}
+			next := queue[0]
+			queue = queue[1:]
+			return next, nil
+		},
+		findConversationByID: func(_ context.Context, id uuid.UUID) (*agentdom.AgentConversation, error) {
+			return conversations[id], nil
+		},
+		claimQueuedForDispatch: func(_ context.Context, conversationID, _ uuid.UUID, _ int) (bool, bool, error) {
+			if conversationID == busyConvID {
+				return false, true, nil // busyAgentID lost the capacity race
+			}
+			claimedConvID = conversationID
+			return true, false, nil
+		},
+		createPendingTrigger: func(_ context.Context, p *agentdom.PendingTrigger) error {
+			requeued = append(requeued, p)
+			return nil
+		},
+	}
+	svc := New(repo, &mockProjectRepo{}, nil, &mockPluginRepo{})
+
+	dispatchedOne, err := svc.AdvanceFolderQueue(context.Background(), envID, &folderID)
+
+	assert.NoError(t, err)
+	assert.True(t, dispatchedOne, "freeAgentID's item must still be dispatched despite busyAgentID's capacity loss ahead of it")
+	assert.Equal(t, freeConvID, claimedConvID)
+	if assert.Len(t, requeued, 1, "busyAgentID's item must be put back, not dropped") {
+		assert.Equal(t, pendingBusy.ID, requeued[0].ID)
+	}
 }
 
 // TestAdvanceQueue_RequeuesFolderBlockedItemAndTriesNext is the regression
@@ -5337,9 +5558,9 @@ func TestAdvanceFolderQueue_DispatchesQueuedItemFromDifferentAgent(t *testing.T)
 		findConversationByID: func(context.Context, uuid.UUID) (*agentdom.AgentConversation, error) {
 			return conv, nil
 		},
-		claimQueuedForDispatch: func(_ context.Context, conversationID, _ uuid.UUID, _ int) (bool, error) {
+		claimQueuedForDispatch: func(_ context.Context, conversationID, _ uuid.UUID, _ int) (bool, bool, error) {
 			claimedID = conversationID
-			return true, nil
+			return true, false, nil
 		},
 	}
 	svc := New(repo, &mockProjectRepo{}, nil, &mockPluginRepo{})
@@ -5452,9 +5673,9 @@ func TestAdvanceFolderQueue_ChecksEachCandidatesOwnFolderNotJustTheOneThatFreed(
 		findConversationByID: func(_ context.Context, id uuid.UUID) (*agentdom.AgentConversation, error) {
 			return &agentdom.AgentConversation{ID: id, AgentID: agentID, Status: "queued", EnvironmentID: &envID}, nil
 		},
-		claimQueuedForDispatch: func(_ context.Context, conversationID, _ uuid.UUID, _ int) (bool, error) {
+		claimQueuedForDispatch: func(_ context.Context, conversationID, _ uuid.UUID, _ int) (bool, bool, error) {
 			claimedID = conversationID
-			return true, nil
+			return true, false, nil
 		},
 	}
 	svc := New(repo, &mockProjectRepo{}, nil, &mockPluginRepo{})

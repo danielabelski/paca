@@ -3128,11 +3128,16 @@ func flattenPayload(payload map[string]any) map[string]string {
 //
 // A false return means one of those three: something already moved convID
 // out of "queued", or the agent's already back at capacity by the time this
-// runs — either way the caller must not publish.
-func (s *Service) claimQueuedForDispatch(ctx context.Context, agentID, convID uuid.UUID) (bool, error) {
+// runs — either way the caller must not publish. atCapacity distinguishes
+// the two "false" cases (see ClaimQueuedForDispatch's repository-side doc
+// comment): a caller MUST treat atCapacity=true as "still queued, needs to
+// be re-queued for a future retry," never as "gone for good" the way a lost
+// StopConversation race is — conflating them strands the conversation
+// "queued" forever with nothing left anywhere to ever advance it again.
+func (s *Service) claimQueuedForDispatch(ctx context.Context, agentID, convID uuid.UUID) (claimed, atCapacity bool, err error) {
 	agent, err := s.repo.FindAgentByID(ctx, agentID)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	return s.repo.ClaimQueuedForDispatch(ctx, convID, agentID, effectiveParallelismLimit(agent))
 }
@@ -3163,9 +3168,22 @@ func (s *Service) claimQueuedForDispatch(ctx context.Context, agentID, convID uu
 func (s *Service) deliverTrigger(ctx context.Context, agentID, convID uuid.UUID, dispatchNow, needsClaim bool, topic string, payload map[string]any, envID, folderID *uuid.UUID) error {
 	if dispatchNow {
 		if needsClaim {
-			claimed, err := s.claimQueuedForDispatch(ctx, agentID, convID)
+			claimed, atCapacity, err := s.claimQueuedForDispatch(ctx, agentID, convID)
 			if err != nil {
 				return err
+			}
+			if atCapacity {
+				// Still "queued" — the agent's free-slot count came up
+				// short on the atomic re-check, i.e. this exact conversation
+				// lost the race checkParallelismCapacity's earlier plain
+				// count couldn't see coming. It has no agent_pending_triggers
+				// row yet (this is the fresh-dispatch path — a row only
+				// exists once we ourselves create one), so persisting one
+				// now is the only thing that keeps AdvanceQueue able to find
+				// and retry it later — see ClaimQueuedForDispatch's doc
+				// comment on why silently dropping it here would strand the
+				// conversation "queued" forever.
+				return s.enqueuePendingTrigger(ctx, agentID, convID, topic, payload, envID, folderID)
 			}
 			if !claimed {
 				// Something else (StopConversation, most likely) already
@@ -3180,6 +3198,15 @@ func (s *Service) deliverTrigger(ctx context.Context, agentID, convID uuid.UUID,
 		}
 		return nil
 	}
+	return s.enqueuePendingTrigger(ctx, agentID, convID, topic, payload, envID, folderID)
+}
+
+// enqueuePendingTrigger persists topic/payload as a PendingTrigger for
+// AdvanceQueue/AdvanceFolderQueue to replay later — the shared tail of
+// every place that decides a trigger can't be dispatched right now
+// (deliverTrigger's own !dispatchNow and atCapacity branches, and
+// revertFailedDispatch's best-effort recovery).
+func (s *Service) enqueuePendingTrigger(ctx context.Context, agentID, convID uuid.UUID, topic string, payload map[string]any, envID, folderID *uuid.UUID) error {
 	return s.repo.CreatePendingTrigger(ctx, &agentdom.PendingTrigger{
 		ID:                  uuid.New(),
 		AgentID:             agentID,
@@ -3231,16 +3258,7 @@ func (s *Service) revertFailedDispatch(ctx context.Context, agentID, convID uuid
 		// overwrite it back to "queued".
 		return publishErr
 	}
-	if createErr := s.repo.CreatePendingTrigger(ctx, &agentdom.PendingTrigger{
-		ID:                  uuid.New(),
-		AgentID:             agentID,
-		ConversationID:      convID,
-		Topic:               topic,
-		Payload:             flattenPayload(payload),
-		EnvironmentID:       envID,
-		EnvironmentFolderID: folderID,
-		CreatedAt:           time.Now(),
-	}); createErr != nil {
+	if createErr := s.enqueuePendingTrigger(ctx, agentID, convID, topic, payload, envID, folderID); createErr != nil {
 		return fmt.Errorf("publishTrigger failed for conversation %s (%w) and re-queueing it also failed: %v", convID, publishErr, createErr)
 	}
 	return publishErr
@@ -3263,10 +3281,22 @@ func (s *Service) revertFailedDispatch(ctx context.Context, agentID, convID uuid
 // dispatchable) — so a publish failure here has nothing left to fall back
 // on except revertFailedDispatch's best-effort claim-and-recreate. See that
 // method's doc comment for exactly what it does and doesn't cover.
-func (s *Service) dispatchPendingTrigger(ctx context.Context, pending *agentdom.PendingTrigger) (bool, error) {
+// Returns (dispatched, atCapacity, err). atCapacity means the claim below
+// found pending's own agent back at capacity on its atomic re-check —
+// pending has already been re-persisted to agent_pending_triggers (its
+// original row is gone, deleted at dequeue) with its original
+// ID/CreatedAt/Payload preserved, same as requeueSkipped, so it keeps its
+// FIFO position — but this call itself dispatched nothing. See
+// ClaimQueuedForDispatch's doc comment for why this MUST be re-queued
+// rather than treated the same as a lost StopConversation race: unlike
+// that case, pending is still perfectly valid, just temporarily blocked.
+// AdvanceQueue and AdvanceFolderQueue react to atCapacity differently — see
+// their own call sites — since only AdvanceQueue can assume every other
+// item behind pending in the SAME agent's queue is equally blocked.
+func (s *Service) dispatchPendingTrigger(ctx context.Context, pending *agentdom.PendingTrigger) (dispatched, atCapacity bool, err error) {
 	conv, err := s.repo.FindConversationByID(ctx, pending.ConversationID)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	// Re-resolve the conversation's environment/folder fresh rather than
 	// trust the environment_id/workdir snapshot captured in pending.Payload
@@ -3281,14 +3311,17 @@ func (s *Service) dispatchPendingTrigger(ctx context.Context, pending *agentdom.
 	// nothing ever published to move it along.
 	envID, workdir, err := s.resolveWorkdirForConversation(ctx, conv.ProjectID, conv)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	claimed, err := s.claimQueuedForDispatch(ctx, pending.AgentID, pending.ConversationID)
+	claimed, atCapacity, err := s.claimQueuedForDispatch(ctx, pending.AgentID, pending.ConversationID)
 	if err != nil {
-		return false, err
+		return false, false, err
+	}
+	if atCapacity {
+		return false, true, s.repo.CreatePendingTrigger(ctx, pending)
 	}
 	if !claimed {
-		return false, nil
+		return false, false, nil
 	}
 	payload := make(map[string]any, len(pending.Payload))
 	for k, v := range pending.Payload {
@@ -3308,9 +3341,9 @@ func (s *Service) dispatchPendingTrigger(ctx context.Context, pending *agentdom.
 		// actually dispatched — the caller (AdvanceQueue/AdvanceFolderQueue)
 		// must not count it, though in practice it stops on the non-nil
 		// error before that distinction would even matter.
-		return false, s.revertFailedDispatch(ctx, pending.AgentID, pending.ConversationID, pending.Topic, payload, envID, conv.EnvironmentFolderID, err)
+		return false, false, s.revertFailedDispatch(ctx, pending.AgentID, pending.ConversationID, pending.Topic, payload, envID, conv.EnvironmentFolderID, err)
 	}
-	return true, nil
+	return true, false, nil
 }
 
 // requeueSkipped re-persists every PendingTrigger AdvanceQueue/
@@ -3404,9 +3437,18 @@ func (s *Service) AdvanceQueue(ctx context.Context, agentID uuid.UUID, maxDispat
 			}
 		}
 
-		ok, dispatchErr := s.dispatchPendingTrigger(ctx, pending)
+		ok, atCapacity, dispatchErr := s.dispatchPendingTrigger(ctx, pending)
 		if dispatchErr != nil {
 			return dispatched, dispatchErr
+		}
+		if atCapacity {
+			// dispatchPendingTrigger already re-queued pending. Unlike the
+			// folder-blocked case above, there's no point trying another
+			// item from this SAME agent's own queue — every one of them
+			// would hit the exact same agent-wide capacity, just re-verified
+			// by a fresh atomic re-check instead of this loop's own
+			// (evidently now stale) running/limit snapshot.
+			return dispatched, nil
 		}
 		if !ok {
 			continue
@@ -3484,7 +3526,12 @@ func (s *Service) AdvanceFolderQueue(ctx context.Context, environmentID uuid.UUI
 			continue
 		}
 
-		ok, dispatchErr := s.dispatchPendingTrigger(ctx, pending)
+		// atCapacity intentionally ignored here (unlike AdvanceQueue's own
+		// call site): dispatchPendingTrigger already re-queued pending
+		// either way, and "its own agent has no room" is exactly the same
+		// "try the next item, could be a different agent" outcome as any
+		// other reason ok came back false.
+		ok, _, dispatchErr := s.dispatchPendingTrigger(ctx, pending)
 		if dispatchErr != nil {
 			return dispatchedOne, dispatchErr
 		}

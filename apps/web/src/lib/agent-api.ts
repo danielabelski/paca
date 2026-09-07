@@ -657,15 +657,17 @@ export async function heartbeatGlobalConversation(
 
 // sendGlobalConversationMessage is sendConversationMessage's global-chat
 // sibling — replies to a global conversation directly by id (the ACP resume
-// path), rather than through a chat session.
+// path), rather than through a chat session. See sendConversationMessage's
+// own doc comment for onBusy.
 export async function sendGlobalConversationMessage(
 	conversationId: string,
 	message: string,
 	contextItems?: ContextItem[],
+	onBusy?: "queue" | "force",
 ): Promise<void> {
 	await apiClient.instance.post(
 		`/agents/conversations/${conversationId}/messages`,
-		withContextItems({ message }, contextItems),
+		withContextItems({ message, on_busy: onBusy }, contextItems),
 	);
 }
 
@@ -1270,15 +1272,21 @@ export async function pauseConversation(
 // alive regardless of why they were started. LLM conversations don't use
 // this path today; that flow is still the chat-session-based sendChatMessage
 // above.
+//
+// onBusy ("queue" | "force", omitted for "ask") only matters when this
+// resumes an ACP or environment-attached conversation that's currently at
+// its agent's parallelism_limit or whose target folder is occupied — see
+// AgentBusyError/agent-busy-dialog.tsx's doc comment. Ignored otherwise.
 export async function sendConversationMessage(
 	projectId: string,
 	conversationId: string,
 	message: string,
 	contextItems?: ContextItem[],
+	onBusy?: "queue" | "force",
 ): Promise<void> {
 	await apiClient.instance.post(
 		`/projects/${projectId}/conversations/${conversationId}/messages`,
-		withContextItems({ message }, contextItems),
+		withContextItems({ message, on_busy: onBusy }, contextItems),
 	);
 }
 

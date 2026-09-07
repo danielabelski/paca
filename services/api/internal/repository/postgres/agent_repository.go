@@ -1153,11 +1153,22 @@ func (r *AgentRepository) ClaimConversationStatus(ctx context.Context, id uuid.U
 // previous lock holder committed, rather than racing off a snapshot taken
 // before that commit.
 //
-// Returns claimed=false, no error, both when conversationID wasn't
-// "queued" and when the agent has no free slot by the time this runs —
-// callers already treat "false" as "someone/something else got there
-// first, try the next item" (see claimQueuedForDispatch's own doc comment)
-// and have no reason to tell the two apart.
+// claimed=false covers two genuinely different situations the caller MUST
+// tell apart, distinguished by atCapacity:
+//   - atCapacity=false: conversationID simply wasn't "queued" anymore by
+//     the time this ran (StopConversation, most plausibly) — it's gone for
+//     good, nothing to dispatch and nothing to requeue.
+//   - atCapacity=true: conversationID is STILL "queued" — the agent's own
+//     free-slot count just came up short on this atomic re-check (the very
+//     race this method exists to close, caught in the act). The row
+//     itself was never touched. A caller that treats this the same as the
+//     first case — e.g. dropping the trigger instead of persisting a
+//     PendingTrigger for it — strands the conversation "queued" forever
+//     with nothing left to ever advance it: it already lost its seat in
+//     whatever queue it came from (a fresh dispatch has no
+//     agent_pending_triggers row yet; a dequeued one already had its row
+//     deleted), so this IS the only remaining record that it's still
+//     waiting.
 //
 // This covers dispatchOrEnqueue, StartChatSession/SendChatMessage's
 // fresh-conversation path, and AdvanceQueue/AdvanceFolderQueue — every
@@ -1169,9 +1180,8 @@ func (r *AgentRepository) ClaimConversationStatus(ctx context.Context, id uuid.U
 // same agent at the exact same instant is a narrower, lower-frequency
 // window left as the same kind of accepted soft constraint the ask-path
 // race already is.
-func (r *AgentRepository) ClaimQueuedForDispatch(ctx context.Context, conversationID, agentID uuid.UUID, limit int) (bool, error) {
-	var claimed bool
-	err := WithTx(ctx, r.db, func(tx *sqlx.Tx) error {
+func (r *AgentRepository) ClaimQueuedForDispatch(ctx context.Context, conversationID, agentID uuid.UUID, limit int) (claimed, atCapacity bool, err error) {
+	err = WithTx(ctx, r.db, func(tx *sqlx.Tx) error {
 		if _, err := tx.ExecContext(ctx, `SELECT id FROM agents WHERE id = $1 FOR UPDATE`, agentID.String()); err != nil {
 			return err
 		}
@@ -1180,6 +1190,7 @@ func (r *AgentRepository) ClaimQueuedForDispatch(ctx context.Context, conversati
 			return err
 		}
 		if running >= limit {
+			atCapacity = true
 			return nil
 		}
 		res, err := tx.ExecContext(ctx,
@@ -1195,7 +1206,7 @@ func (r *AgentRepository) ClaimQueuedForDispatch(ctx context.Context, conversati
 		claimed = n == 1
 		return nil
 	})
-	return claimed, err
+	return claimed, atCapacity, err
 }
 
 // UpdateConversation saves the full conversation record.

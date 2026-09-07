@@ -274,21 +274,26 @@ export function ConversationView({
 			// comment_mention, etc.) — either ACP, or an LLM conversation
 			// attached to a static environment (see canReply's own doc
 			// comment) — reply in place on the same conversation_id rather
-			// than through a chat session.
-			if (projectId) {
-				await sendConversationMessage(
-					projectId,
-					conversation.id,
-					text,
-					contextItems,
-				);
-			} else {
-				await sendGlobalConversationMessage(
-					conversation.id,
-					text,
-					contextItems,
-				);
-			}
+			// than through a chat session. Routed through the same busy
+			// prompt as the chat-session branch below: the server enforces
+			// the exact same parallelism/folder capacity check on this
+			// resume path (see services/api's resumeConversationMessage).
+			await sendWithBusyPrompt((onBusy) =>
+				projectId
+					? sendConversationMessage(
+							projectId,
+							conversation.id,
+							text,
+							contextItems,
+							onBusy,
+						)
+					: sendGlobalConversationMessage(
+							conversation.id,
+							text,
+							contextItems,
+							onBusy,
+						),
+			);
 			useContextInjectionStore.getState().clear();
 			invalidate();
 			return;

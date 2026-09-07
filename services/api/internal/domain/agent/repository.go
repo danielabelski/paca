@@ -136,7 +136,16 @@ type ConversationRepository interface {
 	// claim itself, rather than trusting a plain count read taken moments
 	// earlier by the caller — see the postgres implementation's doc comment
 	// for why that distinction matters under concurrent dispatch.
-	ClaimQueuedForDispatch(ctx context.Context, conversationID, agentID uuid.UUID, limit int) (bool, error)
+	//
+	// claimed=false covers two situations the caller MUST tell apart via
+	// atCapacity: conversationID simply wasn't "queued" anymore (gone for
+	// good, atCapacity=false), or it still is but the agent's free-slot
+	// count came up short on this atomic re-check (atCapacity=true) — the
+	// latter must be re-queued by the caller, never silently dropped, or
+	// the conversation is stranded "queued" forever with nothing left to
+	// ever advance it. See the postgres implementation's doc comment for
+	// the full reasoning.
+	ClaimQueuedForDispatch(ctx context.Context, conversationID, agentID uuid.UUID, limit int) (claimed, atCapacity bool, err error)
 	UpdateConversation(ctx context.Context, c *AgentConversation) error
 	// ListConversationEvents returns one page of a conversation's events per
 	// window (see ConversationEventWindow), plus the conversation's current
