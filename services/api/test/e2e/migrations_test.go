@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -192,5 +193,88 @@ func TestRunMigrations_FailedFileNotRecorded(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("failed migration must not be recorded as applied, found %d row(s)", count)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The real thing — every actual file in services/api/migrations
+// ---------------------------------------------------------------------------
+//
+// Every test above exercises database.RunMigrations against synthetic files
+// written just for that test; none of them ever apply the project's real
+// migrations. That happens today only as an incidental side effect of
+// whichever business-logic e2e test's newE2EEnv call runs first — a broken
+// migration surfaces as a confusing failure in an unrelated test rather
+// than its own clear signal. TestRealMigrations_ApplyCleanlyFromScratch is
+// that dedicated, standalone check: CI runs it as its own fast job (see
+// .github/workflows/api-pr-ci.yml's "Migrations" job) so a bad migration
+// fails immediately and legibly instead of being buried in whatever other
+// e2e test happened to trip over it first.
+
+// TestRealMigrations_ApplyCleanlyFromScratch runs every *.sql file actually
+// checked into services/api/migrations, in order, against a brand-new
+// database, and confirms every one of them both succeeds and ends up
+// recorded in schema_migrations — not just that RunMigrations returned a
+// nil error (which already implies this, per its own contract, but
+// asserting the observable row count independently means this test doesn't
+// have to trust that contract holds if the runner is ever refactored).
+//
+// This only catches a migration that fails to apply at all (syntax errors,
+// wrong ordering, a forward reference to an object a later file creates,
+// etc.) — it says nothing about whether a migration that DOES apply
+// cleanly is actually correct. See
+// TestDeleteFolder_SucceedsWithPendingTriggerStillReferencingIt for an
+// example of the latter: migration 000053 always applied without error,
+// but was still missing an ON DELETE SET NULL that broke a later, unrelated
+// operation. The two tests are complementary, not redundant.
+func TestRealMigrations_ApplyCleanlyFromScratch(t *testing.T) {
+	db := newMigrationsTestDB(t)
+
+	_, thisFile, _, _ := runtime.Caller(0)
+	migrationsDir := filepath.Join(filepath.Dir(thisFile), "..", "..", "migrations")
+
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		t.Fatalf("read real migrations dir %q: %v", migrationsDir, err)
+	}
+	var wantApplied []string
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".sql" {
+			continue
+		}
+		wantApplied = append(wantApplied, e.Name())
+	}
+	if len(wantApplied) == 0 {
+		t.Fatalf("found no .sql files in %q — migrationsDir is probably wrong", migrationsDir)
+	}
+
+	if err := database.RunMigrations(db, migrationsDir); err != nil {
+		t.Fatalf("apply the real migrations to a fresh database: %v", err)
+	}
+
+	rows, err := db.QueryContext(context.Background(), "SELECT filename FROM schema_migrations")
+	if err != nil {
+		t.Fatalf("query schema_migrations: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+	gotApplied := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan schema_migrations row: %v", err)
+		}
+		gotApplied[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate schema_migrations rows: %v", err)
+	}
+
+	for _, name := range wantApplied {
+		if !gotApplied[name] {
+			t.Errorf("migration %q exists on disk but was never recorded as applied", name)
+		}
+	}
+	if len(gotApplied) != len(wantApplied) {
+		t.Errorf("schema_migrations has %d row(s) but %d .sql file(s) exist on disk", len(gotApplied), len(wantApplied))
 	}
 }
