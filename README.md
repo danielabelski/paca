@@ -420,6 +420,7 @@ But Paca is built from conviction: human-AI collaboration in a real Scrum team s
 | [docs/guides/local-development.md](docs/guides/local-development.md) | Contributor dev environment setup |
 | [docs/guides/mcp-server-setup.md](docs/guides/mcp-server-setup.md) | Connect AI agents via MCP |
 | [docs/guides/install-skills.md](docs/guides/install-skills.md) | `/paca` skill for Claude Code — manage Paca from your editor |
+| [apps/extension/README.md](apps/extension/README.md) | Browser extension — comment on environment preview pages, turn comments into tasks |
 | [docs/plugins/](docs/plugins/) | Plugin system: backend (WASM) and frontend |
 | [deploy/README.md](deploy/README.md) | Full deployment reference |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
