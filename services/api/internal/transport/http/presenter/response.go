@@ -379,6 +379,10 @@ func statusAndCodeFor(err error) (int, apierr.Code) {
 		return http.StatusBadRequest, apierr.CodeAgentDefaultEnvironmentInvalid
 	case errors.Is(err, agentdom.ErrDefaultFolderInvalid):
 		return http.StatusBadRequest, apierr.CodeAgentDefaultFolderInvalid
+	case errors.Is(err, agentdom.ErrParallelismLimitRequiresIsolatedSandbox):
+		return http.StatusBadRequest, apierr.CodeAgentParallelismLimitUnsupported
+	case errors.Is(err, agentdom.ErrOnBusyInvalid):
+		return http.StatusBadRequest, apierr.CodeAgentOnBusyInvalid
 	case errors.Is(err, agentdom.ErrCLIProviderInvalid):
 		return http.StatusBadRequest, apierr.CodeAgentCLIProviderInvalid
 	case errors.Is(err, agentdom.ErrCLIAuthModeInvalid):
@@ -497,7 +501,9 @@ func httpStatusForCode(code apierr.Code) int {
 		return http.StatusNotFound
 	case apierr.CodeUsernameTaken,
 		apierr.CodeEmailTaken,
-		apierr.CodeAgentConversationBusy:
+		apierr.CodeAgentConversationBusy,
+		apierr.CodeAgentParallelismLimitReached,
+		apierr.CodeAgentEnvironmentFolderBusy:
 		return http.StatusConflict
 	case apierr.CodeForbidden:
 		return http.StatusForbidden
@@ -660,6 +666,8 @@ func httpStatusForCode(code apierr.Code) int {
 		apierr.CodeAgentConversationInvalidCursor,
 		apierr.CodeAgentDefaultEnvironmentInvalid,
 		apierr.CodeAgentDefaultFolderInvalid,
+		apierr.CodeAgentParallelismLimitUnsupported,
+		apierr.CodeAgentOnBusyInvalid,
 		apierr.CodeAgentCLIProviderInvalid,
 		apierr.CodeAgentCLIAuthModeInvalid,
 		apierr.CodeAgentCLIProviderNoAPIKeyAuth,

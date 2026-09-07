@@ -45,6 +45,7 @@ import {
 } from "@/lib/agent-api";
 import { useContextInjectionStore } from "@/lib/context-injection-store";
 import { cn } from "@/lib/utils";
+import { useAgentBusyPrompt } from "./agent-busy-dialog";
 import { ConversationErrorBox } from "./conversation-error-box";
 import {
 	canReplyToConversation,
@@ -232,6 +233,8 @@ export function ConversationView({
 	const { hasProjectPermission } = useProjectPermissions(projectId ?? "");
 	const canControl = !projectId || hasProjectPermission("conversations.write");
 	const canReply = canControl && canReplyToConversation(conversation, isACP);
+	const { dialog: agentBusyDialog, send: sendWithBusyPrompt } =
+		useAgentBusyPrompt();
 
 	const messages = useMemo(
 		() => eventsToThreadMessages(events, isRunning),
@@ -271,37 +274,45 @@ export function ConversationView({
 			// comment_mention, etc.) — either ACP, or an LLM conversation
 			// attached to a static environment (see canReply's own doc
 			// comment) — reply in place on the same conversation_id rather
-			// than through a chat session.
-			if (projectId) {
-				await sendConversationMessage(
-					projectId,
-					conversation.id,
-					text,
-					contextItems,
-				);
-			} else {
-				await sendGlobalConversationMessage(
-					conversation.id,
-					text,
-					contextItems,
-				);
-			}
+			// than through a chat session. Routed through the same busy
+			// prompt as the chat-session branch below: the server enforces
+			// the exact same parallelism/folder capacity check on this
+			// resume path (see services/api's resumeConversationMessage).
+			await sendWithBusyPrompt((onBusy) =>
+				projectId
+					? sendConversationMessage(
+							projectId,
+							conversation.id,
+							text,
+							contextItems,
+							onBusy,
+						)
+					: sendGlobalConversationMessage(
+							conversation.id,
+							text,
+							contextItems,
+							onBusy,
+						),
+			);
 			useContextInjectionStore.getState().clear();
 			invalidate();
 			return;
 		}
 
-		const result = projectId
-			? await sendChatMessage(
-					projectId,
-					conversation.agent_id,
-					conversation.chat_session_id,
-					{ message: text, contextItems },
-				)
-			: await sendGlobalChatMessage(conversation.chat_session_id, {
-					message: text,
-					contextItems,
-				});
+		const chatSessionId = conversation.chat_session_id;
+		const result = await sendWithBusyPrompt((onBusy) =>
+			projectId
+				? sendChatMessage(projectId, conversation.agent_id, chatSessionId, {
+						message: text,
+						contextItems,
+						on_busy: onBusy,
+					})
+				: sendGlobalChatMessage(chatSessionId, {
+						message: text,
+						contextItems,
+						on_busy: onBusy,
+					}),
+		);
 		useContextInjectionStore.getState().clear();
 		// The previous conversation may have already ended (explicitly
 		// stopped, or reaped after 3 minutes with no heartbeat) — replying
@@ -548,6 +559,7 @@ export function ConversationView({
 					/>
 				</AssistantRuntimeProvider>
 			</div>
+			{agentBusyDialog}
 		</div>
 	);
 }

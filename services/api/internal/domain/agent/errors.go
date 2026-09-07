@@ -32,6 +32,23 @@ var (
 	// set, or is set on a global-scope agent — see
 	// Agent.DefaultFolderID's doc comment.
 	ErrDefaultFolderInvalid = errors.New("default folder must belong to this agent's own default environment")
+	// ErrParallelismLimitRequiresIsolatedSandbox is returned when
+	// parallelism_limit > 1 is requested for an agent that can't safely run
+	// more than one conversation at once — see
+	// agentsvc.requiresSerialDispatch's doc comment for the two cases this
+	// covers: an ACP-type agent (apps/acp-bridge's own Runner rejects a
+	// second concurrent turn sharing its session key rather than queueing
+	// it) and any agent (LLM or provider_cli) attached to a static
+	// DefaultEnvironmentID (its filesystem is shared across every
+	// conversation attached to it, unlike the default ephemeral
+	// per-conversation sandbox).
+	ErrParallelismLimitRequiresIsolatedSandbox = errors.New("parallelism_limit greater than 1 is only supported for agents using an ephemeral per-conversation sandbox — not ACP-type agents or agents attached to a shared default environment")
+	// ErrOnBusyInvalid is returned when on_busy is set to anything other
+	// than "" (ask), OnBusyQueue, or OnBusyForce. Without this check an
+	// unrecognized value (a client typo, e.g. "Queue") would silently fall
+	// back to "ask" semantics inside checkParallelismCapacity/
+	// checkFolderCapacity instead of surfacing the mistake.
+	ErrOnBusyInvalid = errors.New(`on_busy must be "", "queue", or "force"`)
 )
 
 // Provider-CLI agent errors
