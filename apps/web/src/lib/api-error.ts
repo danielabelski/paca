@@ -106,6 +106,11 @@ export const ApiErrorCode = {
 	// which keeps the field disabled in that case so this should be
 	// unreachable from the UI in practice.
 	AgentParallelismLimitUnsupported: "AGENT_PARALLELISM_LIMIT_UNSUPPORTED",
+	// Returned when on_busy is set to anything other than "", "queue", or
+	// "force" — should be unreachable from the UI in practice, since
+	// agent-busy-dialog.tsx/useAgentBusyPrompt only ever sends one of those
+	// three values.
+	AgentOnBusyInvalid: "AGENT_ON_BUSY_INVALID",
 
 	// Generic / request errors.
 	BadRequest: "BAD_REQUEST",

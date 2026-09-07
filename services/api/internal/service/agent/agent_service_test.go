@@ -4848,6 +4848,125 @@ func TestEffectiveParallelismLimit(t *testing.T) {
 	}
 }
 
+// TestValidateOnBusy pins the exact set of accepted on_busy values —
+// anything else must be rejected with agentdom.ErrOnBusyInvalid rather than
+// silently falling through checkParallelismCapacity/checkFolderCapacity's
+// own onBusy switches and being treated the same as "" (ask).
+func TestValidateOnBusy(t *testing.T) {
+	tests := []struct {
+		name    string
+		onBusy  string
+		wantErr bool
+	}{
+		{"empty (ask) is valid", "", false},
+		{"queue is valid", agentdom.OnBusyQueue, false},
+		{"force is valid", agentdom.OnBusyForce, false},
+		{"garbage value is rejected", "explode", true},
+		{"case-mismatched value is rejected", "Queue", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateOnBusy(tt.onBusy)
+			if tt.wantErr {
+				assert.ErrorIs(t, err, agentdom.ErrOnBusyInvalid)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestSendChatMessage_RejectsInvalidOnBusy and the tests below it pin
+// validateOnBusy's actual wiring into each of the six public entry points
+// that accept onBusy from the HTTP layer — a regression guard against the
+// check being present but never called (or called after a mutation has
+// already happened) on any one of them. Each repo call that would only run
+// past the validation check panics/records if reached, so the assertion is
+// really "validateOnBusy ran first," not just "an error came back."
+func TestSendChatMessage_RejectsInvalidOnBusy(t *testing.T) {
+	repo := &mockAgentRepo{
+		findChatSessionByID: func(context.Context, uuid.UUID) (*agentdom.AgentChatSession, error) {
+			t.Fatal("must reject before looking up the chat session")
+			return nil, nil
+		},
+	}
+	svc := New(repo, &mockProjectRepo{}, nil, &mockPluginRepo{})
+
+	_, err := svc.SendChatMessage(context.Background(), uuid.New(), uuid.New(), uuid.New(), "hi", nil, "explode")
+
+	assert.ErrorIs(t, err, agentdom.ErrOnBusyInvalid)
+}
+
+func TestStartChatSession_RejectsInvalidOnBusy(t *testing.T) {
+	repo := &mockAgentRepo{
+		findVisibleAgentInProject: func(context.Context, uuid.UUID, uuid.UUID) (*agentdom.Agent, error) {
+			t.Fatal("must reject before looking up the agent")
+			return nil, nil
+		},
+	}
+	svc := New(repo, &mockProjectRepo{}, nil, &mockPluginRepo{})
+
+	_, _, err := svc.StartChatSession(context.Background(), uuid.New(), uuid.New(), uuid.New(), "hi", nil, nil, nil, "explode")
+
+	assert.ErrorIs(t, err, agentdom.ErrOnBusyInvalid)
+}
+
+func TestStartGlobalChatSession_RejectsInvalidOnBusy(t *testing.T) {
+	repo := &mockAgentRepo{
+		findAgentByID: func(context.Context, uuid.UUID) (*agentdom.Agent, error) {
+			t.Fatal("must reject before looking up the agent")
+			return nil, nil
+		},
+	}
+	svc := New(repo, &mockProjectRepo{}, nil, &mockPluginRepo{})
+
+	_, _, err := svc.StartGlobalChatSession(context.Background(), uuid.New(), uuid.New(), "hi", nil, "explode")
+
+	assert.ErrorIs(t, err, agentdom.ErrOnBusyInvalid)
+}
+
+func TestSendGlobalChatMessage_RejectsInvalidOnBusy(t *testing.T) {
+	repo := &mockAgentRepo{
+		findChatSessionByID: func(context.Context, uuid.UUID) (*agentdom.AgentChatSession, error) {
+			t.Fatal("must reject before looking up the chat session")
+			return nil, nil
+		},
+	}
+	svc := New(repo, &mockProjectRepo{}, nil, &mockPluginRepo{})
+
+	_, err := svc.SendGlobalChatMessage(context.Background(), uuid.New(), uuid.New(), "hi", nil, "explode")
+
+	assert.ErrorIs(t, err, agentdom.ErrOnBusyInvalid)
+}
+
+func TestSendConversationMessage_RejectsInvalidOnBusy(t *testing.T) {
+	repo := &mockAgentRepo{
+		findConversationByID: func(context.Context, uuid.UUID) (*agentdom.AgentConversation, error) {
+			t.Fatal("must reject before looking up the conversation")
+			return nil, nil
+		},
+	}
+	svc := New(repo, &mockProjectRepo{}, nil, &mockPluginRepo{})
+
+	err := svc.SendConversationMessage(context.Background(), uuid.New(), uuid.New(), "hi", uuid.New(), nil, "explode")
+
+	assert.ErrorIs(t, err, agentdom.ErrOnBusyInvalid)
+}
+
+func TestSendGlobalConversationMessage_RejectsInvalidOnBusy(t *testing.T) {
+	repo := &mockAgentRepo{
+		findConversationByID: func(context.Context, uuid.UUID) (*agentdom.AgentConversation, error) {
+			t.Fatal("must reject before looking up the conversation")
+			return nil, nil
+		},
+	}
+	svc := New(repo, &mockProjectRepo{}, nil, &mockPluginRepo{})
+
+	err := svc.SendGlobalConversationMessage(context.Background(), uuid.New(), "hi", uuid.New(), nil, "explode")
+
+	assert.ErrorIs(t, err, agentdom.ErrOnBusyInvalid)
+}
+
 func TestCreateAgent_RejectsParallelismLimitAboveOneForACP(t *testing.T) {
 	projectID := uuid.New()
 	repo := &mockAgentRepo{

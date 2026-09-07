@@ -322,6 +322,9 @@ const (
 	// (on_busy=queue|force) — same contract as CodeAgentParallelismLimitReached,
 	// just a different reason for being busy.
 	CodeAgentEnvironmentFolderBusy Code = "AGENT_ENVIRONMENT_FOLDER_BUSY"
+	// CodeAgentOnBusyInvalid indicates on_busy was set to something other
+	// than "", "queue", or "force".
+	CodeAgentOnBusyInvalid Code = "AGENT_ON_BUSY_INVALID"
 	// CodeAgentConversationInvalidCursor indicates a client-supplied pagination cursor failed to decode.
 	CodeAgentConversationInvalidCursor Code = "AGENT_CONVERSATION_INVALID_CURSOR"
 	// CodeAgentActivityInvalidCursor indicates a client-supplied activity feed pagination cursor failed to decode.

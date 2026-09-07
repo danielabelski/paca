@@ -43,6 +43,12 @@ var (
 	// conversation attached to it, unlike the default ephemeral
 	// per-conversation sandbox).
 	ErrParallelismLimitRequiresIsolatedSandbox = errors.New("parallelism_limit greater than 1 is only supported for agents using an ephemeral per-conversation sandbox — not ACP-type agents or agents attached to a shared default environment")
+	// ErrOnBusyInvalid is returned when on_busy is set to anything other
+	// than "" (ask), OnBusyQueue, or OnBusyForce. Without this check an
+	// unrecognized value (a client typo, e.g. "Queue") would silently fall
+	// back to "ask" semantics inside checkParallelismCapacity/
+	// checkFolderCapacity instead of surfacing the mistake.
+	ErrOnBusyInvalid = errors.New(`on_busy must be "", "queue", or "force"`)
 )
 
 // Provider-CLI agent errors

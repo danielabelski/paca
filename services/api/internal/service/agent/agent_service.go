@@ -1736,6 +1736,9 @@ func (s *Service) Heartbeat(ctx context.Context, projectID, conversationID, memb
 // the plain running-conversation branch below never has a capacity
 // decision to make (it requires the conversation to already be running).
 func (s *Service) SendConversationMessage(ctx context.Context, projectID, conversationID uuid.UUID, message string, memberID uuid.UUID, contextItems []agentdom.ContextItemRef, onBusy string) error {
+	if err := validateOnBusy(onBusy); err != nil {
+		return err
+	}
 	c, err := s.GetConversation(ctx, projectID, conversationID, memberID)
 	if err != nil {
 		return err
@@ -1960,6 +1963,9 @@ func (s *Service) GlobalHeartbeat(ctx context.Context, conversationID, actorUser
 
 // SendGlobalConversationMessage publishes a chat message to an active global conversation.
 func (s *Service) SendGlobalConversationMessage(ctx context.Context, conversationID uuid.UUID, message string, actorUserID uuid.UUID, contextItems []agentdom.ContextItemRef, onBusy string) error {
+	if err := validateOnBusy(onBusy); err != nil {
+		return err
+	}
 	c, err := s.GetGlobalConversation(ctx, conversationID, actorUserID)
 	if err != nil {
 		return err
@@ -2056,6 +2062,9 @@ func (s *Service) ListChatSessions(ctx context.Context, projectID, agentID, memb
 // folder, or fails with ErrFolderNotFound if that's ambiguous — the caller
 // must ask the user to pick.
 func (s *Service) StartChatSession(ctx context.Context, projectID, agentID, memberID uuid.UUID, message string, environmentID, folderID *uuid.UUID, contextItems []agentdom.ContextItemRef, onBusy string) (*agentdom.AgentChatSession, *agentdom.AgentConversation, error) {
+	if err := validateOnBusy(onBusy); err != nil {
+		return nil, nil, err
+	}
 	if _, err := s.GetAgent(ctx, projectID, agentID); err != nil {
 		return nil, nil, err
 	}
@@ -2237,6 +2246,9 @@ func (s *Service) resolveWorkdirForConversation(ctx context.Context, projectID u
 // conversation going terminal still falls through to a brand-new
 // conversation_id below — its ephemeral sandbox really is gone for good.
 func (s *Service) SendChatMessage(ctx context.Context, projectID, sessionID, memberID uuid.UUID, message string, contextItems []agentdom.ContextItemRef, onBusy string) (*agentdom.AgentConversation, error) {
+	if err := validateOnBusy(onBusy); err != nil {
+		return nil, err
+	}
 	session, err := s.repo.FindChatSessionByID(ctx, sessionID)
 	if err != nil {
 		return nil, err
@@ -2414,6 +2426,9 @@ func (s *Service) ListGlobalChatSessions(ctx context.Context, agentID, actorUser
 // StartGlobalChatSession creates a new global chat session and publishes
 // the initial message trigger.
 func (s *Service) StartGlobalChatSession(ctx context.Context, agentID, actorUserID uuid.UUID, message string, contextItems []agentdom.ContextItemRef, onBusy string) (*agentdom.AgentChatSession, *agentdom.AgentConversation, error) {
+	if err := validateOnBusy(onBusy); err != nil {
+		return nil, nil, err
+	}
 	// See StartChatSession's identical check for why this runs unconditionally
 	// and before anything is persisted.
 	dispatchNow, err := s.checkParallelismCapacity(ctx, agentID, onBusy)
@@ -2456,6 +2471,9 @@ func (s *Service) StartGlobalChatSession(ctx context.Context, agentID, actorUser
 // and publishes the trigger. Mirrors SendChatMessage's resume/terminal
 // handling — see its doc comment for the pause/resume rationale.
 func (s *Service) SendGlobalChatMessage(ctx context.Context, sessionID, actorUserID uuid.UUID, message string, contextItems []agentdom.ContextItemRef, onBusy string) (*agentdom.AgentConversation, error) {
+	if err := validateOnBusy(onBusy); err != nil {
+		return nil, err
+	}
 	session, err := s.repo.FindChatSessionByID(ctx, sessionID)
 	if err != nil {
 		return nil, err
@@ -2947,6 +2965,25 @@ func validateParallelismLimit(a *agentdom.Agent) error {
 		return agentdom.ErrParallelismLimitRequiresIsolatedSandbox
 	}
 	return nil
+}
+
+// validateOnBusy rejects any onBusy value other than "" (ask),
+// agentdom.OnBusyQueue, or agentdom.OnBusyForce. Called at the top of every
+// public entry point that accepts onBusy from the HTTP layer
+// (StartChatSession, SendChatMessage, StartGlobalChatSession,
+// SendGlobalChatMessage, SendConversationMessage,
+// SendGlobalConversationMessage), before anything else runs: without this,
+// an unrecognized value (a client typo, e.g. "Queue") would silently fall
+// through checkParallelismCapacity/checkFolderCapacity's own onBusy
+// switches and be treated the same as "" (ask) instead of being rejected
+// outright.
+func validateOnBusy(onBusy string) error {
+	switch onBusy {
+	case "", agentdom.OnBusyQueue, agentdom.OnBusyForce:
+		return nil
+	default:
+		return agentdom.ErrOnBusyInvalid
+	}
 }
 
 // checkParallelismCapacity decides whether a new turn for agentID may

@@ -58,8 +58,18 @@ CREATE TABLE IF NOT EXISTS agent_pending_triggers (
     conversation_id uuid NOT NULL UNIQUE REFERENCES agent_conversations(id),
     topic varchar NOT NULL,
     payload jsonb NOT NULL,
-    environment_id uuid NULL REFERENCES environments(id),
-    environment_folder_id uuid NULL REFERENCES environment_folders(id),
+    -- ON DELETE SET NULL mirrors agent_conversations.environment_id/
+    -- environment_folder_id (migration 000042): without it, the default
+    -- ON DELETE NO ACTION would make EnvironmentRepository.DeleteFolder's
+    -- plain `DELETE FROM environment_folders` fail with a foreign-key
+    -- violation whenever the folder still has a queued trigger pointing at
+    -- it — exactly the steady state for an environment-backed agent
+    -- sitting at its parallelism_limit, i.e. the primary case this feature
+    -- exists for. A trigger whose target folder disappears out from under
+    -- it degrades to environment-wide scope (see folderOverlapPredicate's
+    -- NULL-folder handling) rather than blocking the delete.
+    environment_id uuid NULL REFERENCES environments(id) ON DELETE SET NULL,
+    environment_folder_id uuid NULL REFERENCES environment_folders(id) ON DELETE SET NULL,
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -72,6 +82,14 @@ CREATE INDEX IF NOT EXISTS idx_agent_pending_triggers_agent_created ON agent_pen
 -- set these at all.
 CREATE INDEX IF NOT EXISTS idx_agent_pending_triggers_folder_created
     ON agent_pending_triggers(environment_id, environment_folder_id, created_at)
+    WHERE environment_id IS NOT NULL;
+
+-- Backs checkFolderCapacity's CountRunningConversationsInFolder, run on
+-- every dispatch decision for an environment-attached agent — mirrors
+-- idx_agent_conversations_agent_status's (agent_id, status) shape for the
+-- folder axis instead of the agent axis.
+CREATE INDEX IF NOT EXISTS idx_agent_conversations_environment_status
+    ON agent_conversations(environment_id, status)
     WHERE environment_id IS NOT NULL;
 
 COMMIT;
